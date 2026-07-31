@@ -1065,9 +1065,14 @@
 
     checkGmailStatus();
 
-    // Force a full page reload every 5 minutes so a dashboard left open all day doesn't drift
-    // from what's actually happening.
-    setInterval(() => location.reload(), 5 * 60 * 1000);
+    // The server auto-polls Gmail every couple of minutes on its own now — re-sync the two
+    // order lists on the same cadence so a dashboard left open catches new/confirmed trucks
+    // promptly. A soft refresh (not location.reload()) so it never interrupts someone typing
+    // in the plate box or mid-edit in the order modal.
+    setInterval(() => {
+      loadPipeline();
+      loadConfirmations();
+    }, 2 * 60 * 1000);
   </script>
 </body>
 </html>

@@ -162,12 +162,11 @@ router.get('/auth-url', (req, res) => {
   }
 });
 
-// GET /gmail/emails — fetch new emails, auto-extract and save to Excel
-router.get('/emails', async (req, res) => {
-  try {
+// Core of GET /gmail/emails, factored out so the auto-poll timer below can call the exact
+// same logic without going through HTTP. Returns { emails, summary } or throws (AUTH_REQUIRED
+// on an expired token, same as before).
+async function pollAndProcessEmails({ max, query }) {
     await removeNotCheckRows();
-    const max   = parseInt(req.query.max) || 30;
-    const query = req.query.q || 'in:inbox';
     const emails = await fetchRecentEmails(max, query);
 
     // 1) Sender filter — notcheck ignored, unknown flagged. Collect the rest for extraction.
@@ -312,13 +311,53 @@ router.get('/emails', async (req, res) => {
 
     console.log(`Gmail processed: ${results.length} new emails — ${saved} saved, ${skipped} duplicate, ${noplates} no plates, ${ignored} ignored (Not Check); ${cargoFilled} cargo row(s) back-filled; ${prkMarked} plate(s) marked done from PRK confirmations`);
 
-    res.json({ emails: results, summary: { total: results.length, saved, skipped, noplates, cargoFilled, prkMarked } });
+    return { emails: results, summary: { total: results.length, saved, skipped, noplates, cargoFilled, prkMarked } };
+}
+
+// A poll (manual click or auto-timer) already in flight — the other must wait rather than
+// run concurrently and race on the same Excel/order-state files.
+let pollInProgress = false;
+
+// GET /gmail/emails — fetch new emails, auto-extract and save to Excel
+router.get('/emails', async (req, res) => {
+  if (pollInProgress) {
+    return res.status(409).json({ error: 'BUSY', message: 'A Gmail check is already in progress — try again in a moment.' });
+  }
+  pollInProgress = true;
+  try {
+    const max   = parseInt(req.query.max) || 30;
+    const query = req.query.q || 'in:inbox';
+    const result = await pollAndProcessEmails({ max, query });
+    res.json(result);
   } catch (err) {
     if (err.message === 'AUTH_REQUIRED') {
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Gmail token expired — please reconnect.' });
     }
     res.status(500).json({ error: err.message });
+  } finally {
+    pollInProgress = false;
   }
 });
+
+// Automatic background polling — same logic as clicking RECHECK, on a timer, so new trucks
+// don't sit unnoticed until someone happens to open the dashboard and click it. Configurable
+// via GMAIL_POLL_INTERVAL_MS; sub-authentication (AUTH_REQUIRED) is logged once per occurrence,
+// not spammed every tick.
+const AUTO_POLL_MS = Number(process.env.GMAIL_POLL_INTERVAL_MS) || 2 * 60 * 1000;
+setInterval(async () => {
+  if (pollInProgress || !isAuthorized()) return;
+  pollInProgress = true;
+  try {
+    const result = await pollAndProcessEmails({ max: 100, query: 'in:inbox' });
+    const { saved, prkMarked } = result.summary;
+    if (saved > 0 || prkMarked > 0) {
+      console.log(`[auto-poll] ${saved} new order(s), ${prkMarked} confirmation(s) processed`);
+    }
+  } catch (err) {
+    console.error('[auto-poll] failed:', err.message);
+  } finally {
+    pollInProgress = false;
+  }
+}, AUTO_POLL_MS);
 
 module.exports = router;

@@ -93,6 +93,12 @@ right) reachable from other machines on the office LAN.
   integration, was never wired into `server.js`, but `npm start`/`npm run dev` still pointed at
   it. Fixed to point at `src/server.js`. The project now also has a git repository (there wasn't
   one before), with `credentials/`, `session/`, `data/`, `.env` gitignored per `SECURITY.md`.
+- **Gmail is now polled automatically**, not just on a manual RECHECK click — a server-side
+  timer (`GMAIL_POLL_INTERVAL_MS`, default 2 min) runs the exact same extraction/gate-pass logic
+  in the background, guarded against overlapping with a manual click via a shared in-progress
+  flag (the loser gets a `409 BUSY`, not a race on the same Excel/state files). The dashboard's
+  own refresh timer was switched from a disruptive full page reload to a soft re-fetch of the
+  Pipeline/Confirmations panels on a matching cadence.
 
 ### Remaining gaps
 1. **Gmail is still read-only.** Scope `gmail.readonly` — cannot send the final PRK handoff
