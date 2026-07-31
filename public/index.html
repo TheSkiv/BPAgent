@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Port Operations Panel</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      padding: 40px 20px;
+      gap: 20px;
+    }
+
+    .pipeline-section { display: flex; flex-direction: column; gap: 10px; }
+
+    .pipeline-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .pipeline-head h2 { font-size: 0.95rem; font-weight: 600; color: #a5b4fc; }
+
+    .pipeline-group-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-top: 6px;
+    }
+
+    .pipe-line {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pipe-company {
+      flex: 0 0 96px;
+      width: 96px;
+      text-align: right;
+      font-size: 0.72rem;
+      color: #64748b;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pipe-company.unassigned {
+      cursor: pointer;
+      color: #7c8798;
+      text-decoration: underline dotted;
+      text-underline-offset: 2px;
+    }
+    .pipe-company.unassigned:hover { color: #a5b4fc; }
+
+    .pipe-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 8px 11px;
+      font-size: 0.82rem;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .pipe-row.clickable { cursor: pointer; transition: border-color 0.15s; }
+    .pipe-row.clickable:hover { border-color: #6366f1; }
+
+    .pipe-plate { font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
+    .pipe-cargo { color: #94a3b8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pipe-weight { color: #64748b; font-size: 0.75rem; flex-shrink: 0; }
+    .pipe-doc   { color: #68d391; font-size: 0.75rem; flex-shrink: 0; }
+    .pipe-doc.pending { color: #64748b; }
+
+    .pipe-state {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 2px 7px;
+      border-radius: 999px;
+      border: 1px solid #2d3148;
+      color: #94a3b8;
+      flex-shrink: 0;
+      width: 140px;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .pipe-state.done       { color: #68d391; border-color: #2f6f4e; }
+    .pipe-state.failed     { color: #fc8181; border-color: #7f3b3b; }
+    .pipe-state.needs_human{ color: #fbbf24; border-color: #7a5b16; }
+    .pipe-state.filing,
+    .pipe-state.drafted    { color: #a5b4fc; border-color: #3b4177; }
+    .pipe-state.gate_pass_ordered { color: #67e8f9; border-color: #155e63; }
+
+    .pipe-id { color: #475569; font-size: 0.68rem; flex-shrink: 0; }
+    .pipe-dup { color: #fbbf24; font-size: 0.68rem; flex-shrink: 0; }
+    .pipe-bulk { background: #450a0a; color: #fca5a5; border: 1px solid #991b1b; border-radius: 4px; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; letter-spacing: 0.07em; flex-shrink: 0; }
+
+    .pipe-done-btn {
+      flex: 0 0 44px;
+      width: 44px;
+      padding: 2px 0;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      text-align: center;
+      border-radius: 5px;
+      border: 1px solid #2d3148;
+      background: #1a1d27;
+      color: #94a3b8;
+      cursor: pointer;
+    }
+    .pipe-done-btn:hover:not(:disabled) { color: #68d391; border-color: #68d391; }
+    .pipe-done-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .task-empty { color: #64748b; font-size: 0.85rem; }
+
+    .confirm-card {
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-left: 3px solid #fbbf24;
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+      font-size: 0.82rem;
+    }
+
+    .confirm-subject { color: #e2e8f0; font-weight: 600; }
+    .confirm-meta    { color: #64748b; font-size: 0.73rem; }
+    .confirm-detail  { color: #94a3b8; font-size: 0.78rem; }
+
+    .confirm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+    .confirm-actions button { padding: 4px 10px; font-size: 0.74rem; border-radius: 6px; cursor: pointer; border: 1px solid #2d3148; background: #1a1d27; color: #94a3b8; }
+    .confirm-actions .btn-always:hover { color: #68d391; border-color: #68d391; }
+    .confirm-actions .btn-once:hover   { color: #a5b4fc; border-color: #a5b4fc; }
+    .confirm-actions .btn-never:hover  { color: #fc8181; border-color: #fc8181; }
+
+    .panel {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .panel-plates {
+      flex: 1 1 auto;
+      max-width: 780px;
+      min-width: 0;
+    }
+
+    .panel-kipis {
+      flex: 0 0 360px;
+      width: 360px;
+      max-width: 360px;
+      position: sticky;
+      top: 40px;
+    }
+
+    /* Compact row layout for the Done list in the narrow sidebar — the full pipe-row (id,
+       company column, weight, doc) doesn't fit 360px; keep just plate, cargo, BULK, state. */
+    .panel-kipis .pipe-company,
+    .panel-kipis .pipe-id,
+    .panel-kipis .pipe-weight,
+    .panel-kipis .pipe-doc,
+    .panel-kipis .pipe-dup { display: none; }
+    .panel-kipis .pipe-row { padding: 6px 9px; gap: 6px; }
+    .panel-kipis .pipe-plate { font-size: 0.82rem; }
+    .panel-kipis .pipe-cargo { font-size: 0.72rem; }
+    .panel-kipis .pipe-state {
+      width: auto;
+      min-width: 0;
+      white-space: nowrap;
+      font-size: 0.6rem;
+      padding: 2px 6px;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      color: #a5b4fc;
+      letter-spacing: 0.02em;
+    }
+
+    .gmail-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.75rem;
+      color: #475569;
+    }
+
+    .gmail-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .gmail-dot.ok  { background: #48bb78; }
+    .gmail-dot.off { background: #fc8181; }
+
+    #gmailConnectBtn {
+      padding: 5px 12px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: #2d1a1a;
+      color: #fc8181;
+      border: 1px solid #742a2a;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #gmailConnectBtn:hover { background: #3d2020; }
+
+    label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #64748b;
+      margin-bottom: 6px;
+      display: block;
+    }
+
+    input {
+      width: 100%;
+      padding: 12px 14px;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 1rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    input:focus { border-color: #6366f1; }
+    input:disabled { opacity: 0.4; cursor: not-allowed; background: #14161f; }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+    }
+
+    button {
+      flex: 1;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 0.2s, opacity 0.2s;
+    }
+
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #openBtn {
+      background: #334155;
+      color: #94a3b8;
+      flex: 0 0 auto;
+      padding: 14px 20px;
+    }
+
+    #openBtn:hover:not(:disabled) { background: #3f4f66; }
+
+    #runBtn {
+      background: #6366f1;
+      color: #fff;
+      font-size: 1.05rem;
+    }
+
+    #runBtn:hover:not(:disabled) { background: #4f46e5; }
+
+    #status {
+      padding: 14px 16px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+
+    #status.idle    { background: #1e2130; border-color: #2d3148; color: #64748b; }
+    #status.running { background: #1c2340; border-color: #3b4fd8; color: #a5b4fc; }
+    #status.success { background: #0f2820; border-color: #22543d; color: #68d391; }
+    #status.error   { background: #2d0f0f; border-color: #742a2a; color: #fc8181; }
+
+    #recheckBtn {
+      background: #6366f1;
+      color: #fff;
+      font-size: 1.05rem;
+      flex: 0 0 auto;
+    }
+
+    #recheckBtn:hover:not(:disabled) { background: #4f46e5; }
+
+    #recheckStatus {
+      font-size: 0.78rem;
+      color: #64748b;
+      min-height: 1em;
+    }
+
+    #gmailError {
+      padding: 10px 14px;
+      background: #2d0f0f;
+      border: 1px solid #742a2a;
+      border-radius: 8px;
+      color: #fc8181;
+      font-size: 0.85rem;
+    }
+
+    .bulk-badge {
+      background: #450a0a;
+      color: #fca5a5;
+      border: 1px solid #991b1b;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      font-weight: 800;
+      padding: 1px 5px;
+      letter-spacing: 0.07em;
+      flex-shrink: 0;
+    }
+
+    /* Email / edit popup modal */
+    #emailModal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #emailModal.open { display: flex; }
+
+    .modal-box {
+      background: #1a1d27;
+      border: 1px solid #2d3148;
+      border-radius: 12px;
+      width: 620px;
+      max-width: 92vw;
+      max-height: 84vh;
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 14px;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .modal-plate {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #c7d2fe;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: 1.4rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 4px;
+      flex: 0 0 auto;
+    }
+
+    .modal-close:hover { color: #94a3b8; }
+
+    .modal-subject {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #c7d2fe;
+    }
+
+    .modal-from {
+      font-size: 0.8rem;
+      color: #64748b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .modal-body-text {
+      flex: 1;
+      overflow-y: auto;
+      background: #0f1117;
+      border: 1px solid #2d3148;
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 0.8rem;
+      color: #94a3b8;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 280px;
+      min-height: 80px;
+    }
+
+    .modal-attachments {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .modal-att-link {
+      display: inline-block;
+      padding: 5px 12px;
+      background: #1e2130;
+      border: 1px solid #2d3148;
+      border-radius: 6px;
+      color: #a5b4fc;
+      font-size: 0.78rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+
+    .modal-att-link:hover { background: #2d3148; }
+
+    .modal-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .modal-row input {
+      flex: 1;
+    }
+
+    #modalWeightInput { max-width: 140px; flex: 0 0 auto; }
+
+    #modalSaveBtn {
+      flex: 0 0 auto;
+      padding: 12px 20px;
+      background: #6366f1;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+
+    #modalSaveBtn:hover:not(:disabled) { background: #4f46e5; }
+
+    #modalStatus {
+      font-size: 0.8rem;
+      color: #64748b;
+      min-height: 1em;
+    }
+  </style>
+</head>
+<body>
+  <!-- Left: orders (awaiting confirmation + pipeline) -->
+  <div class="panel panel-plates">
+    <div class="panel-header">
+      <h1>Port Operations Panel</h1>
+    </div>
+
+    <div class="pipeline-section">
+      <div class="pipeline-head">
+        <h2>Awaiting confirmation</h2>
+        <span id="confirmStatus" style="font-size:0.75rem;color:#64748b"></span>
+      </div>
+      <div id="confirmList" class="pipeline-section"></div>
+    </div>
+
+    <div class="pipeline-section">
+      <div class="pipeline-head">
+        <h2>Pipeline</h2>
+        <span id="pipelineStatus" style="font-size:0.75rem;color:#64748b"></span>
+        <button id="processNextBtn">Process next PRK</button>
+        <button id="recheckBtn">RECHECK</button>
+      </div>
+      <div id="recheckStatus"></div>
+      <div class="pipeline-group-title">To do</div>
+      <div id="pipelineQueue" class="pipeline-section"></div>
+    </div>
+  </div>
+
+  <!-- Right: KIPIS controls -->
+  <div class="panel panel-kipis">
+    <div class="panel-header">
+      <div class="gmail-badge">
+        <div class="gmail-dot off" id="gmailDot"></div>
+        <span id="gmailStatusText">Checking...</span>
+        <button id="gmailConnectBtn" style="display:none">Reconnect Gmail</button>
+      </div>
+    </div>
+
+    <div id="gmailError" style="display:none"></div>
+
+    <div>
+      <label for="plateInput">Truck Plate</label>
+      <input id="plateInput" type="text" placeholder="Paste truck plate" />
+    </div>
+
+    <div class="buttons">
+      <button id="openBtn">OPEN KIPIS</button>
+      <button id="runBtn">RUN PRK</button>
+    </div>
+
+    <div id="status" class="idle">Idle</div>
+
+    <div class="pipeline-section">
+      <div class="pipeline-group-title">Done</div>
+      <div id="pipelineDone" class="pipeline-section"></div>
+    </div>
+  </div>
+
+  <!-- Order edit popup: view source email, set cargo/weight/BULK -->
+  <div id="emailModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span class="modal-plate" id="modalPlate"></span>
+        <button class="modal-close" id="modalClose">&#x2715;</button>
+      </div>
+      <div class="modal-subject" id="modalSubject"></div>
+      <div class="modal-from" id="modalFrom"></div>
+      <div class="modal-body-text" id="modalBodyText"></div>
+      <div class="modal-attachments" id="modalAttachments"></div>
+      <div class="modal-row">
+        <input id="modalCargoInput" type="text" placeholder="Cargo name" />
+      </div>
+      <div class="modal-row">
+        <input id="modalWeightInput" type="text" placeholder="Weight (kg)" />
+        <button id="modalSaveBtn">Save</button>
+      </div>
+      <div class="modal-row">
+        <input id="modalGrossWeightInput" type="text" placeholder="Gross weight (kg)" />
+      </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="modalBulkCheck" style="width:auto;cursor:pointer" />
+        <span style="font-size:0.82rem;color:#94a3b8">BULK cargo</span>
+        <span class="bulk-badge" id="modalBulkBadge" style="display:none">BULK</span>
+      </label>
+      <div id="modalStatus"></div>
+    </div>
+  </div>
+
+  <script>
+    function escHtml(str) {
+      return String(str)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/"/g,'&quot;');
+    }
+
+    const openBtn    = document.getElementById('openBtn');
+    const runBtn     = document.getElementById('runBtn');
+    const plateInput = document.getElementById('plateInput');
+    const status     = document.getElementById('status');
+
+    function setStatus(state, message) {
+      status.className = state;
+      status.textContent = message;
+    }
+
+    function setBusy(busy) {
+      openBtn.disabled = busy;
+      runBtn.disabled  = busy;
+    }
+
+    openBtn.addEventListener('click', async () => {
+      setBusy(true);
+      setStatus('running', 'Opening KIPIS...');
+      try {
+        const res  = await fetch('/open-kipis', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          setStatus('success', 'KIPIS opened. Log in if prompted.');
+        } else {
+          setStatus('error', `Error: ${data.message}`);
+        }
+      } catch (err) {
+        setStatus('error', `Network error: ${err.message}`);
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    async function runPrk(value) {
+      if (!value) { setStatus('error', 'Please enter a truck plate.'); return; }
+      setBusy(true);
+      setStatus('running', `Running PRK for: ${value}...`);
+      try {
+        const res  = await fetch('/run-prk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value }),
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          setStatus('success', 'Done.');
+          loadPipeline();
+        } else {
+          setStatus('error', `Error: ${data.message}`);
+          loadPipeline();
+        }
+      } catch (err) {
+        setStatus('error', `Network error: ${err.message}`);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    runBtn.addEventListener('click', () => runPrk(plateInput.value.trim()));
+
+    // --- Order edit modal (view source email, set cargo/weight/BULK) ---
+    const emailModal       = document.getElementById('emailModal');
+    const modalPlate       = document.getElementById('modalPlate');
+    const modalSubject     = document.getElementById('modalSubject');
+    const modalFrom        = document.getElementById('modalFrom');
+    const modalBodyText    = document.getElementById('modalBodyText');
+    const modalAttachments = document.getElementById('modalAttachments');
+    const modalCargoInput  = document.getElementById('modalCargoInput');
+    const modalWeightInput = document.getElementById('modalWeightInput');
+    const modalGrossWeightInput = document.getElementById('modalGrossWeightInput');
+    const modalSaveBtn     = document.getElementById('modalSaveBtn');
+    const modalStatus      = document.getElementById('modalStatus');
+    let   modalCurrentId    = '';
+    let   modalCurrentPlate = '';
+
+    document.getElementById('modalClose').addEventListener('click', closeEmailModal);
+    emailModal.addEventListener('click', e => { if (e.target === emailModal) closeEmailModal(); });
+
+    function closeEmailModal() {
+      emailModal.classList.remove('open');
+      modalCurrentId = '';
+      modalCurrentPlate = '';
+    }
+
+    // Default big-bag tare: gross = net + (net / bag size), i.e. ~1kg of bag material per bag.
+    const BIG_BAG_WEIGHT_KG = 600;
+    function computeGrossWeight(weight) {
+      const net = Number(weight);
+      if (!net) return '';
+      return String(Math.round(net + net / BIG_BAG_WEIGHT_KG));
+    }
+
+    const modalBulkCheck = document.getElementById('modalBulkCheck');
+    const modalBulkBadge = document.getElementById('modalBulkBadge');
+    modalBulkCheck.addEventListener('change', () => {
+      modalBulkBadge.style.display = modalBulkCheck.checked ? 'inline-block' : 'none';
+      modalGrossWeightInput.disabled = modalBulkCheck.checked;
+      if (!modalBulkCheck.checked && !modalGrossWeightInput.value) {
+        modalGrossWeightInput.value = computeGrossWeight(modalWeightInput.value);
+      }
+    });
+
+    async function openEmailModal(order) {
+      modalCurrentId      = order.id;
+      modalCurrentPlate   = order.plate;
+      modalPlate.textContent = order.plate;
+      modalSubject.textContent = order.subject || '';
+      modalFrom.textContent  = '';
+      modalBodyText.textContent = 'Loading…';
+      modalAttachments.innerHTML = '';
+      modalCargoInput.value  = order.cargo || '';
+      modalWeightInput.value = order.weight || '';
+      modalGrossWeightInput.value = order.grossWeight || computeGrossWeight(order.weight);
+      modalGrossWeightInput.disabled = !!order.bulk;
+      modalStatus.textContent = '';
+      modalBulkCheck.checked = !!order.bulk;
+      modalBulkBadge.style.display = order.bulk ? 'inline-block' : 'none';
+      emailModal.classList.add('open');
+
+      try {
+        const res  = await fetch('/order-email?plate=' + encodeURIComponent(order.plate));
+        if (res.status === 404) {
+          modalBodyText.textContent = '(No cached email data for this plate)';
+          return;
+        }
+        const data = await res.json();
+        if (data.error) { modalBodyText.textContent = `Error: ${data.error}`; return; }
+
+        modalSubject.textContent  = data.subject || order.subject || '';
+        modalFrom.textContent     = data.from || '';
+        modalBodyText.textContent = (data.body || '').trim() || '(empty body)';
+
+        modalAttachments.innerHTML = '';
+        for (const att of (data.attachments || [])) {
+          const a = document.createElement('a');
+          a.className = 'modal-att-link';
+          a.textContent = att.filename || 'attachment';
+          a.href = `/download-attachment?messageId=${encodeURIComponent(data.messageId)}&attachmentId=${encodeURIComponent(att.attachmentId)}&filename=${encodeURIComponent(att.filename || 'attachment')}`;
+          a.target = '_blank';
+          a.rel = 'noopener';
+          modalAttachments.appendChild(a);
+        }
+      } catch (err) {
+        modalBodyText.textContent = `Network error: ${err.message}`;
+      }
+    }
+
+    modalSaveBtn.addEventListener('click', async () => {
+      const cargo       = modalCargoInput.value.trim();
+      const weight      = modalWeightInput.value.trim();
+      const grossWeight = modalGrossWeightInput.value.trim();
+      modalSaveBtn.disabled = true;
+      modalStatus.textContent = 'Saving…';
+      modalStatus.style.color = '#a5b4fc';
+      try {
+        const res  = await fetch('/set-cargo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: modalCurrentId, plate: modalCurrentPlate,
+            cargo: cargo || undefined, weight: weight || undefined,
+            grossWeight: grossWeight || undefined,
+            bulk: modalBulkCheck.checked,
+          }),
+        });
+        const data = await res.json();
+        if (data.status === 'ok') {
+          const label = [data.cargo, data.vessel].filter(Boolean).join(' · ');
+          modalStatus.textContent = label ? `Saved: ${label}` : 'Saved.';
+          modalStatus.style.color = '#68d391';
+          loadPipeline();
+          setTimeout(closeEmailModal, 1200);
+        } else {
+          modalStatus.textContent = data.error || 'Not saved (order not found).';
+          modalStatus.style.color = '#fbbf24';
+        }
+      } catch (err) {
+        modalStatus.textContent = `Network error: ${err.message}`;
+        modalStatus.style.color = '#fc8181';
+      } finally {
+        modalSaveBtn.disabled = false;
+      }
+    });
+
+    // --- Recheck emails ---
+    const recheckBtn    = document.getElementById('recheckBtn');
+    const recheckStatus = document.getElementById('recheckStatus');
+
+    recheckBtn.addEventListener('click', async () => {
+      recheckBtn.disabled = true;
+      recheckStatus.textContent = 'Checking emails...';
+      recheckStatus.style.color = '#a5b4fc';
+      try {
+        const res  = await fetch('/gmail/emails?max=100&q=' + encodeURIComponent('in:inbox'));
+        const data = await res.json();
+        if (data.error === 'AUTH_REQUIRED') {
+          recheckStatus.textContent = 'Gmail token expired — reconnect below.';
+          recheckStatus.style.color = '#fbbf24';
+          setGmailStatus(false);
+          return;
+        }
+        if (data.error) {
+          recheckStatus.textContent = `Error: ${data.error}`;
+          recheckStatus.style.color = '#fc8181';
+          return;
+        }
+        const { summary } = data;
+        const parts = [];
+        if (summary.total > 0) parts.push(`${summary.total} emails — ${summary.saved} new, ${summary.skipped} dup, ${summary.noplates} no plates`);
+        else parts.push('No new emails.');
+        if (summary.cargoFilled > 0) parts.push(`${summary.cargoFilled} cargo filled`);
+        if (summary.prkMarked > 0) parts.push(`${summary.prkMarked} marked done (PRK)`);
+        recheckStatus.textContent = parts.join(' · ');
+        recheckStatus.style.color = (summary.saved > 0 || summary.cargoFilled > 0 || summary.prkMarked > 0) ? '#68d391' : '#64748b';
+        loadPipeline();
+        loadConfirmations();
+      } catch (err) {
+        recheckStatus.textContent = `Network error: ${err.message}`;
+        recheckStatus.style.color = '#fc8181';
+      } finally {
+        recheckBtn.disabled = false;
+      }
+    });
+
+    // --- Pipeline (state store): to-do queue + done ---
+    const pipelineQueueEl    = document.getElementById('pipelineQueue');
+    const pipelineDoneEl     = document.getElementById('pipelineDone');
+    const pipelineStatusEl   = document.getElementById('pipelineStatus');
+    let   pipelineQueueOrders = [];
+
+    // Company label comes from the server (derives it, or a prior manual assignment). When
+    // it can't be established, fall back to showing the raw email — clickable, so the operator
+    // can assign a company name for that sender once and have it stick.
+    function emailFromSender(sender) {
+      const str = String(sender || '');
+      const m   = str.match(/<([^>]+)>/);
+      return m ? m[1] : str;
+    }
+
+    function pipeRow(o, dups, clickable) {
+      const doc = o.docs && o.docs.PRK
+        ? (o.docs.PRK.number
+            ? `<span class="pipe-doc">PRK ${escHtml(o.docs.PRK.number)}</span>`
+            : `<span class="pipe-doc pending">PRK ${escHtml(o.docs.PRK.status || 'saved')}</span>`)
+        : '';
+      const dup     = dups.has(o.plate) ? '<span class="pipe-dup" title="This plate appears more than once today">×2</span>' : '';
+      const bulk    = o.bulk ? '<span class="pipe-bulk">BULK</span>' : '';
+      const weight  = o.weight ? `<span class="pipe-weight">${escHtml(String(o.weight))} kg</span>` : '';
+      const doneBtn = clickable ? `<button class="pipe-done-btn" data-id="${escHtml(o.id)}" title="Mark done manually">Done</button>` : '';
+      const company = o.company || '';
+      const companyLabel = company
+        ? `<span class="pipe-company" title="${escHtml(o.sender || '')}">${escHtml(company)}</span>`
+        : `<span class="pipe-company unassigned" data-sender="${escHtml(o.sender || '')}" title="${escHtml(o.sender || '')} — click to name this company">${escHtml(emailFromSender(o.sender))}</span>`;
+      return `<div class="pipe-line">
+        ${companyLabel}
+        <div class="pipe-row${clickable ? ' clickable' : ''}" data-id="${escHtml(o.id)}" title="${escHtml(o.subject || '')}">
+          <span class="pipe-id">${escHtml(o.id)}</span>
+          <span class="pipe-plate">${escHtml(o.plate)}</span>
+          ${dup}
+          ${bulk}
+          <span class="pipe-cargo">${escHtml(o.cargo || '—')}</span>
+          ${weight}
+          ${doc}
+          <span class="pipe-state ${escHtml(o.state)}">${escHtml(o.state.replace(/_/g, ' '))}</span>
+          ${doneBtn}
+        </div>
+      </div>`;
+    }
+
+    function duplicatePlates(all) {
+      const seen = new Map();
+      // A cancelled order is a voided duplicate, not a real second visit — don't count it.
+      all.filter(o => o.state !== 'cancelled').forEach(o => seen.set(o.plate, (seen.get(o.plate) || 0) + 1));
+      return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([p]) => p));
+    }
+
+    async function loadPipeline() {
+      try {
+        const res  = await fetch('/pipeline');
+        const data = await res.json();
+        if (data.error) {
+          pipelineStatusEl.textContent = 'Error: ' + data.error;
+          pipelineStatusEl.style.color = '#fc8181';
+          return;
+        }
+        const queue = data.queue || [];
+        const done  = data.done  || [];
+        const dups  = duplicatePlates([...queue, ...done]);
+        pipelineQueueOrders = queue;
+
+        pipelineQueueEl.innerHTML = queue.length
+          ? queue.map(o => pipeRow(o, dups, true)).join('')
+          : '<div class="task-empty">Queue is empty.</div>';
+        pipelineDoneEl.innerHTML = done.length
+          ? done.map(o => pipeRow(o, dups, false)).join('')
+          : '<div class="task-empty">Nothing done yet today.</div>';
+
+        pipelineStatusEl.textContent = `${queue.length} to do · ${done.length} done`;
+        pipelineStatusEl.style.color = '#64748b';
+      } catch (err) {
+        pipelineStatusEl.textContent = 'Network error: ' + err.message;
+        pipelineStatusEl.style.color = '#fc8181';
+      }
+    }
+
+    async function handleCompanyClick(el) {
+      const sender = el.getAttribute('data-sender');
+      if (!sender) return;
+      const company = prompt('Company name for this sender:\n' + sender);
+      if (!company || !company.trim()) return;
+      try {
+        await fetch('/sender-company', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sender, company: company.trim() }),
+        });
+        loadPipeline();
+      } catch (err) {}
+    }
+
+    pipelineDoneEl.addEventListener('click', e => {
+      const unassigned = e.target.closest('.pipe-company.unassigned');
+      if (unassigned) handleCompanyClick(unassigned);
+    });
+
+    pipelineQueueEl.addEventListener('click', async e => {
+      const unassigned = e.target.closest('.pipe-company.unassigned');
+      if (unassigned) { handleCompanyClick(unassigned); return; }
+
+      const doneBtn = e.target.closest('.pipe-done-btn');
+      if (doneBtn) {
+        e.stopPropagation();
+        doneBtn.disabled = true;
+        try {
+          await fetch('/order/mark-done', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: doneBtn.getAttribute('data-id') }),
+          });
+          loadPipeline();
+        } catch (err) {
+          doneBtn.disabled = false;
+        }
+        return;
+      }
+
+      const row = e.target.closest('.pipe-row');
+      if (!row) return;
+      const order = pipelineQueueOrders.find(o => o.id === row.getAttribute('data-id'));
+      if (order) openEmailModal(order);
+    });
+
+    loadPipeline();
+
+    // --- Awaiting confirmation (unconfirmed senders) ---
+    const confirmListEl     = document.getElementById('confirmList');
+    const confirmStatusEl   = document.getElementById('confirmStatus');
+    const processNextBtn    = document.getElementById('processNextBtn');
+
+    async function loadConfirmations() {
+      try {
+        const res  = await fetch('/confirmations');
+        const data = await res.json();
+        if (data.error) {
+          confirmStatusEl.textContent = 'Error: ' + data.error;
+          confirmStatusEl.style.color = '#fc8181';
+          return;
+        }
+        const pending = data.pending || [];
+        confirmListEl.innerHTML = pending.length ? pending.map(p => `
+          <div class="confirm-card">
+            <div class="confirm-subject">${escHtml(p.subject || '(no subject)')}</div>
+            <div class="confirm-meta">${escHtml(p.sender)} · ${escHtml(p.received || '')}</div>
+            <div class="confirm-detail">${escHtml(p.plates.join(', '))}${p.cargo ? ' — ' + escHtml(p.cargo) : ''}${p.bulk ? ' <b>BULK</b>' : ''}</div>
+            <div class="confirm-actions">
+              <button class="btn-always" data-action="always" data-sender="${escHtml(p.sender)}">Confirm sender</button>
+              <button class="btn-once"   data-action="once"   data-msg="${escHtml(p.messageId)}">Confirm once</button>
+              <button class="btn-never"  data-action="never"  data-sender="${escHtml(p.sender)}">Never</button>
+            </div>
+          </div>`).join('')
+          : '<div class="task-empty">Nothing awaiting confirmation.</div>';
+        confirmStatusEl.textContent = pending.length ? `${pending.length} email(s)` : '';
+        confirmStatusEl.style.color = '#64748b';
+      } catch (err) {
+        confirmStatusEl.textContent = 'Network error: ' + err.message;
+        confirmStatusEl.style.color = '#fc8181';
+      }
+    }
+
+    confirmListEl.addEventListener('click', async (e) => {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-action');
+      if (action === 'never' && !confirm('Block this sender permanently? Their pending orders will be cancelled.')) return;
+      btn.disabled = true;
+      try {
+        await fetch('/confirmations/decide', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ action, sender: btn.getAttribute('data-sender'), messageId: btn.getAttribute('data-msg') }),
+        });
+        loadConfirmations();
+        loadPipeline();
+      } catch (err) {
+        btn.disabled = false;
+      }
+    });
+
+    loadConfirmations();
+
+    processNextBtn.addEventListener('click', async () => {
+      processNextBtn.disabled = true;
+      pipelineStatusEl.textContent = 'Filing next PRK…';
+      pipelineStatusEl.style.color = '#a5b4fc';
+      try {
+        const res  = await fetch('/queue/process-next', { method: 'POST' });
+        const data = await res.json();
+        if (data.status === 'empty')      pipelineStatusEl.textContent = data.message;
+        else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate}: ${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
+        else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? 'PRK draft saved' : 'filled (dry run)'}`;
+      } catch (err) {
+        pipelineStatusEl.textContent = 'Network error: ' + err.message;
+        pipelineStatusEl.style.color = '#fc8181';
+      } finally {
+        processNextBtn.disabled = false;
+        loadPipeline();
+      }
+    });
+  </script>
+
+  <script>
+    const gmailDot        = document.getElementById('gmailDot');
+    const gmailStatusText = document.getElementById('gmailStatusText');
+    const gmailConnectBtn = document.getElementById('gmailConnectBtn');
+    const gmailError      = document.getElementById('gmailError');
+
+    function setGmailStatus(authorized) {
+      gmailDot.className            = 'gmail-dot ' + (authorized ? 'ok' : 'off');
+      gmailStatusText.textContent   = authorized ? 'Gmail' : 'Gmail disconnected';
+      gmailConnectBtn.style.display = authorized ? 'none' : 'inline-block';
+      document.getElementById('recheckBtn').disabled = !authorized;
+    }
+
+    function showGmailError(msg) {
+      gmailError.textContent   = msg;
+      gmailError.style.display = 'block';
+    }
+
+    function hideGmailError() { gmailError.style.display = 'none'; }
+
+    gmailConnectBtn.addEventListener('click', async () => {
+      gmailConnectBtn.disabled    = true;
+      gmailConnectBtn.textContent = 'Waiting...';
+      hideGmailError();
+      try {
+        const res  = await fetch('/gmail/auth-url');
+        const data = await res.json();
+        if (data.error) { showGmailError(data.error); return; }
+        window.open(data.url, '_blank');
+        await pollUntilAuthorized();
+        setGmailStatus(true);
+      } catch (err) {
+        showGmailError(`Network error: ${err.message}`);
+      } finally {
+        gmailConnectBtn.disabled    = false;
+        gmailConnectBtn.textContent = 'Reconnect Gmail';
+      }
+    });
+
+    function pollUntilAuthorized() {
+      return new Promise((resolve, reject) => {
+        const iv = setInterval(async () => {
+          try {
+            const r = await fetch('/gmail/status');
+            const d = await r.json();
+            if (d.authorized) { clearInterval(iv); resolve(); }
+          } catch { clearInterval(iv); reject(new Error('Server unreachable')); }
+        }, 2000);
+        setTimeout(() => { clearInterval(iv); reject(new Error('Auth timed out')); }, 180000);
+      });
+    }
+
+    async function checkGmailStatus() {
+      try {
+        const res  = await fetch('/gmail/status');
+        const data = await res.json();
+        setGmailStatus(data.authorized);
+      } catch {
+        gmailStatusText.textContent = 'unreachable';
+      }
+    }
+
+    checkGmailStatus();
+
+    // Force a full page reload every 5 minutes so a dashboard left open all day doesn't drift
+    // from what's actually happening.
+    setInterval(() => location.reload(), 5 * 60 * 1000);
+  </script>
+</body>
+</html>

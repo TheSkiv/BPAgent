@@ -1,0 +1,323 @@
+require('dotenv').config();
+const express       = require('express');
+const path          = require('path');
+const { openKipis } = require('./core/browser');
+const kipisLoad     = require('../KIPIS_skills/PRK/kipisLoad');
+const kipisTest     = require('./actions/kipisTest');
+const gmailRoute    = require('./routes/gmailRoute');
+const { markDone, isDone } = require('./core/doneTracker');
+const { todayString } = require('./core/dateManager');
+const { findCargoInText } = require('./core/cargoList');
+const { refreshCargo, updateOrderFields } = require('./core/ordersExcel');
+const { getEmailData }           = require('./core/emailCache');
+const { fetchAttachmentBytes }   = require('./core/gmail');
+const orderStore = require('./core/orderStore');
+const { confirmSender, blockSender, parseAddress } = require('./core/senders');
+const senderCompanies = require('./core/senderCompanies');
+
+const app = express();
+app.use(express.json());
+app.use(express.static(path.join(__dirname, '../public')));
+
+app.use('/gmail', gmailRoute);
+
+let isRunning = false;
+
+app.post('/open-kipis', async (req, res) => {
+  console.log('Received request: open-kipis');
+  try {
+    await openKipis();
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error('open-kipis failed:', err.message);
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+app.post('/run-prk', async (req, res) => {
+  const { value } = req.body;
+
+  if (!value) {
+    return res.json({ status: 'error', message: 'Missing plate value' });
+  }
+
+  if (isRunning) {
+    return res.json({ status: 'error', message: 'Already running. Wait for current job to finish.' });
+  }
+
+  if (isDone(value)) {
+    return res.json({ status: 'error', message: 'Plate already filed (marked done). Unmark it first to re-run.' });
+  }
+
+  console.log(`Received request: run-prk | ${value}`);
+  isRunning = true;
+
+  orderStore.syncFromExcel();
+  const tracked = orderStore.activeOrderForPlate(value);
+  if (tracked) orderStore.setState(tracked.id, 'filing', { actor: 'kipis', detail: 'run-prk started' });
+
+  try {
+    const result = await kipisLoad.run({ plate: value });
+    if (result.submitted) {
+      markDone(value);
+      if (tracked) {
+        // Number stays null until PRK document capture is built (roadmap Phase 2).
+        orderStore.attachDocument(tracked.id, { type: 'PRK', number: null, status: 'draft_saved' });
+        orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: 'PRK draft saved (Saugoti)' });
+      }
+      console.log('run-prk completed: PRK draft saved, marked done');
+    } else {
+      if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
+      console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
+    }
+    res.json({ status: 'ok', submitted: result.submitted, check: result.check || null });
+  } catch (err) {
+    console.error('run-prk failed:', err.message);
+    if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Reads the KIPIS PRK list (read-only) and reports which drafts Rule 7 would allow deleting.
+// Auto-escalates past KIPIS's own row cap so the read is never silently truncated.
+app.post('/prk/export', async (req, res) => {
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  isRunning = true;
+  try {
+    const { readFullPrkList } = require('../KIPIS_skills/PRK/exportPrkList');
+    const { findDeletable }   = require('../KIPIS_skills/PRK/prkLedger');
+    const limit = req.body?.limit || 500;
+
+    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await readFullPrkList({ limit });
+
+    orderStore.syncFromExcel();
+    const checked = findDeletable(drafts, {
+      ourEmployee: process.env.KIPIS_EMPLOYEE || '',
+      today: todayString(),
+      orders: orderStore.listOrders(),
+    });
+
+    res.json({
+      status: 'ok', headers, headRowCount, rawRowCount, limitUsed,
+      total: docs.length,
+      drafts: drafts.map(d => ({ number: d.number, status: d.status, plate: d.plate, employee: d.employee, created: d.created })),
+      deletable: checked.filter(d => d.deletable),
+      blocked:   checked.filter(d => !d.deletable),
+    });
+  } catch (err) {
+    console.error('prk/export failed:', err.message);
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+app.get('/pipeline', (req, res) => {
+  try {
+    orderStore.syncFromExcel();
+    const { queue, done } = orderStore.queueAndDone();
+    const shape = o => ({
+      id:     o.id,
+      plate:  o.plate,
+      cargo:  o.cargo,
+      weight: o.weight,
+      grossWeight: o.grossWeight,
+      bulk:   o.bulk,
+      state:  o.state,
+      docs:   o.docs,
+      sender: o.email?.from || '',
+      company: senderCompanies.deriveCompany(o.email?.from || ''),
+      subject: o.email?.subject || '',
+      messageId: o.email?.messageId || '',
+      received: o.email?.received || '',
+      updatedAt: o.updatedAt,
+    });
+    res.json({ queue: queue.map(shape), done: done.map(shape) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Assigns a company label to a sender's email address for future display (used when the
+// domain/display-name heuristic can't establish one, e.g. a personal Gmail account).
+app.post('/sender-company', (req, res) => {
+  const { sender, company } = req.body;
+  if (!sender || !company) return res.status(400).json({ error: 'Missing sender or company' });
+  senderCompanies.setCompany(sender, company);
+  res.json({ status: 'ok' });
+});
+
+// Emails that look like loading orders but whose sender is not human-confirmed yet.
+app.get('/confirmations', (req, res) => {
+  try {
+    orderStore.syncFromExcel();
+    res.json({ pending: orderStore.pendingConfirmations() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// action: 'always' (trust sender from now on) | 'once' (this email only) | 'never' (block sender)
+app.post('/confirmations/decide', async (req, res) => {
+  const { action, messageId, sender } = req.body;
+  if (!action) return res.status(400).json({ error: 'Missing action' });
+
+  try {
+    let affected = 0;
+    if (action === 'always') {
+      if (!sender) return res.status(400).json({ error: 'Missing sender' });
+      await confirmSender(sender);
+      affected = orderStore.applyToSender(parseAddress(sender), id => orderStore.approveOrder(id, 'sender confirmed'));
+    } else if (action === 'once') {
+      if (!messageId) return res.status(400).json({ error: 'Missing messageId' });
+      affected = orderStore.applyToMessage(messageId, id => orderStore.approveOrder(id, 'confirmed once'));
+    } else if (action === 'never') {
+      if (!sender) return res.status(400).json({ error: 'Missing sender' });
+      await blockSender(sender);
+      affected = orderStore.applyToSender(parseAddress(sender), id => orderStore.rejectOrder(id, 'sender blocked'));
+    } else {
+      return res.status(400).json({ error: `Unknown action: ${action}` });
+    }
+    console.log(`Confirmation "${action}" → ${affected} order(s) updated`);
+    res.json({ status: 'ok', action, affected });
+  } catch (err) {
+    console.error('confirmation failed:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Takes the next ready NON-bulk order and files its PRK. One at a time, oldest first.
+app.post('/queue/process-next', async (req, res) => {
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+
+  orderStore.syncFromExcel();
+  const next = orderStore.nextReadyNonBulk();
+  if (!next) return res.json({ status: 'empty', message: 'No ready non-bulk orders in the queue.' });
+
+  isRunning = true;
+  orderStore.setState(next.id, 'filing', { actor: 'kipis', detail: 'queue worker' });
+  console.log(`Queue: processing ${next.id} | ${next.plate}`);
+
+  try {
+    const result = await kipisLoad.run({ plate: next.plate });
+    if (result.submitted) {
+      markDone(next.plate);
+      orderStore.attachDocument(next.id, { type: 'PRK', number: null, status: 'draft_saved' });
+      orderStore.setState(next.id, 'done', { actor: 'kipis', detail: 'PRK draft saved' });
+    } else {
+      orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
+    }
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, check: result.check || null });
+  } catch (err) {
+    orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
+    console.error(`Queue: ${next.id} failed —`, err.message);
+    res.json({ status: 'error', order: next.id, plate: next.plate, message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Manual override: operator marks an order done directly, bypassing PRK filing.
+app.post('/order/mark-done', (req, res) => {
+  const { id } = req.body;
+  if (!id) return res.status(400).json({ error: 'Missing id' });
+  const order = orderStore.getOrder(id);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  markDone(order.plate);
+  orderStore.setState(id, 'done', { actor: 'operator', detail: 'marked done manually' });
+  res.json({ status: 'ok' });
+});
+
+app.post('/refresh-cargo', (req, res) => {
+  try {
+    const updated = refreshCargo();
+    console.log(`Cargo refresh: ${updated} row(s) updated`);
+    res.json({ status: 'ok', updated });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/order-email', (req, res) => {
+  const { plate } = req.query;
+  if (!plate) return res.status(400).json({ error: 'Missing plate' });
+  const data = getEmailData(plate);
+  if (!data) return res.status(404).json({ error: 'No email data for this plate' });
+  res.json(data);
+});
+
+app.get('/download-attachment', async (req, res) => {
+  const { messageId, attachmentId, filename } = req.query;
+  if (!messageId || !attachmentId) return res.status(400).json({ error: 'Missing params' });
+  try {
+    const buffer = await fetchAttachmentBytes(messageId, attachmentId);
+    const safe = (filename || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `inline; filename="${safe}"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/set-cargo', (req, res) => {
+  const { plate, id, cargo, weight, bulk, grossWeight } = req.body;
+  if (!plate) return res.status(400).json({ error: 'Missing plate' });
+  if (cargo === undefined && weight === undefined && typeof bulk !== 'boolean' && grossWeight === undefined) {
+    return res.status(400).json({ error: 'Nothing to update' });
+  }
+  try {
+    let resolvedCargo, resolvedVessel = '';
+    const fields = {};
+    if (cargo !== undefined) {
+      const match    = findCargoInText(cargo);
+      resolvedCargo  = match ? match.cargo : cargo;
+      resolvedVessel = match ? match.vessel : '';
+      fields.cargo   = resolvedCargo;
+    }
+    if (weight !== undefined) fields.weight = weight;
+    if (typeof bulk === 'boolean') fields.bulk = bulk;
+    if (grossWeight !== undefined) fields.grossWeight = grossWeight;
+
+    const updated = updateOrderFields(plate, fields);
+    if (updated) {
+      console.log(`Manual order edit: ${plate} →${resolvedCargo ? ' ' + resolvedCargo : ''}${weight !== undefined ? ' ' + weight + 'kg' : ''}${grossWeight !== undefined ? ' gross ' + grossWeight + 'kg' : ''}${bulk ? ' [BULK]' : ''}`);
+      if (id) orderStore.updateOrderFields(id, fields);
+    }
+    res.json({ status: updated ? 'ok' : 'not_found', cargo: resolvedCargo, vessel: resolvedVessel });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/run', async (req, res) => {
+  const { action, value } = req.body;
+  if (!action || !value) return res.json({ status: 'error', message: 'Missing action or value' });
+
+  console.log(`Received request: ${action} | ${value}`);
+
+  try {
+    switch (action) {
+      case 'kipisLoad': await kipisLoad.run({ plate: value }); break;
+      case 'kipisTest': await kipisTest.run({ value }); break;
+      default: throw new Error(`Unknown action: ${action}`);
+    }
+    res.json({ status: 'ok' });
+  } catch (err) {
+    console.error(`Action "${action}" failed:`, err.message);
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+const PORT = 3001;
+app.listen(PORT, () => {
+  console.log(`Port Operations Panel running at http://localhost:${PORT}`);
+  const os = require('os');
+  for (const iface of Object.values(os.networkInterfaces()).flat()) {
+    if (iface.family === 'IPv4' && !iface.internal) {
+      console.log(`  also reachable on the LAN at: http://${iface.address}:${PORT}`);
+    }
+  }
+});
