@@ -33,7 +33,7 @@ Always use the `--use-system-ca` flag. Corporate SSL proxy intercepts HTTPS; wit
 node --use-system-ca src/server.js
 ```
 
-The `npm run server` script in package.json does NOT include this flag — do not use it.
+None of the npm scripts (`start`, `dev`, `server`, `server:dev`) include this flag — do not use any of them to start the server. Always run the direct command above.
 
 ## Killing the server (Windows)
 
