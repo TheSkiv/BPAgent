@@ -16,19 +16,23 @@ must respect this branch.
 2. **File the PRK in KIPIS** (weight is automatic: `bags × 600 kg`, rare exceptions aside).
 3. Print the generated PRK document **and** email it to terminal dispatch.
 
-### Bulk cargo (literal `BULK` in the email)
-1. Capture order from email (plates, cargo; **no weight yet**).
-2. **Email the terminal to order loading** (outbound — happens *before* KIPIS).
-3. Terminal returns the real weight on paper → **operator enters weight by hand**.
-4. File the PRK in KIPIS with the correct weight.
-5. Print + email the PRK document.
+### Bulk cargo (BULK — literal word, or MOP/gMOP/sMOP potash, which is always bulk here)
+1. Capture order from email (plates, cargo; **no weight yet** — a loading-list attachment may
+   give a planned quantity, but that's nominal, not the real post-loading weight).
+2. **Terminal orders loading itself** — sends its own gate-pass request to KKT dispatch.
+   PortSystem observes this inbound (`gate_pass_ordered` state) — it does not send this email.
+3. Terminal returns the real weight on paper → **operator enters weight by hand** (built: the
+   Pipeline row-click modal's Weight field).
+4. File the PRK in KIPIS with the correct weight (still manual — see remaining gap #5).
+5. Print + email the PRK document (not built — Phase 3).
 
-> Implication: outbound email-send (currently impossible — Gmail scope is `readonly`) is
-> required *early* for the bulk path, not just as the final handoff.
+> Corrected implication (was: outbound send blocks step 2 — it doesn't, see "Current state").
+> Outbound email-send (currently impossible — Gmail scope is `readonly`) is only needed for the
+> **final PRK handoff** (step 5), same as the packaged path.
 
 ---
 
-## Current state (verified against the code — last updated 2026-07-20)
+## Current state (verified against the code — last updated 2026-07-31)
 
 Working: Gmail polling, sender Check/Not-Check classification, **AI-based email extraction**
 (plates/cargo/weight/bulk/relevance — regex extractor still present, paused behind
@@ -39,21 +43,78 @@ lifecycle, handles the same plate ordered twice in a day), full PRK fill-and-sav
 **AI completion check** before `Saugoti`, a **Pateikti guard** (structural, blocks the submit
 click regardless of code path), a one-at-a-time **queue worker** for non-bulk orders, a
 **read-only KIPIS PRK-list reader** with a Rule 7 deletion-eligibility gate (export/delete UI
-not built yet), page-scanner tooling, and a dashboard with Awaiting-confirmation / Pipeline /
-Tasks panels.
+not built yet), and a two-column dashboard (plates/pipeline on the left, KIPIS controls on the
+right) reachable from other machines on the office LAN.
+
+**Built since the 07-20 snapshot:**
+- **PDF and Excel attachment parsing** (`gmail.js` `fetchAttachmentText`) — waybills, CMRs and
+  HELM AG-style loading-list `.xlsx` attachments are parsed and fed to the AI extractor
+  alongside the email body. This is often the *only* source for cargo grade, BULK status and
+  quantity — the order email itself frequently just says "MOP" or "DAP" with a bare plate.
+  (The PDF path existed as dead code for a while — it called `pdf-parse` with the v1 API against
+  a v2 dependency and threw on every call; nobody noticed because nothing exercised it. Fixed,
+  and extended to spreadsheets.)
+- **Bulk gate-pass tracking.** New order state `gate_pass_ordered`, sitting between `ready` and
+  `done`: when terminal@bpa.lt emails a BULK truck's gate-pass request to KKT dispatch
+  (`dispecerine@terminalas.lt` / `ktdispecerine@terminalas.lt`), the order moves here instead of
+  straight to `done` — the real weight is still pending. A non-bulk truck's terminal
+  confirmation still goes straight to `done`. This is effectively the "awaiting weight" state
+  Phase 4 called for, built without needing outbound send (see the note under Phase 4).
+  **Important architectural correction to the two-workflows section above: terminal initiates
+  its own gate-pass email to KKT dispatch — PortSystem observes it inbound, it does not need to
+  send the "order loading" email itself.** That send was assumed to block this on the Gmail
+  `send` scope; it does not.
+- **MOP-potash bulk exception.** MOP/gMOP/sMOP cargo is always bulk at this terminal even when
+  the source email never says the word BULK — a documented exception to the literal-word-only
+  rule (see `CLAUDE.md`'s BULK detection section), because the grade (g vs s) and BULK status
+  routinely aren't known until terminal's confirmation or a loading-list attachment reveals them.
+- **Quote-chain phantom-order fix.** Reply-thread emails (Transwina etc.) re-quote the entire
+  prior conversation below each new line; the extractor was re-reading old, already-ordered
+  plates out of that quoted history as if they were new orders every time the thread grew. Now
+  strips everything from the first quote marker before extraction. A same-day backfill of
+  cargo/weight from attachments (`updateOrderCargo`, gap-fill only, never overwrites) also
+  exists for orders that were saved before an attachment was parsed correctly.
+- **Manual escape hatches:** a **Done** button on every Pipeline row (marks an order done
+  directly, bypassing PRK filing — no undo yet), and a cargo/weight/gross-weight/BULK edit modal
+  reachable by clicking any row (writes to both Excel and the order store immediately). Gross
+  weight auto-fills as `net + net/600` for a bagged order and is disabled for BULK (no bag count
+  applies).
+- **Company attribution per order**, derived from the sender's email domain, with a fallback to
+  the display name for free-mail senders (Transwina dispatch from a personal Gmail account) and
+  a manual-override path (`config/sender_companies.json`, `POST /sender-company`) for whatever
+  neither heuristic can resolve.
+- **Dashboard rebuilt.** The old Truck List (a second, parallel queue view built on
+  `doneTracker` directly) was removed as a duplicate of Pipeline; its cargo/weight/BULK editing
+  moved into Pipeline's own row-click modal. **The Tasks panel and page-scanner tooling were
+  removed** (see below) — the roadmap language further down that still describes them as
+  shipped/available is now aspirational again, not current.
+- **Legacy Microsoft Graph/Outlook email-ingestion pipeline removed** (`src/run.js` and
+  everything under `ingestion/`, `processing/`, `excel/`, `extractors/`) — predated the Gmail
+  integration, was never wired into `server.js`, but `npm start`/`npm run dev` still pointed at
+  it. Fixed to point at `src/server.js`. The project now also has a git repository (there wasn't
+  one before), with `credentials/`, `session/`, `data/`, `.env` gitignored per `SECURITY.md`.
 
 ### Remaining gaps
-1. **Gmail is still read-only.** Scope `gmail.readonly` — cannot send the bulk "order loading"
-   email or the final PRK handoff. Outbound is planned via **Outlook COM drafts** instead (no
-   Gmail re-auth needed) — currently paused per operator decision, KIPIS foundations prioritized
-   first.
+1. **Gmail is still read-only.** Scope `gmail.readonly` — cannot send the final PRK handoff
+   (Phase 3) or any other outbound mail. No longer believed to block the bulk "order loading"
+   step — see the gate-pass note above. Outbound is planned via **Outlook COM drafts** instead
+   (no Gmail re-auth needed) — currently paused per operator decision, KIPIS foundations
+   prioritized first.
 2. **Packaging specifics hardcoded.** Bag weight is a literal `600`; payer `LT242134730` and
-   terminal are hardcoded in the form filler. No per-client/cargo/packaging rules layer.
+   terminal are hardcoded in the form filler. No per-client/cargo/packaging rules layer. (The
+   dashboard's gross-weight helper uses the same hardcoded `600` — one hardcode, two call sites
+   now, worth consolidating when this gets a real rules layer.)
 3. **PRK numbers are not captured at save time.** `docs.PRK.number` in the order store is
    always `null`. This is also why the delete-sweep can only match by plate (see "End-of-day
    status sweep" below).
 4. **KIPIS password needs rotating** — it was hardcoded and printed to logs before being moved
    to `.env`; moving it doesn't undo that exposure.
+5. **`gate_pass_ordered` orders never get auto-filed once their weight is known.** The queue
+   worker (`nextReadyNonBulk`) excludes every BULK order unconditionally, regardless of state —
+   there's no "BULK order with weight now entered → eligible to file" transition back into the
+   automated queue. Right now the operator must file these manually via RUN PRK.
+6. **No undo on the manual Done button.** Once clicked, only a direct data edit can revert it
+   (done twice already this session, correcting mis-clicks/mis-corrections).
 
 ~~Weight never captured~~, ~~KIPIS flow never submits (`page.pause()`)~~ — both fixed;
 see Phase 1.
@@ -89,16 +150,19 @@ auto-add themselves there. This closes that gap before any autonomous filing goe
 - The queue worker (`/queue/process-next`) only ever picks `ready` orders, so an unconfirmed
   order structurally cannot be auto-filed.
 
-## AI operator task list  ✅ *(SHIPPED)*
+## AI operator task list  *(BUILT, then REMOVED FROM THE UI — 2026-07-30)*
 *Goal: a live, right-hand panel listing the concrete actions a human still needs to take.*
 
-- On demand, the current order state is sent to the **OpenAI API**, which returns a JSON list
+- On demand, the current order state was sent to the **OpenAI API**, which returned a JSON list
   of human tasks (file PRK, fill missing cargo/weight, send bulk order email, enter weight,
   print/email PRK). Rendered in a sticky right-side panel, refreshed by a button.
-- A "task" = any concrete action the machine will not do itself. The list shrinks over time as
-  more of the workflow is automated.
-- **Far down the line:** add a *deterministic* task generator (derive the same list from order
-  state with rules) as a token-saving default, keeping the LLM as an optional enrichment.
+- The dashboard's Tasks panel was removed during a UI cleanup pass — it was one of several
+  panels operators found cluttered the daily workflow, and nothing downstream consumed the
+  generated list automatically. The module (`src/core/aiTasks.js`) is still on disk, unwired
+  from `server.js`, in case this gets rebuilt with a narrower scope later.
+- **Far down the line:** if rebuilt, prefer a *deterministic* task generator (derive the same
+  list from order state with rules) as a token-saving default, keeping the LLM as an optional
+  enrichment.
 
 ## KIPIS PRK-list reader + end-of-day `Šalinti` sweep  *(PARTIALLY BUILT)*
 *Goal: a reliable answer to "does a PRK already exist for this truck, and what is its status?",
@@ -175,13 +239,23 @@ click per PRK.
   routing table (per terminal / cargo). Templated subject + body.
 - Audit log of every send (recipient, document, timestamp) — this is a customs workflow.
 
-## Phase 4 — Bulk path
+## Phase 4 — Bulk path  *(PARTIALLY BUILT — the state tracking and weight entry pieces exist)*
 *Goal: support the bulk ordering sequence end-to-end.*
 
-- **Outbound "order loading" email** to the terminal (reuses Phase 3 send capability).
-- **Operator weight entry** in the UI for bulk orders (manual, from the terminal's paper).
-- Then file KIPIS with the entered weight + print/email PRK.
-- State tracking so bulk orders sit in a "awaiting weight" state between steps.
+- ✅ **State tracking for "awaiting weight".** `gate_pass_ordered` (see "Current state" above) —
+  a BULK order sits here between terminal's gate-pass request and the real weight being known.
+- ✅ **Operator weight entry** in the UI — the Pipeline row-click modal's Weight field is
+  editable and persists to Excel + the order store. (Gross weight is a separate, auto-computed
+  helper field for bagged cargo, not the bulk actual-weight entry.)
+- ❌ **Outbound "order loading" email to the terminal — turned out not to be needed.** Terminal
+  sends its own gate-pass request to KKT dispatch; PortSystem only needed to observe that
+  inbound, which required no new Gmail scope. What Phase 3's outbound send is still needed for
+  is the *final PRK handoff*, not the bulk gate-pass step this phase originally assumed it
+  blocked.
+- ❌ **Auto-file once weight is entered.** No transition exists yet from
+  "`gate_pass_ordered` + weight now known" back into the automated filing queue — see remaining
+  gap #5 above. Filing a bulk order once weight is known is still a manual RUN PRK today.
+- Then file KIPIS with the entered weight + print/email PRK (print/email — Phase 3, not built).
 
 ## Phase 5 — The "what to do" rules brain
 *Goal: per-client / per-cargo / per-packaging specifics are data-driven, not hardcoded.*
@@ -282,7 +356,8 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
 
 **B — Agents (hybrid)**
 5. Head: intake → route → emit tasks — ✅ intake/route done (AI extraction + confirmed-sender
-   gate); the Tasks panel emits tasks but nothing consumes them automatically yet.
+   gate); task-emission existed as the Tasks panel, removed from the UI 2026-07-30 (see above) —
+   nothing currently consumes/emits a task list.
 6. KIPIS worker: PRK via existing deterministic module — ✅ done; other types LLM-driven via
    `kipis-fill` — not started (PVZ/BDK/VZT).
 7. Email worker: Outlook drafts, document attached, recipient from a routing table — not
@@ -326,8 +401,10 @@ ledger above.*
    autonomous worker can only flag it as a task, never annul it itself. Emit a shift report.
 5. **Audit log.** Persist every automated action (file / save / send / print / cancel) with
    document, plate, status, timestamp — this is a customs workflow.
-6. **Watch dashboard.** The task panel becomes the supervision surface: what the system did,
-   what it is about to do, what needs a human — with one-click override.
+6. **Watch dashboard.** Some panel becomes the supervision surface: what the system did, what
+   it is about to do, what needs a human — with one-click override. (The Tasks panel that once
+   existed for this was removed for being cluttered before autonomy needed it — whatever
+   replaces it here should be designed for this job specifically, not just resurrected as-is.)
 
 ## Cross-cutting (do alongside, not after)
 
