@@ -4,6 +4,7 @@ const fs      = require('fs');
 const path    = require('path');
 const { todayFilePath } = require('./dateManager');
 const { findCargoInText } = require('./cargoList');
+const orderStore = require('./orderStore');
 
 const SENDERS_FILE = path.resolve(__dirname, '../../config/senders.xlsx');
 
@@ -58,23 +59,6 @@ function normalizePlate(str) {
 
 const DATA_DIR = process.env.DATA_DIR || 'C:\\PortSystem\\data';
 
-// Returns all plate strings from today's orders Excel file only — a truck that already ran
-// on an earlier day is a legitimate new order if it shows up again today, not a duplicate.
-function allKnownPlates() {
-  const known = new Set();
-  const fp = todayFilePath();
-  if (!fs.existsSync(fp)) return known;
-  try {
-    const wb   = XLSX.readFile(fp);
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
-    for (const r of rows) {
-      const p = r['Plate'] || '';
-      if (p) p.split('//').map(normalizePlate).forEach(x => known.add(x));
-    }
-  } catch { /* skip unreadable file */ }
-  return known;
-}
-
 // Returns the raw Plate strings (e.g. "MTV610//EP012") from today's orders file.
 function todayOrderPlates() {
   const fp = todayFilePath();
@@ -84,17 +68,27 @@ function todayOrderPlates() {
   return rows.map(r => r['Plate'] || '').filter(Boolean);
 }
 
+// Driver isn't stored on the order-store record (only plate/cargo/weight/bulk are), only in the
+// Excel row — used by the draft-email template, which wants a driver name.
+function getDriverForPlate(plate) {
+  const fp = todayFilePath();
+  if (!fs.existsSync(fp)) return '';
+  const wb   = XLSX.readFile(fp);
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+  const n = normalizePlate(plate);
+  const row = rows.find(r => normalizePlate(String(r['Plate'] || '')) === n);
+  return row ? String(row['Driver'] || '') : '';
+}
+
 // Appends a row to today's orders Excel.
 // Returns { saved: true } or { skipped: true, reason: string }
 function appendOrderRow({ plate, driver, cargo, weight, sender, received, bulk }) {
   ensureTodayExcel();
   const fp = todayFilePath();
 
-  // Skip if any plate already exists in ANY orders file (across all days)
-  const incomingPlates = plate.split('//').map(normalizePlate);
-  const known = allKnownPlates();
-  const duplicate = incomingPlates.some(p => known.has(p));
-  if (duplicate) return { skipped: true, reason: 'Plate already in Excel' };
+  // A truck still open (not done/cancelled) today blocks a repeat row — see the matching rule
+  // in orderStore.ensureOrder for why. Once closed, a repeat is a legitimate second trip.
+  if (orderStore.activeOrderForPlate(plate)) return { skipped: true, reason: 'Truck already in pipeline (not done yet)' };
 
   const wb  = XLSX.readFile(fp);
   const ws  = wb.Sheets[wb.SheetNames[0]];
@@ -251,4 +245,4 @@ function refreshCargo() {
   return updated;
 }
 
-module.exports = { appendOrderRow, removeNotCheckRows, refreshCargo, updateOrderCargo, updateOrderFields, todayOrderPlates };
+module.exports = { appendOrderRow, removeNotCheckRows, refreshCargo, updateOrderCargo, updateOrderFields, todayOrderPlates, getDriverForPlate };

@@ -27,14 +27,14 @@ must respect this branch.
 5. Print + email the PRK document (not built — Phase 3).
 
 > Corrected implication (was: outbound send blocks step 2 — it doesn't, see "Current state").
-> Outbound email-send (currently impossible — Gmail scope is `readonly`) is only needed for the
-> **final PRK handoff** (step 5), same as the packaged path.
+> Outbound email-send (currently impossible — mail intake has no send capability, IMAP or
+> otherwise) is only needed for the **final PRK handoff** (step 5), same as the packaged path.
 
 ---
 
 ## Current state (verified against the code — last updated 2026-07-31)
 
-Working: Gmail polling, sender Check/Not-Check classification, **AI-based email extraction**
+Working: IMAP polling directly against the real mailbox, sender Check/Not-Check classification, **AI-based email extraction**
 (plates/cargo/weight/bulk/relevance — regex extractor still present, paused behind
 `AI_EXTRACT=false`), **confirmed-sender gate** (unconfirmed senders' orders held at
 `needs_human`, never auto-filed), daily Excel, 3-tier vessel resolution (stock API →
@@ -47,7 +47,8 @@ not built yet), and a two-column dashboard (plates/pipeline on the left, KIPIS c
 right) reachable from other machines on the office LAN.
 
 **Built since the 07-20 snapshot:**
-- **PDF and Excel attachment parsing** (`gmail.js` `fetchAttachmentText`) — waybills, CMRs and
+- **PDF and Excel attachment parsing** (`fetchAttachmentText`, originally in `gmail.js`, now
+  `imapMail.js` — see the IMAP migration bullet below) — waybills, CMRs and
   HELM AG-style loading-list `.xlsx` attachments are parsed and fed to the AI extractor
   alongside the email body. This is often the *only* source for cargo grade, BULK status and
   quantity — the order email itself frequently just says "MOP" or "DAP" with a bare plate.
@@ -93,19 +94,82 @@ right) reachable from other machines on the office LAN.
   integration, was never wired into `server.js`, but `npm start`/`npm run dev` still pointed at
   it. Fixed to point at `src/server.js`. The project now also has a git repository (there wasn't
   one before), with `credentials/`, `session/`, `data/`, `.env` gitignored per `SECURITY.md`.
-- **Gmail is now polled automatically**, not just on a manual RECHECK click — a server-side
-  timer (`GMAIL_POLL_INTERVAL_MS`, default 2 min) runs the exact same extraction/gate-pass logic
-  in the background, guarded against overlapping with a manual click via a shared in-progress
-  flag (the loser gets a `409 BUSY`, not a race on the same Excel/state files). The dashboard's
-  own refresh timer was switched from a disruptive full page reload to a soft re-fetch of the
-  Pipeline/Confirmations panels on a matching cadence.
+- **Automatic background mail polling (server-side `setInterval`, `GMAIL_POLL_INTERVAL_MS`)
+  was added then reverted the same day.** Mail is fetched only on a manual RECHECK click again
+  (`GET /gmail/emails`, `gmailRoute.js`) — no timer runs `pollAndProcessEmails` on its own. The
+  dashboard's own soft-refresh timer (`public/index.html`) still re-fetches the
+  Pipeline/Confirmations panels every 2 min, but that only re-renders already-stored state; it
+  does not touch the mailbox.
+- **Migrated intake from Gmail API to direct IMAP** (`src/core/imapMail.js`, replacing
+  `src/core/gmail.js`). Root cause of the "sometimes lags by 10-20 minutes" complaint:
+  `bpaterminal1@gmail.com` was never the real inbox — it was a POP3 import mirror of
+  `terminal@bpa.lt`@`mail.bpa.lt`, and Gmail's own POP3 fetch schedule (observed 2-15 min lag in
+  `X-Gmail-Fetch-Info` headers) was outside our control no matter how fast we polled Gmail's API.
+  Connecting straight to `mail.bpa.lt` via `imapflow` removes that hop. Read-only `EXAMINE` (not
+  `SELECT`) so the shared human-used mailbox's unread state is never touched; a per-day
+  `data/seen_<date>.json` tracks which UIDs were already processed, replacing Gmail's history-ID
+  cursor. Attachment fetch/parse (PDF via `pdf-parse`, `.xlsx`/`.xls` via `xlsx`) carried over
+  unchanged, now sourced from raw MIME via `mailparser` instead of the Gmail API's part tree.
+  No OAuth: `IMAP_HOST`/`IMAP_PORT`/`IMAP_USER`/`IMAP_PASSWORD` in `.env`, so the UI's mail-status
+  badge dropped its "Reconnect" button entirely — there's no auth flow to reconnect, just
+  credentials that either work or don't. `src/core/gmail.js` and the OAuth credential files under
+  `credentials/` are retired but not yet deleted (kept until the new path is confirmed stable in
+  production). **Live-tested 2026-07-31**: 26 emails processed through the new path in one poll,
+  0 errors, dedup and terminal-confirmation matching both correct (see CLAUDE.md's "Mail
+  credentials" section for the TLS certificate-pinning workaround this needed — Avast Mail
+  Shield locally intercepts the connection and IT access wasn't available to add an exclusion;
+  the pinned cert needs renewing before 2026-10-06).
+- **Duplicate-order policy: state-aware, not presence-aware.** Previously, a plate already
+  present anywhere in today's Excel silently blocked any repeat (`ordersExcel.js`'s
+  `allKnownPlates()`), while `orderStore.ensureOrder` did the opposite — it always created a
+  fresh record for a repeat plate from a new message-ID (by design, so a truck doing two
+  legitimate trips got two records). The gap between those two rules let a still-open truck
+  become a visible duplicate in the Pipeline whenever the *same* booking got re-parsed from a
+  new message: Transwina reply-threads routinely re-quote earlier bookings, which re-triggers
+  extraction of the same plate under a new message-ID, and this session's Gmail→IMAP cutover
+  itself produced a one-time wave of these (email already processed by Gmail, then re-fetched
+  and re-processed again under a new IMAP UID once Gmail was retired mid-session). Fixed by
+  making both `ensureOrder` and `appendOrderRow` check `orderStore.activeOrderForPlate()` first:
+  a plate with any open (non-`done`/`cancelled`) order today is blocked outright, regardless of
+  source email; only once that order is closed does a repeat plate count as a legitimate second
+  trip and get its own record. Cleaned up 9 pre-existing duplicate/mixup records from today's
+  data as part of this fix (8 were the Gmail/IMAP cutover artifact described above; one plate,
+  `MGP677//RP152`, had a genuine cross-thread cargo mixup — two records claimed gMOP/MOP potash
+  and one claimed DAP 18-46 — resolved as DAP per operator confirmation, not guessed).
+- **Follow-up same day: `NHY624//UL387` still showed 2x after the dedup fix above.** Root cause
+  this time was upstream of dedup — a Helm AG "customer name change" email quoted a multi-week
+  table of already-arranged loadings (dates 23–31 July) and the AI extractor pulled all ~17
+  trucks in it out as if they were fresh orders (it correctly created only 15 records, not 17,
+  for reasons unrelated to this fix). 14 of the 15 phantom orders had already been cleared via
+  the new **Cancel once** button before this was reported; the 15th (`NHY624//UL387`) escaped
+  because a genuine terminal@bpa.lt gate-pass confirmation — meant for the *real* order, already
+  `done` — landed 2 seconds after the phantom was created and `activeOrderForPlate` misapplied it
+  to the phantom instead, since the real order was no longer "active" to match against. Fixed
+  the extraction side in `aiExtract.js`'s prompt: an email whose own text is correcting/recapping
+  already-arranged loadings (not issuing a fresh instruction) is now explicitly non-relevant,
+  even when it lists real plates. **First version of this fix caused a real regression** — it
+  made the model under-extract genuine same-day multi-truck batches (Scandagra's "Pasikrovimas
+  x2/x3/x4" emails dropped to 1 truck each) — caught by regression-testing against known-good
+  emails before shipping, and fixed by making the instruction contrast explicitly against normal
+  multi-truck loading lists rather than reasoning from date patterns alone.
+- **Server crash on a transient IMAP disconnect, fixed.** Found 2026-08-04: the background
+  auto-poll timer died with an uncaught `ECONNRESET` and took the whole Node process down with
+  it — no auto-restart, so the app just stayed dead until manually noticed and restarted.
+  Root cause: `imapflow` emits a socket-level `error` event separately from rejecting the
+  in-flight operation's promise, and an `EventEmitter` `error` event with no listener is fatal
+  in Node by default. Our own try/catch around each poll already handled the promise-rejection
+  side fine; the raw socket event just had nothing listening for it. Fixed with a listener on
+  the client in `imapMail.js`'s `withClient()` that logs and swallows it instead. No process
+  supervisor exists yet (`node --use-system-ca src/server.js` run directly) — a future crash
+  from an unrelated cause would still require a manual restart.
 
 ### Remaining gaps
-1. **Gmail is still read-only.** Scope `gmail.readonly` — cannot send the final PRK handoff
-   (Phase 3) or any other outbound mail. No longer believed to block the bulk "order loading"
-   step — see the gate-pass note above. Outbound is planned via **Outlook COM drafts** instead
-   (no Gmail re-auth needed) — currently paused per operator decision, KIPIS foundations
-   prioritized first.
+1. **Mail intake is still read-only.** IMAP connects read-only (`EXAMINE`) and has no send
+   capability — cannot send the final PRK handoff (Phase 3) or any other outbound mail. No longer
+   believed to block the bulk "order loading" step — see the gate-pass note above. Outbound is
+   planned via **Outlook COM drafts** instead (a separate mechanism from the IMAP intake path,
+   so no interaction with the mailbox migration above) — currently paused per operator decision,
+   KIPIS foundations prioritized first.
 2. **Packaging specifics hardcoded.** Bag weight is a literal `600`; payer `LT242134730` and
    terminal are hardcoded in the form filler. No per-client/cargo/packaging rules layer. (The
    dashboard's gross-weight helper uses the same hardcoded `600` — one hardcode, two call sites
@@ -241,8 +305,9 @@ click per PRK.
 *Goal: generated PRK auto-printed AND emailed to terminal dispatch.*
 
 - **Print:** silent Windows print to the configured printer.
-- **Add Gmail `send` scope** (re-auth) → email the PDF to a dispatch address resolved from a
-  routing table (per terminal / cargo). Templated subject + body.
+- **Outbound send via Outlook COM drafts** (decided elsewhere in this doc — see "Remaining gaps"
+  above; intake IMAP has no send capability and isn't a candidate) → email the PDF to a dispatch
+  address resolved from a routing table (per terminal / cargo). Templated subject + body.
 - Audit log of every send (recipient, document, timestamp) — this is a customs workflow.
 
 ## Phase 4 — Bulk path  *(PARTIALLY BUILT — the state tracking and weight entry pieces exist)*
@@ -255,9 +320,9 @@ click per PRK.
   helper field for bagged cargo, not the bulk actual-weight entry.)
 - ❌ **Outbound "order loading" email to the terminal — turned out not to be needed.** Terminal
   sends its own gate-pass request to KKT dispatch; PortSystem only needed to observe that
-  inbound, which required no new Gmail scope. What Phase 3's outbound send is still needed for
-  is the *final PRK handoff*, not the bulk gate-pass step this phase originally assumed it
-  blocked.
+  inbound, which required no send capability on our side. What Phase 3's outbound send is still
+  needed for is the *final PRK handoff*, not the bulk gate-pass step this phase originally
+  assumed it blocked.
 - ❌ **Auto-file once weight is entered.** No transition exists yet from
   "`gate_pass_ordered` + weight now known" back into the automated filing queue — see remaining
   gap #5 above. Filing a bulk order once weight is known is still a manual RUN PRK today.
@@ -380,9 +445,10 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
 
 ### Open items
 
-- **Which mailbox do outbound drafts come from?** Intake reads `bpaterminal1@gmail.com` (Gmail
-  API), but Outlook COM will draft from whatever account classic Outlook is configured with.
-  These may differ — confirm before building the Email worker (currently paused, so not urgent).
+- **Which mailbox do outbound drafts come from?** Intake now reads `terminal@bpa.lt` directly via
+  IMAP (see the migration bullet under "Current state"), but Outlook COM will draft from whatever
+  account classic Outlook is configured with. These may or may not be the same account — confirm
+  before building the Email worker (currently paused, so not urgent).
 - Both classic and new Outlook are installed; COM drives **classic**, so drafts appear there.
 
 ## Autonomous shift operation (the end game) — sequenced
@@ -392,8 +458,9 @@ unused PRKs. This refines Phases 6–7 into a concrete build order and depends o
 ledger above.*
 
 1. **Make tasks executable.** Map every task `step` to a machine action: `file_prk` → batch
-   fill+save; `email_terminal` / `email_prk` → outbound Gmail (needs the `send` scope,
-   Phase 3); `print_prk` → silent print. Steps with no automation stay as human tasks.
+   fill+save; `email_terminal` / `email_prk` → outbound Outlook COM drafts (Phase 3, see the
+   "Outbound email" decision above — not Gmail, intake has no send capability); `print_prk` →
+   silent print. Steps with no automation stay as human tasks.
 2. **Confidence gating.** Auto-execute only high-confidence items — **confirmed sender (built,
    see above)**, resolved cargo, existing vessel/stock, unambiguous plates. Low confidence →
    leave a human task instead of a silent guess.

@@ -52,9 +52,17 @@ function identityKey(plate, messageId, cargo) {
 
 function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received, messageId, subject, state }) {
   if (!plate) return null;
-  const db  = load();
-  const key = identityKey(plate, messageId, cargo);
+  const db = load();
 
+  // A truck still open (anywhere from received through gate_pass_ordered) blocks a same-day
+  // repeat entirely, regardless of source email — Transwina reply-threads often re-quote an old
+  // booking, which re-triggers extraction of the same plate pair from a new message. Only once
+  // the earlier booking is closed (done/cancelled) does a repeat count as a legitimate second
+  // trip and get its own record.
+  const activeExisting = db.orders.find(o => o.plateNorm === normalizePlate(plate) && !CLOSED_STATES.includes(o.state));
+  if (activeExisting) return activeExisting;
+
+  const key = identityKey(plate, messageId, cargo);
   const existing = db.orders.find(o => o.key === key);
   if (existing) return existing;
 

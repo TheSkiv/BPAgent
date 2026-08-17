@@ -1,4 +1,5 @@
 const { stripHtml } = require('./emailExtract');
+const { todayString } = require('./dateManager');
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL      = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -19,10 +20,13 @@ function stripQuotedReply(text) {
   return text;
 }
 
-const SYSTEM_PROMPT = `You read freight-forwarding emails and extract truck loading orders for the port terminal BPA in Klaipėda.
+function systemPrompt(today) {
+  return `You read freight-forwarding emails and extract truck loading orders for the port terminal BPA in Klaipėda. Today's date is ${today}.
 You are given up to 10 emails. Each email block starts with a line "Subject:". Return one result per input email, in the same order.
 
 First decide relevance. A relevant email is a concrete instruction that one or more trucks will come to load specific cargo. Ignore everything else — security alerts, vessel schedules, price lists, marketing, general correspondence, and quoted cargo from an unrelated thread that is not what THIS truck is loading. When unsure, set relevant=false.
+
+An email whose own text says it is correcting, recapping, or changing something about loadings already arranged (e.g. a customer-name change on an existing release, a CMR correction) is NOT a new loading instruction even if it lists real plates — set relevant=false for it. This is different from a normal multi-truck loading list (e.g. "Pasikrovimas" batches), which IS a fresh instruction and should have every truck in it extracted as usual.
 
 A subject line alone that names a specific vehicle plate and driver under a transport heading (e.g. "Transportas: MAN, valst. Nr. AAA111 Vairuotojas: Vardas Pavardė") is relevant even when the body is empty or just a signature block with no cargo or loading language — extract the plate(s) and driver from the subject; leave cargo/weight null unless the "Attachment text" section below supplies them.
 
@@ -37,6 +41,12 @@ For a relevant email, extract each truck as one order:
 
 Return exactly this JSON shape:
 { "emails": [ { "index": <int 0-based>, "relevant": <bool>, "orders": [ { "plates": ["AAA111","BBB222"], "driver": "", "cargo": "", "weight": null, "bulk": false } ] } ] }`;
+}
+
+// The model is told never to include a vehicle make as a plate (see systemPrompt) but
+// occasionally does anyway — strip the common ones defensively rather than let a bogus token
+// like "DAF" ride along in the plate string (breaks dedup/PRK filing downstream).
+const VEHICLE_MAKES = new Set(['DAF', 'VOLVO', 'MAN', 'SCANIA', 'RENAULT', 'MERCEDES', 'IVECO', 'MAZ']);
 
 function normalizeOrders(orders) {
   if (!Array.isArray(orders)) return [];
@@ -44,7 +54,8 @@ function normalizeOrders(orders) {
     plates: (Array.isArray(o.plates) ? o.plates : [])
       .flatMap(p => String(p).toUpperCase().split(/[\\/\s]+/))
       .map(p => p.trim())
-      .filter(Boolean),
+      .filter(Boolean)
+      .filter(p => !VEHICLE_MAKES.has(p)),
     driver: o.driver ? String(o.driver).trim() : '',
     cargo:  o.cargo  ? String(o.cargo).trim()  : '',
     weight: Number.isFinite(o.weight) ? Math.round(o.weight) : (parseInt(o.weight, 10) || ''),
@@ -70,7 +81,7 @@ async function callOpenAI(batch) {
       temperature:     0.1,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt(todayString()) },
         { role: 'user',   content: userContent },
       ],
     }),
@@ -86,21 +97,41 @@ async function callOpenAI(batch) {
   return Array.isArray(parsed.emails) ? parsed.emails : [];
 }
 
+// Slots the model's per-item results onto the batch by index, falling back to arrival order on
+// a collision. Returns null (not a default) for any position the model just never returned a
+// result for, so the caller can tell "genuinely irrelevant" apart from "the model dropped it".
+function slotBatchResults(parsed, batchLength) {
+  const slots = new Array(batchLength).fill(null);
+  let seq = 0;
+  for (const item of parsed) {
+    let idx = (typeof item.index === 'number' && item.index >= 0 && item.index < batchLength) ? item.index : seq;
+    if (slots[idx]) idx = seq; // index collision — fall back to arrival order
+    if (idx < batchLength) slots[idx] = item;
+    seq++;
+  }
+  return slots;
+}
+
 // Returns an array aligned to `emails`: [{ relevant, orders: [{plates,driver,cargo,weight,bulk}] }]
 async function extractOrders(emails) {
   const result = new Array(emails.length);
 
   for (let start = 0; start < emails.length; start += BATCH_SIZE) {
-    const batch  = emails.slice(start, start + BATCH_SIZE);
-    const parsed = await callOpenAI(batch);
+    const batch = emails.slice(start, start + BATCH_SIZE);
+    let slots   = slotBatchResults(await callOpenAI(batch), batch.length);
 
-    const slots = new Array(batch.length).fill(null);
-    let seq = 0;
-    for (const item of parsed) {
-      let idx = (typeof item.index === 'number' && item.index >= 0 && item.index < batch.length) ? item.index : seq;
-      if (slots[idx]) idx = seq; // index collision — fall back to arrival order
-      if (idx < batch.length) slots[idx] = item;
-      seq++;
+    // The model returned fewer results than emails sent — a silent drop otherwise (the missing
+    // email would default to relevant:false with no trace). One retry before accepting the loss;
+    // real truck orders going missing without a log line is the actual bug this guards against.
+    if (slots.some(s => s === null)) {
+      const missing = slots.map((s, i) => s === null ? i : -1).filter(i => i >= 0);
+      console.error(`AI extraction: batch returned ${slots.filter(Boolean).length}/${batch.length} results, missing index(es) ${missing.join(',')} — subjects: ${missing.map(i => JSON.stringify(batch[i].subject)).join(', ')}. Retrying batch once.`);
+      const retrySlots = slotBatchResults(await callOpenAI(batch), batch.length);
+      slots = slots.map((s, i) => s || retrySlots[i]);
+      const stillMissing = slots.map((s, i) => s === null ? i : -1).filter(i => i >= 0);
+      if (stillMissing.length) {
+        console.error(`AI extraction: still missing after retry — index(es) ${stillMissing.join(',')}, subjects: ${stillMissing.map(i => JSON.stringify(batch[i].subject)).join(', ')}. Treating as not relevant.`);
+      }
     }
 
     for (let i = 0; i < batch.length; i++) {

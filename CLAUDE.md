@@ -27,7 +27,7 @@ extend one.
 
 ## Starting the server
 
-Always use the `--use-system-ca` flag. Corporate SSL proxy intercepts HTTPS; without it, Gmail OAuth token refresh fails.
+Always use the `--use-system-ca` flag. Corporate SSL proxy intercepts HTTPS; without it, OpenAI API calls (`aiExtract.js`) and the Playwright KIPIS automation (`kipis.lt`) fail cert verification.
 
 ```
 node --use-system-ca src/server.js
@@ -52,7 +52,12 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
 - **Order state store** (`src/core/orderStore.js`) — per-order lifecycle in
   `data/orders_state_<date>.json`, keyed on plate + source email so the same plate ordered
   twice in a day gets two records, not one
-- **Gmail API** (OAuth2, `readonly` scope) polls inbox for truck orders
+- **IMAP** (`src/core/imapMail.js`, `imapflow` + `mailparser`) polls `terminal@bpa.lt` directly
+  on `mail.bpa.lt` for truck orders. Read-only (`EXAMINE`, not `SELECT`) so it never marks the
+  shared human-used mailbox's messages as read. Replaced Gmail-API polling — that path went
+  through `bpaterminal1@gmail.com`, which was only a POP3-imported mirror of this same mailbox
+  with an unpredictable 2-20 minute import lag Gmail controlled, not us. Connecting directly
+  removes that hop
 - **AI email extraction** (`src/core/aiExtract.js`) is the default path — OpenAI judges
   relevance and extracts plates/cargo/weight/bulk in batches of 10. The original regex
   extractor (`src/core/emailExtract.js`) still exists as a fallback: set `AI_EXTRACT=false`
@@ -80,7 +85,7 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
 | Confirmed senders (auto-file authorisation) | `C:\PortSystem\config\confirmed_senders.json` |
 | Daily orders | `C:\PortSystem\data\YYYY-MM-DD_orders.xlsx` |
 | Daily order state | `C:\PortSystem\data\orders_state_YYYY-MM-DD.json` |
-| Secrets / API keys | `C:\PortSystem\.env` (`KIPIS_USER`, `KIPIS_PASS`, `OPENAI_API_KEY`, `KIPIS_DRY_RUN`, `AI_EXTRACT`) |
+| Secrets / API keys | `C:\PortSystem\.env` (`KIPIS_USER`, `KIPIS_PASS`, `OPENAI_API_KEY`, `KIPIS_DRY_RUN`, `AI_EXTRACT`, `IMAP_HOST`, `IMAP_PORT`, `IMAP_USER`, `IMAP_PASSWORD`) |
 | Security rules (always read) | `C:\PortSystem\SECURITY.md` |
 | KIPIS rules (always read) | `C:\PortSystem\KIPIS_skills\RULES.md` |
 | Pateikti guard | `C:\PortSystem\KIPIS_skills\safePage.js` |
@@ -141,9 +146,27 @@ rather than a fixed word list.
 
 If the browser is closed manually, relaunch may fail (exit code 21). `browser.js` handles this automatically: kills the stale Chrome PID, removes `SingletonLock`, and retries once. No manual fix needed.
 
-## Gmail OAuth tokens
+## Mail credentials (IMAP)
 
-Stored in `session/`. If expired, user reconnects via the badge in the UI header. Do not store tokens elsewhere.
+`IMAP_HOST`/`IMAP_PORT`/`IMAP_USER`/`IMAP_PASSWORD` live only in `.env` — never write the
+password anywhere else, including source, logs, or memory. There is no OAuth session or reconnect
+flow: the UI header badge just reflects whether a live `mailboxOpen` against those credentials
+currently succeeds (`/gmail/status`). If it shows disconnected, fix `.env` or network reachability
+to `mail.bpa.lt:993`, not a button click. Gmail OAuth (`credentials/token.json`,
+`credentials/client_secret_*.json`, `src/core/gmail.js`) is retired but not yet deleted from disk.
+
+**TLS certificate is pinned, not chain-verified.** Avast's local Mail Shield intercepts the
+IMAP connection on this machine and re-signs it with its own "Untrusted Root" CA — the real
+`mail.bpa.lt` cert's subject is `CN=bpa.lt`, a SAN mismatch against the `mail.` host we connect
+to, not evidence of tampering. Avast settings are IT-locked (no admin password available), so an
+exclusion couldn't be added. `imapMail.js` sets `rejectUnauthorized: false` plus a
+`checkServerIdentity` override that pins the exact certificate fingerprint (SHA-256) instead —
+narrower than disabling verification outright, since a genuinely different certificate still gets
+rejected. **The pinned cert expires 2026-10-06** — re-pin before then
+(`openssl s_client -connect mail.bpa.lt:993 -servername mail.bpa.lt | openssl x509 -noout
+-fingerprint -sha256`) or the connection will start failing again with no obvious cause. If Avast
+access ever becomes available, adding a proper Mail Shield exclusion for `mail.bpa.lt` and
+reverting to normal chain verification is the better long-term fix.
 
 ## No automated tests
 

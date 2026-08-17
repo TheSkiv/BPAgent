@@ -148,6 +148,7 @@
     .confirm-actions button { padding: 4px 10px; font-size: 0.74rem; border-radius: 6px; cursor: pointer; border: 1px solid #2d3148; background: #1a1d27; color: #94a3b8; }
     .confirm-actions .btn-always:hover { color: #68d391; border-color: #68d391; }
     .confirm-actions .btn-once:hover   { color: #a5b4fc; border-color: #a5b4fc; }
+    .confirm-actions .btn-cancel:hover { color: #fbbf24; border-color: #fbbf24; }
     .confirm-actions .btn-never:hover  { color: #fc8181; border-color: #fc8181; }
 
     .panel {
@@ -224,20 +225,6 @@
 
     .gmail-dot.ok  { background: #48bb78; }
     .gmail-dot.off { background: #fc8181; }
-
-    #gmailConnectBtn {
-      padding: 5px 12px;
-      font-size: 0.75rem;
-      font-weight: 600;
-      background: #2d1a1a;
-      color: #fc8181;
-      border: 1px solid #742a2a;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-
-    #gmailConnectBtn:hover { background: #3d2020; }
 
     label {
       font-size: 0.78rem;
@@ -510,7 +497,6 @@
       <div class="gmail-badge">
         <div class="gmail-dot off" id="gmailDot"></div>
         <span id="gmailStatusText">Checking...</span>
-        <button id="gmailConnectBtn" style="display:none">Reconnect Gmail</button>
       </div>
     </div>
 
@@ -767,7 +753,7 @@
         const res  = await fetch('/gmail/emails?max=100&q=' + encodeURIComponent('in:inbox'));
         const data = await res.json();
         if (data.error === 'AUTH_REQUIRED') {
-          recheckStatus.textContent = 'Gmail token expired — reconnect below.';
+          recheckStatus.textContent = 'Mail credentials not configured — check .env.';
           recheckStatus.style.color = '#fbbf24';
           setGmailStatus(false);
           return;
@@ -946,9 +932,10 @@
             <div class="confirm-meta">${escHtml(p.sender)} · ${escHtml(p.received || '')}</div>
             <div class="confirm-detail">${escHtml(p.plates.join(', '))}${p.cargo ? ' — ' + escHtml(p.cargo) : ''}${p.bulk ? ' <b>BULK</b>' : ''}</div>
             <div class="confirm-actions">
-              <button class="btn-always" data-action="always" data-sender="${escHtml(p.sender)}">Confirm sender</button>
-              <button class="btn-once"   data-action="once"   data-msg="${escHtml(p.messageId)}">Confirm once</button>
-              <button class="btn-never"  data-action="never"  data-sender="${escHtml(p.sender)}">Never</button>
+              <button class="btn-always" data-action="always"      data-sender="${escHtml(p.sender)}">Confirm sender</button>
+              <button class="btn-once"   data-action="once"        data-msg="${escHtml(p.messageId)}">Confirm once</button>
+              <button class="btn-cancel" data-action="cancel_once" data-msg="${escHtml(p.messageId)}">Cancel once</button>
+              <button class="btn-never"  data-action="never"       data-sender="${escHtml(p.sender)}">Never</button>
             </div>
           </div>`).join('')
           : '<div class="task-empty">Nothing awaiting confirmation.</div>';
@@ -1004,53 +991,21 @@
   <script>
     const gmailDot        = document.getElementById('gmailDot');
     const gmailStatusText = document.getElementById('gmailStatusText');
-    const gmailConnectBtn = document.getElementById('gmailConnectBtn');
     const gmailError      = document.getElementById('gmailError');
 
+    // IMAP has no OAuth session to reconnect via a browser popup — "authorized" here just means
+    // the configured credentials in .env currently work. A failure means fix .env/network, not
+    // click a button, so there's no reconnect action, just a clear status + hint.
     function setGmailStatus(authorized) {
-      gmailDot.className            = 'gmail-dot ' + (authorized ? 'ok' : 'off');
-      gmailStatusText.textContent   = authorized ? 'Gmail' : 'Gmail disconnected';
-      gmailConnectBtn.style.display = authorized ? 'none' : 'inline-block';
+      gmailDot.className          = 'gmail-dot ' + (authorized ? 'ok' : 'off');
+      gmailStatusText.textContent = authorized ? 'Mail' : 'Mail disconnected';
       document.getElementById('recheckBtn').disabled = !authorized;
-    }
-
-    function showGmailError(msg) {
-      gmailError.textContent   = msg;
-      gmailError.style.display = 'block';
-    }
-
-    function hideGmailError() { gmailError.style.display = 'none'; }
-
-    gmailConnectBtn.addEventListener('click', async () => {
-      gmailConnectBtn.disabled    = true;
-      gmailConnectBtn.textContent = 'Waiting...';
-      hideGmailError();
-      try {
-        const res  = await fetch('/gmail/auth-url');
-        const data = await res.json();
-        if (data.error) { showGmailError(data.error); return; }
-        window.open(data.url, '_blank');
-        await pollUntilAuthorized();
-        setGmailStatus(true);
-      } catch (err) {
-        showGmailError(`Network error: ${err.message}`);
-      } finally {
-        gmailConnectBtn.disabled    = false;
-        gmailConnectBtn.textContent = 'Reconnect Gmail';
+      if (authorized) {
+        gmailError.style.display = 'none';
+      } else {
+        gmailError.textContent   = 'IMAP connection failed — check IMAP_HOST/IMAP_USER/IMAP_PASSWORD in .env, and that the mail server is reachable.';
+        gmailError.style.display = 'block';
       }
-    });
-
-    function pollUntilAuthorized() {
-      return new Promise((resolve, reject) => {
-        const iv = setInterval(async () => {
-          try {
-            const r = await fetch('/gmail/status');
-            const d = await r.json();
-            if (d.authorized) { clearInterval(iv); resolve(); }
-          } catch { clearInterval(iv); reject(new Error('Server unreachable')); }
-        }, 2000);
-        setTimeout(() => { clearInterval(iv); reject(new Error('Auth timed out')); }, 180000);
-      });
     }
 
     async function checkGmailStatus() {
@@ -1065,10 +1020,10 @@
 
     checkGmailStatus();
 
-    // The server auto-polls Gmail every couple of minutes on its own now — re-sync the two
-    // order lists on the same cadence so a dashboard left open catches new/confirmed trucks
-    // promptly. A soft refresh (not location.reload()) so it never interrupts someone typing
-    // in the plate box or mid-edit in the order modal.
+    // Re-sync the two order lists periodically so a dashboard left open reflects state changes
+    // made elsewhere (KIPIS automation, another tab's RECHECK click). A soft refresh (not
+    // location.reload()) so it never interrupts someone typing in the plate box or mid-edit in
+    // the order modal. Does not fetch new mail itself — that only happens on RECHECK.
     setInterval(() => {
       loadPipeline();
       loadConfirmations();

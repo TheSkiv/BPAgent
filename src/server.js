@@ -10,7 +10,7 @@ const { todayString } = require('./core/dateManager');
 const { findCargoInText } = require('./core/cargoList');
 const { refreshCargo, updateOrderFields } = require('./core/ordersExcel');
 const { getEmailData }           = require('./core/emailCache');
-const { fetchAttachmentBytes }   = require('./core/gmail');
+const { fetchAttachmentBytes }   = require('./core/imapMail');
 const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
@@ -159,7 +159,8 @@ app.get('/confirmations', (req, res) => {
   }
 });
 
-// action: 'always' (trust sender from now on) | 'once' (this email only) | 'never' (block sender)
+// action: 'always' (trust sender from now on) | 'once' (this email only) | 'cancel_once'
+// (ignore this email only, sender stays unconfirmed) | 'never' (block sender)
 app.post('/confirmations/decide', async (req, res) => {
   const { action, messageId, sender } = req.body;
   if (!action) return res.status(400).json({ error: 'Missing action' });
@@ -173,6 +174,9 @@ app.post('/confirmations/decide', async (req, res) => {
     } else if (action === 'once') {
       if (!messageId) return res.status(400).json({ error: 'Missing messageId' });
       affected = orderStore.applyToMessage(messageId, id => orderStore.approveOrder(id, 'confirmed once'));
+    } else if (action === 'cancel_once') {
+      if (!messageId) return res.status(400).json({ error: 'Missing messageId' });
+      affected = orderStore.applyToMessage(messageId, id => orderStore.rejectOrder(id, 'cancelled once'));
     } else if (action === 'never') {
       if (!sender) return res.status(400).json({ error: 'Missing sender' });
       await blockSender(sender);
@@ -248,14 +252,21 @@ app.get('/order-email', (req, res) => {
   res.json(data);
 });
 
+const ATTACHMENT_CONTENT_TYPES = {
+  pdf:  'application/pdf',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  xls:  'application/vnd.ms-excel',
+};
+
 app.get('/download-attachment', async (req, res) => {
   const { messageId, attachmentId, filename } = req.query;
   if (!messageId || !attachmentId) return res.status(400).json({ error: 'Missing params' });
   try {
     const buffer = await fetchAttachmentBytes(messageId, attachmentId);
     const safe = (filename || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const ext  = safe.split('.').pop().toLowerCase();
     res.setHeader('Content-Disposition', `inline; filename="${safe}"`);
-    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Type', ATTACHMENT_CONTENT_TYPES[ext] || 'application/octet-stream');
     res.send(buffer);
   } catch (err) {
     res.status(500).json({ error: err.message });

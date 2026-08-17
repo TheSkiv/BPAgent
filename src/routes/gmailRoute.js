@@ -13,7 +13,7 @@ function formatReceived(dateStr) {
     return dateStr || '';
   }
 }
-const { isAuthorized, beginAuthFlow, completeAuthFlow, fetchRecentEmails, fetchEmailsMatching, fetchAttachmentText } = require('../core/gmail');
+const { isAuthorized, checkConnection, fetchRecentEmails, fetchEmailsMatching, fetchAttachmentText } = require('../core/imapMail');
 const { extractAll, extractPlatePairs, extractPlates, stripHtml } = require('../core/emailExtract');
 const { extractOrders } = require('../core/aiExtract');
 
@@ -49,12 +49,14 @@ const orderStore = require('../core/orderStore');
 const { ensureOrder } = orderStore;
 const { saveEmailData }    = require('../core/emailCache');
 
+const { TERMINAL_EMAILS } = require('../core/terminals');
+
 const PRK_TERMINAL_SENDER = 'terminal@bpa.lt';
 
 // terminal@bpa.lt only ever sends confirmations, never new orders (see CLAUDE.md). An email
 // from them addressed to either terminal dispatch address counts as confirmation the truck
 // was handed off — a PDF attachment is not required.
-const TERMINAL_DISPATCH_ADDRESSES = new Set(['dispecerine@terminalas.lt', 'ktdispecerine@terminalas.lt']);
+const TERMINAL_DISPATCH_ADDRESSES = new Set(Object.values(TERMINAL_EMAILS));
 
 function addressedToDispatch(toHeader) {
   const found = (toHeader || '').match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [];
@@ -146,20 +148,11 @@ async function markConfirmedPlatesDone() {
   return marked.size;
 }
 
-// GET /gmail/status
-router.get('/status', (req, res) => {
-  res.json({ authorized: isAuthorized() });
-});
-
-// GET /gmail/auth-url — starts callback server, returns URL for frontend to open
-router.get('/auth-url', (req, res) => {
-  try {
-    const url = beginAuthFlow();
-    res.json({ url });
-    completeAuthFlow().catch(err => console.error('Gmail auth failed:', err.message));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+// GET /gmail/status — actually connects (IMAP has no OAuth session to just check the presence
+// of; either the configured credentials work right now or they don't).
+router.get('/status', async (req, res) => {
+  if (!isAuthorized()) return res.json({ authorized: false });
+  res.json({ authorized: await checkConnection() });
 });
 
 // Core of GET /gmail/emails, factored out so the auto-poll timer below can call the exact
@@ -338,26 +331,5 @@ router.get('/emails', async (req, res) => {
     pollInProgress = false;
   }
 });
-
-// Automatic background polling — same logic as clicking RECHECK, on a timer, so new trucks
-// don't sit unnoticed until someone happens to open the dashboard and click it. Configurable
-// via GMAIL_POLL_INTERVAL_MS; sub-authentication (AUTH_REQUIRED) is logged once per occurrence,
-// not spammed every tick.
-const AUTO_POLL_MS = Number(process.env.GMAIL_POLL_INTERVAL_MS) || 2 * 60 * 1000;
-setInterval(async () => {
-  if (pollInProgress || !isAuthorized()) return;
-  pollInProgress = true;
-  try {
-    const result = await pollAndProcessEmails({ max: 100, query: 'in:inbox' });
-    const { saved, prkMarked } = result.summary;
-    if (saved > 0 || prkMarked > 0) {
-      console.log(`[auto-poll] ${saved} new order(s), ${prkMarked} confirmation(s) processed`);
-    }
-  } catch (err) {
-    console.error('[auto-poll] failed:', err.message);
-  } finally {
-    pollInProgress = false;
-  }
-}, AUTO_POLL_MS);
 
 module.exports = router;
