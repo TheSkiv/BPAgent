@@ -24,8 +24,9 @@ function isAuthorized() {
 // this specific certificate's fingerprint instead of disabling verification outright, so an
 // actually different certificate (a real MITM, not just this known mismatch) still gets rejected.
 // Re-pin (openssl s_client -connect mail.bpa.lt:993 | openssl x509 -noout -fingerprint -sha256)
-// if this expires (valid until 2026-10-06) or the mail server's cert changes.
-const PINNED_CERT_FINGERPRINT256 = '67:A6:25:4A:70:7B:34:1A:4D:A3:8B:89:CB:E2:6F:41:CA:28:19:48:F5:E6:FF:59:2A:60:4A:38:A2:F2:63:5A';
+// if this expires (valid until 2027-02-03) or the mail server's cert changes. Avast re-issues its
+// re-signed cert roughly every 90 days, so expect to re-pin on that cadence.
+const PINNED_CERT_FINGERPRINT256 = '78:3C:56:B9:32:5C:ED:58:86:26:5C:98:2D:DF:D6:A3:92:7E:FF:2A:9E:19:3C:7A:D7:C1:89:B8:4A:99:0D:48';
 
 function clientOptions() {
   return {

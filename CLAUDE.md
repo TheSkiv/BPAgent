@@ -162,7 +162,8 @@ to, not evidence of tampering. Avast settings are IT-locked (no admin password a
 exclusion couldn't be added. `imapMail.js` sets `rejectUnauthorized: false` plus a
 `checkServerIdentity` override that pins the exact certificate fingerprint (SHA-256) instead —
 narrower than disabling verification outright, since a genuinely different certificate still gets
-rejected. **The pinned cert expires 2026-10-06** — re-pin before then
+rejected. **The pinned cert expires 2027-02-03** (re-pinned 2026-11-09; Avast re-issues it roughly
+every 90 days, and a new fingerprint breaks the connection) — re-pin before then
 (`openssl s_client -connect mail.bpa.lt:993 -servername mail.bpa.lt | openssl x509 -noout
 -fingerprint -sha256`) or the connection will start failing again with no obvious cause. If Avast
 access ever becomes available, adding a proper Mail Shield exclusion for `mail.bpa.lt` and

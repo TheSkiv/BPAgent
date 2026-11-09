@@ -118,7 +118,10 @@ right) reachable from other machines on the office LAN.
   0 errors, dedup and terminal-confirmation matching both correct (see CLAUDE.md's "Mail
   credentials" section for the TLS certificate-pinning workaround this needed — Avast Mail
   Shield locally intercepts the connection and IT access wasn't available to add an exclusion;
-  the pinned cert needs renewing before 2026-10-06).
+  the pinned cert needs renewing before 2026-10-06). **Broke after Avast re-issued its cert on
+  2026-11-05** (new fingerprint → every IMAP connection refused); re-pinned 2026-11-09, next
+  expiry 2027-02-03. Avast re-issues about every 90 days, so this recurs until IT adds a Mail
+  Shield exclusion for `mail.bpa.lt`.
 - **Duplicate-order policy: state-aware, not presence-aware.** Previously, a plate already
   present anywhere in today's Excel silently blocked any repeat (`ordersExcel.js`'s
   `allKnownPlates()`), while `orderStore.ensureOrder` did the opposite — it always created a
