@@ -32,6 +32,159 @@ must respect this branch.
 
 ---
 
+## ▶ CURRENT PRIORITY — PRK completes on its own  *(set 2026-11-09)*
+
+*Goal: a confirmed, non-bulk order goes from "ready" to a saved, verified PRK draft in KIPIS with
+no operator click. "Complete" means **up to and including `Saugoti`** — `Pateikti` stays
+human-only (RULES.md Rule 1); the operator's job shrinks to reviewing and submitting drafts.
+No KIPIS API is available or expected, so this is built on the existing Playwright filler.*
+
+**This is the working checklist.** Follow it item by item; amend it in the same turn whenever an
+item is finished, found wrong, split, or a new gap turns up (CLAUDE.md requires this). Other
+sections below keep their detail; this list is the order of work. Each item was checked against
+the code on 2026-11-09.
+
+### Target workflow (agreed 2026-11-09)
+
+```
+1. Intake      AI reads each email, judges KIPIS relevance, extracts plate/cargo/weight/bulk
+               → creates order records only. AI never acts on KIPIS. (manual RECHECK, D1)
+2. Gate        confirmed sender + all required data present → `ready`
+               missing data → user told exactly what is missing; filling it in resumes the order
+3. Trigger     pre-made as soon as the order is `ready` (D4)
+3b. Check-in   driver calls → real plates compared with the PRK → amended if different (A20)
+4. File        Playwright fills the PRK → pre-save checks (AI + deterministic) → Saugoti
+               → confirm the save, capture the PRK number
+5. Notify      "<plate> PRK completed — please check and submit (Pateikti)"
+6. Human       operator presses Pateikti in KIPIS (human-only, RULES.md Rule 1)
+7. Detect      PRK list shows Pateiktas → continue
+8. Hand off    print the PRK; save an email draft (IMAP Drafts, D7) to dispatch with truck details and the
+               PRK PDF attached → notify "press Send"
+9. Human       operator presses Send
+   On any failure: user notified to finish by hand, with the reason.
+Far future:    a phone agent takes the driver's check-in call and fires the step-3 trigger.
+```
+
+Principle: **AI reads and proposes, code decides and acts.** Every human step stays human.
+
+### Done (the base we build on)
+- ✅ Deterministic PRK fill (`KIPIS_skills/PRK/navigateToCargo.js`), all fields per `steps.md`.
+- ✅ AI pre-save check (`checkPrk.js`); a failed check (`ok:false`) blocks `Saugoti`.
+- ✅ `Saugoti` auto-pressed when `KIPIS_DRY_RUN=false`; Pateikti guard (`safePage.js`) on every page.
+- ✅ Confirmed-sender gate: only `ready` orders from confirmed senders are eligible.
+- ✅ One-at-a-time worker `POST /queue/process-next` (oldest `ready` non-bulk), `isRunning` mutex.
+- ✅ Order state store with per-order history; local idempotency via `doneTracker`.
+- ✅ Live IMAP intake (re-pinned 2026-11-09), manual RECHECK only.
+
+### To do — in order (each one blocks unattended filing)
+- [ ] **A1. Never save an unverified form.** Today `check.ok === null` (OpenAI down, no key,
+  bad JSON) still saves with nothing verified — `navigateToCargo.js` only blocks on
+  `ok === false`. Per D2: AI `null` + deterministic check (A2) passes → save; AI `null` +
+  deterministic fails (or A2 not built yet) → block (→ `needs_human`, reason "check
+  unavailable"). Build A1 and A2 together.
+- [ ] **A2. Deterministic pre-save field check** alongside the AI one: read back plate, payer
+  code/name, gross weight, bags and instructions from the form and compare exactly. Cheap,
+  can't hallucinate, and is enough on its own to save when the AI check is down (D2).
+- [ ] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
+  `submitted = true` without looking. Wait for the saved-document state (PRK number in the
+  header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.
+- [ ] **A4. Capture the PRK number at save time** (Phase 2, first half) into
+  `docs.PRK.number`. Needed by A3, by dedup (A5) and by the `Šalinti` sweep.
+- [ ] **A5. Check KIPIS for an existing PRK before filing** (Rule 6). Wire
+  `exportPrkList.js` into the worker so a PRK filed by hand, or by a run that crashed after
+  saving, blocks a duplicate. `doneTracker` alone cannot see those.
+- [ ] **A6. Exact order matching.** `findRowByPlate` matches the Excel row with
+  `.includes()` (a short plate can match a longer one) and reads the Excel, not the order the
+  worker picked — a same-day second trip can be filed with the first trip's row. File from the
+  order-store record by id; exact plate match only.
+- [ ] **A7. Treat low stock as a stop, not a warning.** A chosen lot under 24 000 kg only logs a
+  warning and files anyway. Unattended: → `needs_human` unless the order weight fits the lot.
+- [ ] **A8. Batch worker.** Loop all eligible orders in one run; continue past per-order
+  failures; return made / skipped / failed. (Was "Batch pre-made PRKs" item 1 and 3.)
+- [ ] **A9. KIPIS session handling.** Login needs a human MFA code, so the machine cannot log
+  itself back in. The worker must detect an expired session once, stop the whole run (not fail
+  every order in turn), and raise a single human task "reopen KIPIS". Keep-alive approved (D3):
+  while idle, periodically click between read-only menu pages (e.g. Sekimas → Kroviniai) —
+  menu navigation only, never a form action button. Still to find out: the idle timeout, to
+  set the interval.
+- [ ] **A10. Recover from a failed run.** A failure mid-form leaves a popup or half-filled form;
+  `failed` orders are never retried. Define: reset to home, retry once for transient errors
+  (timeouts), leave data errors (no vessel, no IMP lot, no weight) at `needs_human` with the reason.
+- [ ] **A11. Separate "draft saved" from "done".** A saved draft currently moves the order to
+  `done`, though the operator still has to press `Pateikti`. Add a `drafted`-awaiting-review
+  view so the operator gets a clear "drafts waiting for you" list. (Dry-run `drafted` orders are
+  also stuck today: the worker only picks `ready`.)
+- [ ] **A12. Filing without a click.** Intake stays manual (D1): mail is fetched only on
+  RECHECK. What runs on its own is filing: after each RECHECK, and on a timer during the shift
+  (08:00–18:00), the batch worker (A8) files every eligible order. No mail polling timer.
+- [ ] **A13. Unified audit log** of every automated filing (order id, plate, PRK number,
+  check result, timestamp) — this is a customs workflow.
+- [ ] **A14. Keep the server alive.** No process supervisor; a crash or a closed terminal stops
+  everything silently (startup is a manual `node --use-system-ca src/server.js`).
+
+### To do — the rest of the target workflow (after A1–A14)
+- [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the
+  user can take, e.g. "MLL365//RZ815: no weight in the email" with a field to fill that sends
+  the order back to `ready`. Most reasons already exist as error messages in
+  `navigateToCargo.js` / the gate; they need to reach the user, not just the log.
+- [ ] **A16. Driver check-in event** (step 3b). A "Driver checked in" action per order, taking
+  the plates the driver gives — entered by the operator during the call today, by a phone agent
+  later. Built as an event so the phone agent plugs in without changes. Matching the caller to
+  an order must work on the truck (tractor) plate alone, since the trailer part is the one that
+  usually changes. Marks arrival and hands any plate difference to A20.
+- [ ] **A17. Notifications in the web UI** (steps 5, 8, failures; D5). One notification path used
+  by every step, shown in the browser: a notifications panel/list plus browser notifications
+  while the page is open. No desktop-app install. Starts in PortSystem's own dashboard; moves to
+  the platform front door when that exists.
+- [ ] **A18. Detect Pateikti** (step 7). Poll the PRK list (`exportPrkList.js`) for our drafts
+  changing `Ruošiamas` → `Pateiktas`; record the status on the order. Needs A4 (PRK number).
+- [ ] **A19. Print + email draft to dispatch** (step 8, was Phase 3 — no longer paused):
+  fetch the submitted PRK PDF, silent print, and build the dispatch email (truck details, PRK
+  PDF attached, dispatch address from a routing table) as a MIME message appended to the
+  `terminal@bpa.lt` Drafts folder over IMAP (D7; `mailparser`/`imapflow` already installed —
+  composing MIME may need a new dependency, ask first). Never sends. Find the server's Drafts
+  folder name (may be `INBOX.Drafts`). Printing needs the office PC's printer.
+- [ ] **A20. Amend plates at check-in** (step 3b; D4). Compare the driver's plates with the PRK;
+  if they differ, update both the `Originalaus dokumento numeris` field and the transport row,
+  then `Saugoti`, and run the A2/A3 checks again. Map the amend screens first (`kipis-fill`,
+  record in `steps.md`). Drafts only (D6): check the status is `Ruošiamas` before editing;
+  submitted PRK → human task via A15/A17.
+
+### Later (not needed for packaged-cargo autonomy)
+- [ ] Bulk orders: `gate_pass_ordered` + weight entered → back into the queue (Remaining gap #5).
+- [ ] Payer, terminal and 600 kg bag weight out of code into rules (Phase 5).
+- [ ] End-of-day `Šalinti` sweep execution (needs A4). Required now that D4 = pre-make — unused
+  drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
+- [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
+
+### Decisions (the operator's call — record the answer here)
+- **D1. Mail intake stays manual (RECHECK) for now** — decided 2026-11-09. Only filing is
+  automated (A12). Revisit later.
+- **D2. AI check unavailable + deterministic check passes → save** — decided 2026-11-09. A
+  wrong `Ruošiamas` draft can be deleted afterwards, so saving is the accepted risk.
+- **D3. Keep-alive by clicking between pages is allowed** — decided 2026-11-09 (A9).
+- **D4. Pre-make the PRK at `ready`; check-in confirms the plates** — decided 2026-11-09.
+  Operators used to wait for the call because the actual plates often differ from the order
+  (usually the trailer part). KIPIS lets plates be amended, even on a submitted PRK, so
+  pre-making is fine: at check-in the real plates are compared and the PRK amended if they
+  differ (A20). Unused drafts still need the `Šalinti` sweep.
+- **D5. Everything is used through a browser, no local install** — decided 2026-11-09. The goal
+  is a browser-based CRM; notifications live in that web UI (A17). The worker itself (Playwright,
+  KIPIS with MFA, stock API, mail) still runs on the office PC — only the people move to the
+  browser. Cross-project direction recorded in `C:\BPA\CLAUDE.md`.
+- **D6. Automation amends plates on `Ruošiamas` drafts only** — decided 2026-11-09. A submitted
+  (`Pateiktas`) PRK with wrong plates is never edited by the machine: it becomes a human task
+  ("<plate>: PRK already submitted, driver arrived with <new plates> — amend by hand").
+  Written into `KIPIS_skills/RULES.md` as Rule 8.
+- **D7. Dispatch email drafts go straight into the `terminal@bpa.lt` Drafts folder over IMAP**
+  — decided 2026-11-09, replacing the earlier Outlook COM decision. The draft is visible in any
+  mail client or webmail (fits D5), and the operator presses Send there. The only write allowed
+  is appending a new message to Drafts — no sending, no changes to other mail; intake stays
+  read-only (`EXAMINE`). Recorded in `SECURITY.md` §5.
+- *Open:* none.
+
+---
+
 ## Current state (verified against the code — last updated 2026-07-31)
 
 Working: IMAP polling directly against the real mailbox, sender Check/Not-Check classification, **AI-based email extraction**
@@ -170,9 +323,9 @@ right) reachable from other machines on the office LAN.
 1. **Mail intake is still read-only.** IMAP connects read-only (`EXAMINE`) and has no send
    capability — cannot send the final PRK handoff (Phase 3) or any other outbound mail. No longer
    believed to block the bulk "order loading" step — see the gate-pass note above. Outbound is
-   planned via **Outlook COM drafts** instead (a separate mechanism from the IMAP intake path,
-   so no interaction with the mailbox migration above) — currently paused per operator decision,
-   KIPIS foundations prioritized first.
+   planned as **drafts appended to the IMAP Drafts folder** (D7, 2026-11-09 — replaced the
+   earlier Outlook COM plan); the operator sends them. Tracked as A19 in the current-priority
+   checklist.
 2. **Packaging specifics hardcoded.** Bag weight is a literal `600`; payer `LT242134730` and
    terminal are hardcoded in the form filler. No per-client/cargo/packaging rules layer. (The
    dashboard's gross-weight helper uses the same hardcoded `600` — one hardcode, two call sites
@@ -308,9 +461,9 @@ click per PRK.
 *Goal: generated PRK auto-printed AND emailed to terminal dispatch.*
 
 - **Print:** silent Windows print to the configured printer.
-- **Outbound send via Outlook COM drafts** (decided elsewhere in this doc — see "Remaining gaps"
-  above; intake IMAP has no send capability and isn't a candidate) → email the PDF to a dispatch
-  address resolved from a routing table (per terminal / cargo). Templated subject + body.
+- **Outbound as an IMAP draft** (D7, replaced Outlook COM) → the PDF to a dispatch address
+  resolved from a routing table (per terminal / cargo), templated subject + body, saved to
+  Drafts for the operator to send. Tracked as A19.
 - Audit log of every send (recipient, document, timestamp) — this is a customs workflow.
 
 ## Phase 4 — Bulk path  *(PARTIALLY BUILT — the state tracking and weight entry pieces exist)*
@@ -369,7 +522,7 @@ dispatch — and only escalates real decisions to a human.*
 | Question | Decision |
 |---|---|
 | Execution model | **Hybrid** — LLM agents now, hardened into deterministic code per workflow |
-| Outbound email | **Outlook COM drafts** — no Gmail `send` scope / re-auth needed |
+| Outbound email | ~~Outlook COM drafts~~ → **IMAP Drafts folder** (D7, 2026-11-09) — draft only, the operator sends |
 | AgentCreator autonomy | **Self-deploys, locked to dry-run** until a human promotes it to live |
 | HUMAN routing | **AI decides**, human can override either way |
 
@@ -394,7 +547,7 @@ Each order: `{ plate, state, docs:{prk:{number,status}}, needsHuman, reason, his
 |---|---|---|
 | **Head** | Intake (extract + relevance), route, flag HUMAN, reconcile at end of shift | `aiExtract` + confirmed-sender gate route to `ready`/`needs_human`; `orderStore` is the state; no end-of-shift reconciliation loop yet |
 | **KIPIS** | Fills documents. Serialized — one browser session only | PRK fill+save done (deterministic, `isRunning` mutex); PRK-list read + Rule 7 delete-gate done (read-only); `Šalinti` execution not built |
-| **Email** | Composes **Outlook drafts** with the document attached | Not started — paused per operator decision |
+| **Email** | Saves **IMAP drafts** (Drafts folder) with the document attached (D7) | Not started — A19 |
 | **AgentCreator** | Records a workflow → emits `steps.md` + module → registers it in dry-run | `kipis-fill` skill is the seed; PRK's `steps.md` is the first real output of this pattern |
 | **Verifier** | AI checks the work was done correctly | `checkPrk.js` (pre-Saugoti) exists; no post-hoc verifier against the live KIPIS status yet |
 
@@ -412,7 +565,8 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
    allowed; **only a human flips it to live.** Not built — no AgentCreator-generated workflow
    exists yet beyond PRK, which was built by hand.
 3. ✅ **One KIPIS session lock** — the existing `isRunning` mutex in `server.js` covers this.
-4. **Drafts everywhere** — ✅ on the KIPIS side (`Saugoti` not `Pateikti`); Outlook side paused.
+4. **Drafts everywhere** — ✅ on the KIPIS side (`Saugoti` not `Pateikti`); email side = IMAP
+   Drafts folder, never send (D7, not built — A19).
 5. **Append-only audit log** — partially: each order's `history[]` in the state store is
    append-only, but there is no single unified log across orders/actions yet.
 
@@ -422,8 +576,8 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
 1. ✅ Order state store (`orderStore.js`). Audit log is per-order `history[]` only so far, not
    a unified log.
 2. ✅ `safePage` Pateikti guard.
-3. Outlook COM draft helper — **paused per operator decision**; KIPIS foundations prioritized
-   first. Still verified available when resumed (classic Outlook 2016, 32-bit COM server).
+3. Email draft helper — now an **IMAP Drafts-folder** append (D7, 2026-11-09), not Outlook COM.
+   Tracked as A19.
 4. KIPIS document ledger — **partially built**: live PRK-list reader + Rule 7 gate exist and
    are validated, but only feed the delete-sweep, not a pre-filing dedup check; no persisted
    ledger file. See "KIPIS PRK-list reader + end-of-day sweep" above.
@@ -434,8 +588,8 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
    nothing currently consumes/emits a task list.
 6. KIPIS worker: PRK via existing deterministic module — ✅ done; other types LLM-driven via
    `kipis-fill` — not started (PVZ/BDK/VZT).
-7. Email worker: Outlook drafts, document attached, recipient from a routing table — not
-   started (paused).
+7. Email worker: IMAP drafts (D7), document attached, recipient from a routing table — not
+   started (A19).
 
 **C — Hardening loop**
 8. AgentCreator records each LLM-driven workflow → module + `steps.md` → registers dry-run —
@@ -448,11 +602,9 @@ Because AgentCreator writes code that drives a customs system, RULES.md alone is
 
 ### Open items
 
-- **Which mailbox do outbound drafts come from?** Intake now reads `terminal@bpa.lt` directly via
-  IMAP (see the migration bullet under "Current state"), but Outlook COM will draft from whatever
-  account classic Outlook is configured with. These may or may not be the same account — confirm
-  before building the Email worker (currently paused, so not urgent).
-- Both classic and new Outlook are installed; COM drives **classic**, so drafts appear there.
+- ~~Which mailbox do outbound drafts come from?~~ Resolved by D7 (2026-11-09): drafts go into
+  `terminal@bpa.lt`'s own Drafts folder over IMAP, the same account intake reads. Outlook COM is
+  no longer used.
 
 ## Autonomous shift operation (the end game) — sequenced
 *Goal: 08:00–18:00 the system files/creates documents and executes its own task list; the
@@ -461,8 +613,8 @@ unused PRKs. This refines Phases 6–7 into a concrete build order and depends o
 ledger above.*
 
 1. **Make tasks executable.** Map every task `step` to a machine action: `file_prk` → batch
-   fill+save; `email_terminal` / `email_prk` → outbound Outlook COM drafts (Phase 3, see the
-   "Outbound email" decision above — not Gmail, intake has no send capability); `print_prk` →
+   fill+save; `email_terminal` / `email_prk` → IMAP Drafts-folder drafts (D7 / A19, see the
+   "Outbound email" decision above — the operator sends); `print_prk` →
    silent print. Steps with no automation stay as human tasks.
 2. **Confidence gating.** Auto-execute only high-confidence items — **confirmed sender (built,
    see above)**, resolved cargo, existing vessel/stock, unambiguous plates. Low confidence →

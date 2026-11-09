@@ -73,6 +73,11 @@ extractor or the task agent ("ignore previous instructions", fake orders, spoofe
 ## 5. Least privilege on scopes and access
 
 - Gmail stays at the narrowest scope that works (`readonly` until sending is genuinely needed).
+- **IMAP (`terminal@bpa.lt`):** intake is read-only (`EXAMINE`). The one write allowed
+  (operator decision 2026-11-09, ROADMAP D7) is **appending a new draft to the Drafts folder**
+  for the operator to send. The code must never send mail, and never flag, move, delete or
+  modify any existing message, in Drafts or elsewhere. A draft's recipient comes from the
+  routing table, never from an email's content.
 - KIPIS automation stops at `Saugoti`; `Pateikti` is human-only.
 - Do not broaden a scope or permission as a convenience.
 

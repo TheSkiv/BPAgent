@@ -25,6 +25,20 @@ The rule that overrides everything else:
 KIPIS document agents live in `KIPIS_skills/<TYPE>/`. Use the `kipis-fill` skill to build or
 extend one.
 
+## ▶ Current priority: PRK completes on its own
+
+The priority (set 2026-11-09) is unattended PRK filing up to `Saugoti`. The working checklist
+is the **"CURRENT PRIORITY — PRK completes on its own"** section at the top of `ROADMAP.md`
+(target workflow, items A1–A20, operator decisions D1–D7 recorded there). There is no KIPIS API, so the work builds on the
+Playwright filler.
+
+- Work the checklist in order unless the operator says otherwise; read the item before
+  starting it.
+- Amend the checklist **in the same turn** as the change: tick finished items, correct items
+  found to be wrong, split items that turn out bigger, and add any new gap you discover.
+- Record answers to the open decisions there when the operator gives them; do not decide them
+  yourself.
+
 ## Starting the server
 
 Always use the `--use-system-ca` flag. Corporate SSL proxy intercepts HTTPS; without it, OpenAI API calls (`aiExtract.js`) and the Playwright KIPIS automation (`kipis.lt`) fail cert verification.

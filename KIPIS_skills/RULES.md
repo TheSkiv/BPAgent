@@ -77,3 +77,16 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
 
 If any of the five cannot be established, do not delete — leave it and raise a human task.
 Never click `Anuliuoti` under any circumstances.
+
+## RULE 8 — Amending: drafts yes, submitted documents never
+
+```
+Ruošiamas (never submitted)  →  amend + Saugoti   ✅ automation allowed
+Submitted / Pateiktas        →  any edit          ❌ HUMAN ONLY
+```
+
+Automation may change a document (e.g. correct the plates when the driver arrives with a
+different trailer) only while it is in **`Ruošiamas`** status. Check the status on screen
+before editing. If the document is already submitted, do not touch it — raise a human task
+naming the document, the plates on it and the plates the driver gave. (Operator decision
+2026-11-09.)
