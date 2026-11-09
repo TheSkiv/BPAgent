@@ -76,7 +76,9 @@ The results table groups rows by shipment via **rowspan**:
 ## Derived values
 
 ```
-bags        = round(orderWeight / 600)
+bagKg       = bag size from the order's cargo text — "(500)", "(600)", "po 600 kg";
+              600 when none is written (500 kg is rare but real)
+bags        = round(orderWeight / bagKg)
 grossWeight = orderWeight + bags
 ```
 

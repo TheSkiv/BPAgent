@@ -112,6 +112,16 @@ function getInstructions(row) {
   return DEFAULT_INSTRUCTIONS;
 }
 
+// Bag size from the order's cargo text: "(500)", "(600)", "po 600 kg". 600 kg is the usual bag;
+// 500 kg is rare but real ("Karbamidas (500) gran.", operator 2026-11-09). No size written → 600.
+const DEFAULT_BAG_KG = 600;
+function getBagKg(cargo) {
+  const text = String(cargo || '');
+  const m = text.match(/\((\d{3,4})\)/) || text.match(/(\d{3,4})\s*kg\b/i);
+  const kg = m ? Number(m[1]) : 0;
+  return kg >= 300 && kg <= 1500 ? kg : DEFAULT_BAG_KG;
+}
+
 function getWeight(row) {
   const weight = row['Weight'] || row['weight'];
   if (!weight) throw new Error('Field "Weight" not found in row');
@@ -226,10 +236,11 @@ async function navigateToCargo(page, data = {}) {
     const vesselName = await getVesselName(row);
     const cargoName  = row['Cargo'] || row['cargo'] || '';
     const weight     = getWeight(row);
-    const bags       = Math.round(weight / 600);
+    const bagKg      = getBagKg(cargoName);
+    const bags       = Math.round(weight / bagKg);
     const total      = weight + bags;
     const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
-    console.log(`Weight: ${weight}, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
+    console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
 
     // ── Find this vessel's lots of this cargo ───────────────────────────────────
     // KIPIS's Pavadinimas filter only matches short text, and its vessel filters did not find
@@ -406,6 +417,7 @@ async function navigateToCargo(page, data = {}) {
       cargo:        cargoName,
       vessel:       vesselName,
       orderWeight:  weight,
+      bagKg,
       bags,
       grossWeight:  total,
       instructions,
@@ -452,4 +464,4 @@ async function navigateToCargo(page, data = {}) {
   return { submitted, check, fieldCheck, blocked };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg };

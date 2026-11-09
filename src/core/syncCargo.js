@@ -3,6 +3,8 @@ const XLSX  = require('xlsx');
 const fs    = require('fs');
 const path  = require('path');
 
+const { fetchStockRows, resolveVessel } = require('./stockCache');
+
 const CARGO_FILE = path.resolve(__dirname, '../../config/cargo.xlsx');
 
 const ENDPOINTS = [
@@ -91,7 +93,25 @@ async function syncCargo() {
     }
   }
 
-  if (added === 0) return { synced: 0, errors };
+  // Re-point every cargo name the stock reports still carry at its current vessel. Without this a
+  // name kept its first vessel forever (e.g. ammonium sulphate stayed on RIX SPIRIT after ULSAN
+  // arrived). Names no longer in stock keep their last vessel — they are only a fallback.
+  let updated = 0;
+  try {
+    const stockRows = await fetchStockRows();
+    for (const entry of existing.values()) {
+      const vessel = resolveVessel(entry.cargo, stockRows);
+      if (vessel && vessel !== entry.vessel) {
+        console.log(`[syncCargo] ${entry.cargo}: ${entry.vessel || '(none)'} → ${vessel}`);
+        entry.vessel = vessel;
+        updated++;
+      }
+    }
+  } catch (err) {
+    errors.push(`vessel refresh: ${err.message}`);
+  }
+
+  if (added === 0 && updated === 0) return { synced: 0, updated: 0, errors };
 
   const allEntries = [...existing.values()].sort((a, b) => a.cargo.localeCompare(b.cargo));
   const aoa = [['Cargo', 'Vessel'], ...allEntries.map(e => [e.cargo, e.vessel])];
@@ -101,7 +121,7 @@ async function syncCargo() {
   XLSX.utils.book_append_sheet(wb, ws, 'Cargo');
   XLSX.writeFile(wb, CARGO_FILE);
 
-  return { synced: added, errors };
+  return { synced: added, updated, errors };
 }
 
 module.exports = { syncCargo };

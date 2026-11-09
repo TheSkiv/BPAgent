@@ -55,7 +55,7 @@ You are given the expected order data and a snapshot of every visible field curr
 
 Check that:
 - The truck plate(s) appear in the original-document-number field.
-- The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = weight / 600 for packaged cargo).
+- The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg).
 - The payer code and name are filled.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
 - No required field that the expected data provides was left empty.

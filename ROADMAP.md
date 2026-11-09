@@ -248,15 +248,36 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   mark is saved per vessel + cargo + packaging and reused for later orders until the lot is
   empty or the operator changes it.
 
-- [ ] **A24. Bag size is hardcoded at 600 kg — wrong for 500 kg bags.** Seen live 2026-11-09:
+- [~] **A24. Bag size is hardcoded at 600 kg — wrong for 500 kg bags.** *BUILT 2026-11-09 for
+  PRK filing:* `getBagKg()` reads `(500)` / `(600)` / `po 600 kg` from the order's cargo text;
+  no size written → 600 (operator: 500 kg is rare but real). The AI check gets the bag size.
+  Dashboard gross-weight helper still assumes 600. Seen live 2026-11-09:
   `Karbamidas (500) gran.` was filled as 40 bags / 24 040 kg gross; with 500 kg bags it is
   48 bags / 24 048 kg. Today's order texts carry the size as `(600)`, `(500)` or `po 600 kg`;
   `Gran Urea` carries none. Read the bag size from the order text (rule to confirm with the
   operator: what to do when no size is written). Same hardcode in the dashboard's gross-weight
   helper (Remaining gap #2). Blocks saving any non-600 kg order correctly.
-- [ ] **A25. Yara Bela Axan name.** 8 orders today say `YARA BELA AXAN 27-04 po 600 kg`; stock has
-  `Yara Bela Axan N27, S3,7% (RSK)` (EASTERN VANQUISH). All stop at "not found in either stock
-  report" until the operator confirms they are the same product (→ synonym).
+- [~] **A25. Order cargo names vs the stock reports' names.** *BUILT 2026-11-09.* Operator: the
+  stock reports at `http://192.168.1.146:3000/` are the list the office rechecks daily — take
+  cargo names and vessels from there and keep updating from there. Done three ways:
+  1. **Word match** (stock lookup pass 5, and KIPIS lot matching): every word of the order's
+     name starts a word of the stock name — `YARA BELA AXAN 27-04 po 600 kg` → `Yara Bela Axan
+     N27, S3,7% (RSK)` (EASTERN VANQUISH), `Gran Urea` → `GRANULAR UREA`. A grade formula in the
+     order must also be in the stock name (else `NPK` alone matched every NPK). Two different
+     products matching → stop, no guess.
+  2. **`cargo.xlsx` refreshed from stock on every RECHECK** (`syncCargo`, which existed but was
+     never called): adds new stock names and re-points every name still in stock at its current
+     vessel. First run fixed 10 stale vessels (e.g. ammonium sulphate RIX SPIRIT → ULSAN, Axan
+     KREETE → EASTERN VANQUISH, TSP 46 → SEA CARRIER / OSLO CARRIER 2).
+  3. Synonym added: `Trigubas superfosfatas` = `TSP 46` (Helm AG: OSLO CARRIER 2, SEA CARRIER,
+     ADAROSE) — 9 orders today. `Amonio salietra` is in neither report.
+- [ ] **A26. Which vessel, when several carry the cargo.** The stock lookup picks one vessel
+  (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
+  choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
+  oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.
+  Proposed: search KIPIS for the lots of *every* stock vessel carrying the product and let the
+  lot marks decide across vessels (several unmarked lots → stop and ask, as now). To confirm
+  with the operator.
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

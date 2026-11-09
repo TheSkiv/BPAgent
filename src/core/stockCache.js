@@ -90,6 +90,26 @@ function synonymGroups() {
   }
 }
 
+// Name words for word matching: letters only, no diacritics, 3+ letters. Drops packaging and
+// filler ("po 600 kg", "(A5)") and grade codes like "N27", which are written differently on each
+// side ("27-04" in an order, "N27, S3,7%" in stock).
+function nameWords(s) {
+  return (String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().match(/[a-z]+/g) || [])
+    .filter(w => w.length >= 3);
+}
+
+// Every word of the order name starts a word of the other name:
+// "YARA BELA AXAN 27-04 po 600 kg" ↔ "Yara Bela Axan N27, S3,7% (RSK)", "Gran Urea" ↔ "GRANULAR UREA".
+// A grade formula in the order must be in the other name too — the words alone ("NPK") would let
+// NPK 11-11-21 match NPK 8-12-22.
+function wordsMatch(orderCargo, otherName) {
+  const formula = extractFormula(orderCargo);
+  if (formula && !String(otherName).includes(formula)) return false;
+  const want = nameWords(orderCargo);
+  const have = nameWords(otherName);
+  return want.length > 0 && want.every(w => have.some(h => h.startsWith(w)));
+}
+
 function matchingRows(cargoName, stockRows) {
   const normCargo = norm(cargoName);
 
@@ -113,6 +133,15 @@ function matchingRows(cargoName, stockRows) {
     if (group) matching = stockRows.filter(r => group.some(name => norm(r.produktas).includes(name)));
   }
 
+  // Pass 5: word match — only when it points at a single product; two different products
+  // (e.g. two Yara grades) would be a guess, so the run stops instead.
+  if (!matching.length) {
+    const hits = stockRows.filter(r => wordsMatch(cargoName, r.produktas));
+    const products = [...new Set(hits.map(r => norm(r.produktas)))];
+    if (products.length === 1) matching = hits;
+    else if (products.length > 1) console.warn(`Stock: "${cargoName}" matches ${products.length} different products (${[...new Set(hits.map(r => r.produktas))].join(' | ')}) — not guessing`);
+  }
+
   return matching;
 }
 
@@ -125,7 +154,8 @@ function sameCargo(orderCargo, otherName) {
   const formula = extractFormula(orderCargo);
   if (formula && String(otherName).includes(formula)) return true;
   const group = synonymGroups().find(g => g.some(name => a.includes(name)));
-  return !!group && group.some(name => b.includes(name));
+  if (group && group.some(name => b.includes(name))) return true;
+  return wordsMatch(orderCargo, otherName);
 }
 
 // Short words to type into KIPIS's Pavadinimas filter, which only matches short text (the
@@ -178,4 +208,4 @@ function vesselBreakdown(cargoName, stockRows) {
   }));
 }
 
-module.exports = { fetchStockRows, resolveVessel, vesselBreakdown, sameCargo, cargoKeywords };
+module.exports = { fetchStockRows, resolveVessel, vesselBreakdown, sameCargo, cargoKeywords, matchingRows };

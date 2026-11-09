@@ -48,6 +48,7 @@ const { markDone, isDone, normalizePlate } = require('../core/doneTracker');
 const orderStore = require('../core/orderStore');
 const { ensureOrder } = orderStore;
 const { saveEmailData }    = require('../core/emailCache');
+const { syncCargo }        = require('../core/syncCargo');
 
 const { TERMINAL_EMAILS } = require('../core/terminals');
 
@@ -159,6 +160,15 @@ router.get('/status', async (req, res) => {
 // same logic without going through HTTP. Returns { emails, summary } or throws (AUTH_REQUIRED
 // on an expired token, same as before).
 async function pollAndProcessEmails({ max, query }) {
+    // The stock reports are the list the office rechecks daily — refresh the cargo list from them
+    // on every RECHECK so cargo names and vessels never go stale (operator, 2026-11-09).
+    try {
+      const sync = await syncCargo();
+      if (sync.synced || sync.updated) console.log(`Cargo list from stock: ${sync.synced} added, ${sync.updated} vessel(s) updated`);
+      for (const e of sync.errors) console.warn('Cargo list from stock:', e);
+    } catch (err) {
+      console.warn('Cargo list refresh failed:', err.message);
+    }
     await removeNotCheckRows();
     const emails = await fetchRecentEmails(max, query);
 
