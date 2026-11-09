@@ -83,7 +83,11 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   now returns `ok:null` on a network error or malformed reply instead of crashing the run. A
   blocked save leaves the form open in KIPIS, sets the order to `failed` with the reason (not
   `needs_human` — that state feeds the sender-confirmation panel), and the dashboard shows
-  "Not saved — <reason>". Proper fix-and-resume prompts are A15.
+  "Not saved — <reason>". Proper fix-and-resume prompts are A15. **Bug found live
+  2026-11-09, fixed same day:** the AI check snapshotted the form after the Kroviniai tab was
+  opened, when the main tab's fields are hidden and skipped, so it reported plate, payer and
+  instructions as empty and blocked a correct form (the read-back had passed). It now gets the
+  main tab's snapshot taken before the tab switch plus the Kroviniai tab's. Not yet re-run live.
 - [~] **A2. Deterministic pre-save field check.** *BUILT 2026-11-09, not yet run against live
   KIPIS.* `readBackIssues()` in `checkPrk.js` reads each field straight from the form and
   compares exactly (whitespace/case-insensitive text, numbers, checkboxes): Originalaus
@@ -182,7 +186,13 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   **New KIPIS search BUILT 2026-11-09** (see `steps.md` "Row selection"): cargo keyword in
   *Pavadinimas*, limit 500, vessel matched in *Transportas*, storage-place rule, lot marks.
   Tested against a replica of the operator's ULSAN screenshot — correct rows, existing PRK
-  found for MLL371//RZ817, right storage row ticked; not yet run against live KIPIS.
+  found for MLL371//RZ817, right storage row ticked. **Live run 2026-11-09 (MLL371//RZ817):**
+  ULSAN from stock → keyword `Amonio` → 15 rows, 9 ULSAN ammonium sulphate → existing PRK
+  `261109-005045-PRK (Patvirtintas)` found, nothing filed, order `done` with the number
+  recorded. **Live run 2 (NYY603//ID290, Karbamidas):** HEINZ from stock → `Karbamidas` 0 rows
+  → synonym keyword `Urea` → lot `260903-001557-L` "GRANULAR UREA 46% N IN BULK", the only lot
+  → used unmarked → form filled → **field read-back PASSED** (incl. the transport-row check,
+  so that locator works) → AI check falsely failed (see A1) → not saved, form left open.
   **Choosing between lots — answered (operator, 2026-11-09):** lot 4 (`260924-001330-L`) is the
   bagged lot **and** the one BPA agreed with the terminal to load first — often by phone, with no
   paper trail. Nothing in KIPIS or the stock reports shows this, so the machine cannot derive
@@ -237,6 +247,16 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   weight left, whether trucks are already loading from it) with a *Use this lot* button; the
   mark is saved per vessel + cargo + packaging and reused for later orders until the lot is
   empty or the operator changes it.
+
+- [ ] **A24. Bag size is hardcoded at 600 kg — wrong for 500 kg bags.** Seen live 2026-11-09:
+  `Karbamidas (500) gran.` was filled as 40 bags / 24 040 kg gross; with 500 kg bags it is
+  48 bags / 24 048 kg. Today's order texts carry the size as `(600)`, `(500)` or `po 600 kg`;
+  `Gran Urea` carries none. Read the bag size from the order text (rule to confirm with the
+  operator: what to do when no size is written). Same hardcode in the dashboard's gross-weight
+  helper (Remaining gap #2). Blocks saving any non-600 kg order correctly.
+- [ ] **A25. Yara Bela Axan name.** 8 orders today say `YARA BELA AXAN 27-04 po 600 kg`; stock has
+  `Yara Bela Axan N27, S3,7% (RSK)` (EASTERN VANQUISH). All stop at "not found in either stock
+  report" until the operator confirms they are the same product (→ synonym).
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

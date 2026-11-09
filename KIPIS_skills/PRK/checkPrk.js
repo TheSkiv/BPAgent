@@ -67,12 +67,16 @@ Return a JSON object:
 ok = true only when there are no "high" severity issues.`;
 
 // Verifies the PRK form is correctly completed up to (not including) Saugoti.
+// mainTabFields: the main tab's snapshot, taken before the Kroviniai tab was opened — once it is,
+// the main tab's fields are hidden and captureFormState skips them, so the model would report
+// plate, payer and instructions as empty (seen live 2026-11-09).
 // Returns { ok, issues, summary } — or { ok:null, summary } when the check could not run.
-async function checkPrkCompletion(page, expected) {
+async function checkPrkCompletion(page, expected, mainTabFields = []) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return { ok: null, issues: [], summary: 'OPENAI_API_KEY not set — PRK check skipped' };
 
-  const state = await captureFormState(page);
+  const current = await captureFormState(page);
+  const state   = { fields: [...mainTabFields, ...current.fields], buttons: current.buttons };
 
   // A network failure or malformed reply means "check unavailable" (ok:null), not a crashed run —
   // the caller then relies on the deterministic read-back alone (ROADMAP D2).
@@ -89,7 +93,7 @@ async function checkPrkCompletion(page, expected) {
           { role: 'system', content: `${loadRules()}\n\n---\n\n${SYSTEM_PROMPT}` },
           { role: 'user',   content:
               'Expected order data:\n' + JSON.stringify(expected, null, 1) +
-              '\n\nForm fields currently on the page:\n' + JSON.stringify(state.fields, null, 1) +
+              '\n\nForm fields (the main tab, then the Kroviniai tab):\n' + JSON.stringify(state.fields, null, 1) +
               '\n\nButtons present:\n' + JSON.stringify(state.buttons) },
         ],
       }),

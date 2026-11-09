@@ -1,7 +1,7 @@
 const XLSX = require('xlsx');
 
 const { todayFilePath } = require('../../src/core/dateManager');
-const { checkPrkCompletion, readBackIssues } = require('./checkPrk');
+const { checkPrkCompletion, readBackIssues, captureFormState } = require('./checkPrk');
 const INSTRUCTIONS_PATH = 'C:\\PortSystem\\Instructions\\Instructions.xlsx';
 
 const PAYER_CODE = 'LT242134730';
@@ -370,6 +370,7 @@ async function navigateToCargo(page, data = {}) {
       // Originalaus dokumento numeris is an input value and does not count here.
       ...plates.map(p => ({ field: `Transportas ${p}`, locator: page.getByText(p), expected: p, kind: 'present' })),
     ]);
+    const mainTabFields = (await captureFormState(page)).fields;
 
     console.log('Navigating to Kroviniai tab...');
     await page.locator('a[onclick*="prkr_kroviniai"]').click();
@@ -410,7 +411,7 @@ async function navigateToCargo(page, data = {}) {
       instructions,
       payerCode:    PAYER_CODE,
       payerName:    PAYER_NAME,
-    });
+    }, mainTabFields);
 
     if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);
     else if (check.ok)          console.log(`AI check PASSED: ${check.summary}`);
