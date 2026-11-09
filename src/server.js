@@ -80,11 +80,10 @@ app.post('/run-prk', async (req, res) => {
     if (result.submitted) {
       markDone(value);
       if (tracked) {
-        // Number stays null until PRK document capture is built (roadmap Phase 2).
-        orderStore.attachDocument(tracked.id, { type: 'PRK', number: null, status: 'draft_saved' });
-        orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: 'PRK draft saved (Saugoti)' });
+        orderStore.attachDocument(tracked.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'draft_saved' });
+        orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber}` });
       }
-      console.log('run-prk completed: PRK draft saved, marked done');
+      console.log(`run-prk completed: PRK ${result.prkNumber} saved, marked done`);
     } else if (result.existingPrk) {
       recordExistingPrk(tracked, value, result.existingPrk);
     } else if (result.blocked) {
@@ -94,7 +93,7 @@ app.post('/run-prk', async (req, res) => {
       if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
       console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
     }
-    res.json({ status: 'ok', submitted: result.submitted, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     console.error('run-prk failed:', err.message);
     if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
@@ -233,8 +232,8 @@ app.post('/queue/process-next', async (req, res) => {
     const result = await kipisLoad.run({ plate: next.plate });
     if (result.submitted) {
       markDone(next.plate);
-      orderStore.attachDocument(next.id, { type: 'PRK', number: null, status: 'draft_saved' });
-      orderStore.setState(next.id, 'done', { actor: 'kipis', detail: 'PRK draft saved' });
+      orderStore.attachDocument(next.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'draft_saved' });
+      orderStore.setState(next.id, 'done', { actor: 'kipis', detail: `PRK draft saved: ${result.prkNumber}` });
     } else if (result.existingPrk) {
       recordExistingPrk(next, next.plate, result.existingPrk);
     } else if (result.blocked) {
@@ -242,7 +241,7 @@ app.post('/queue/process-next', async (req, res) => {
     } else {
       orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
     }
-    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
     console.error(`Queue: ${next.id} failed —`, err.message);

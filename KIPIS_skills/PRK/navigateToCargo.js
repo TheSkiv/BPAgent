@@ -243,6 +243,7 @@ async function navigateToCargo(page, data = {}) {
   let check      = null;
   let fieldCheck = null;
   let blocked    = null;
+  let saved      = null;
   try {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
@@ -478,8 +479,9 @@ async function navigateToCargo(page, data = {}) {
       await saveBtn.scrollIntoViewIfNeeded();
       await saveBtn.click();
       await page.waitForLoadState('networkidle');
+      saved = await confirmSaved(page);
       submitted = true;
-      console.log('PRK draft saved. Pateikti is HUMAN-ONLY — not pressed (see RULES.md).');
+      console.log(`PRK draft saved: ${saved.number} (${saved.status}). Pateikti is HUMAN-ONLY — not pressed (see RULES.md).`);
     }
 
   } catch (error) {
@@ -487,7 +489,29 @@ async function navigateToCargo(page, data = {}) {
     throw error;
   }
 
-  return { submitted, check, fieldCheck, blocked };
+  return { submitted, check, fieldCheck, blocked, prkNumber: saved?.number || null, prkStatus: saved?.status || null };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, getVesselNames };
+// After Saugoti, KIPIS swaps the header "Naujas dokumentas" for
+// "Prašymas krovai: 260720-005851-PRK, Ruošiamas, Saugojimo vieta -> Autotransportas".
+// That header is the proof of the save (ROADMAP A3) and carries the PRK number (A4). No header →
+// not saved as far as we can tell: throw, so the order is never marked done on a guess. If KIPIS
+// did save it after all, a rerun finds that PRK on the lot (Rule 6) instead of filing another.
+async function confirmSaved(page, timeout = 20000) {
+  const header = page.getByText(/Prašymas krovai:\s*\d{6}-\d{6}-PRK/).first();
+  try {
+    await header.waitFor({ state: 'visible', timeout });
+  } catch {
+    throw new Error('Saugoti was pressed, but KIPIS shows no saved PRK number — not counting it as saved. Check the form in KIPIS.');
+  }
+  const text = squash(await header.textContent());
+  const m = text.match(/(\d{6}-\d{6}-PRK)\s*,\s*([^,]+)/);
+  if (!m) throw new Error(`Saved-document header not understood: "${text}"`);
+  const status = m[2].trim();
+  if (!/^ruošiamas$/i.test(status)) {
+    throw new Error(`PRK ${m[1]} was saved with status "${status}", expected Ruošiamas — check it in KIPIS`);
+  }
+  return { number: m[1], status };
+}
+
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, getVesselNames, confirmSaved };

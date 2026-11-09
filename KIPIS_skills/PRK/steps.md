@@ -45,6 +45,7 @@ the stock app is down. Lot choice uses the operator's marks in `config/lot_marks
 | 26 | Kroviniai tab | fill | row input 2 | bags | Vietų skaičius |
 | 27 | — | **AI check** | `checkPrk.js` | — | verify against source data |
 | 28 | PRK form | click | `input[type=submit][value="Saugoti"]:visible` (last) | — | **STOP HERE** |
+| 29 | PRK form | wait/read | text `Prašymas krovai: <nnnnnn-nnnnnn-PRK>, Ruošiamas, …` | — | proof of save + PRK number (`confirmSaved`); missing or not Ruošiamas → order failed |
 
 ## Row selection (step 8)
 

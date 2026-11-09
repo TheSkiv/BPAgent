@@ -105,6 +105,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   offline with stand-in fields. **To verify on the first live run:** that a saved transport row
   shows its plate as page text (the transport check looks for that) — if not, every save will
   be blocked with "Transportas <plate>: not on the page" and the check needs a different locator.
+- [~] **A3 + A4 BUILT 2026-11-09 (mock-tested, not yet live):** `confirmSaved()` waits up to
+  20 s after Saugoti for KIPIS's saved-document header
+  `Prašymas krovai: <nnnnnn-nnnnnn-PRK>, Ruošiamas, …` (it replaces "Naujas dokumentas"). Found →
+  the number and status go on the order (`docs.PRK.number`) and to the dashboard message. Not
+  found, or a status other than Ruošiamas → the run throws and the order is `failed`, never
+  `done` on a guess; if KIPIS did save it, the rerun's existing-PRK check finds it on the lot.
 - [ ] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
   `submitted = true` without looking. Wait for the saved-document state (PRK number in the
   header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.
