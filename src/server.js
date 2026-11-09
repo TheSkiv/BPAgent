@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express       = require('express');
 const path          = require('path');
-const { openKipis } = require('./core/browser');
+const { openKipis, getPage } = require('./core/browser');
 const kipisLoad     = require('../KIPIS_skills/PRK/kipisLoad');
 const kipisTest     = require('./actions/kipisTest');
 const gmailRoute    = require('./routes/gmailRoute');
@@ -14,6 +14,23 @@ const { fetchAttachmentBytes }   = require('./core/imapMail');
 const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
+const lotMarks = require('./core/lotMarks');
+
+// Checked before an order is taken, so a closed KIPIS window never fails a good order.
+function kipisOpen() {
+  try { return !getPage().isClosed(); } catch { return false; }
+}
+const KIPIS_CLOSED = 'KIPIS is not open — press Open KIPIS (and enter the MFA code) first. No order was touched.';
+
+// A PRK someone already filed for this truck (seen on the lot in KIPIS): the order is handled.
+function recordExistingPrk(order, plate, existingPrk) {
+  markDone(plate);
+  if (!order) return;
+  const number = (existingPrk.match(/\d{6}-\d{6}-PRK/) || [null])[0];
+  const status = (existingPrk.match(/\(([^)]+)\)/) || [null, 'exists'])[1];
+  orderStore.attachDocument(order.id, { type: 'PRK', number, status });
+  orderStore.setState(order.id, 'done', { actor: 'kipis', detail: `PRK already in KIPIS: ${existingPrk} — not filed again` });
+}
 
 const app = express();
 app.use(express.json());
@@ -49,6 +66,8 @@ app.post('/run-prk', async (req, res) => {
     return res.json({ status: 'error', message: 'Plate already filed (marked done). Unmark it first to re-run.' });
   }
 
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+
   console.log(`Received request: run-prk | ${value}`);
   isRunning = true;
 
@@ -66,6 +85,8 @@ app.post('/run-prk', async (req, res) => {
         orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: 'PRK draft saved (Saugoti)' });
       }
       console.log('run-prk completed: PRK draft saved, marked done');
+    } else if (result.existingPrk) {
+      recordExistingPrk(tracked, value, result.existingPrk);
     } else if (result.blocked) {
       if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
       console.log(`run-prk stopped before Saugoti: ${result.blocked}`);
@@ -73,7 +94,7 @@ app.post('/run-prk', async (req, res) => {
       if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
       console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
     }
-    res.json({ status: 'ok', submitted: result.submitted, blocked: result.blocked || null, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', submitted: result.submitted, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     console.error('run-prk failed:', err.message);
     if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
@@ -198,6 +219,7 @@ app.post('/confirmations/decide', async (req, res) => {
 // Takes the next ready NON-bulk order and files its PRK. One at a time, oldest first.
 app.post('/queue/process-next', async (req, res) => {
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
 
   orderStore.syncFromExcel();
   const next = orderStore.nextReadyNonBulk();
@@ -213,12 +235,14 @@ app.post('/queue/process-next', async (req, res) => {
       markDone(next.plate);
       orderStore.attachDocument(next.id, { type: 'PRK', number: null, status: 'draft_saved' });
       orderStore.setState(next.id, 'done', { actor: 'kipis', detail: 'PRK draft saved' });
+    } else if (result.existingPrk) {
+      recordExistingPrk(next, next.plate, result.existingPrk);
     } else if (result.blocked) {
       orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
     } else {
       orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
     }
-    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, blocked: result.blocked || null, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
     console.error(`Queue: ${next.id} failed —`, err.message);
@@ -226,6 +250,26 @@ app.post('/queue/process-next', async (req, res) => {
   } finally {
     isRunning = false;
   }
+});
+
+// Lot marks: which KIPIS lot is bagged/bulk and the order lots are loaded in (ROADMAP A22),
+// plus lots a stopped PRK run is waiting on.
+app.get('/lots', (req, res) => {
+  res.json(lotMarks.listMarks());
+});
+
+app.post('/lots/mark', (req, res) => {
+  try {
+    res.json({ status: 'ok', mark: lotMarks.setMark(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/lots/remove', (req, res) => {
+  const { lot } = req.body || {};
+  if (!lot) return res.status(400).json({ error: 'Missing lot' });
+  res.json({ status: lotMarks.removeMark(lot) ? 'ok' : 'not_found' });
 });
 
 // Manual override: operator marks an order done directly, bypassing PRK filing.

@@ -9,8 +9,9 @@ code — it is the human-readable spec of the non-AI algorithm.
 ## Inputs
 
 From today's orders Excel row, matched by plate (`findRowByPlate`):
-`Plate`, `Cargo`, `Weight`, `Bulk`. Vessel resolved via 3-tier lookup: BPA stock API →
-`config/cargo.xlsx` → `Instructions/Instructions.xlsx`.
+`Plate`, `Cargo`, `Weight`, `Bulk`. Vessel from the BPA stock reports (GBL + Helm AG, with
+`config/cargo_synonyms.json`); `config/cargo.xlsx` → `Instructions/Instructions.xlsx` only while
+the stock app is down. Lot choice uses the operator's marks in `config/lot_marks.json`.
 
 ## Steps
 
@@ -18,13 +19,13 @@ From today's orders Excel row, matched by plate (`findRowByPlate`):
 |---|---|---|---|---|---|
 | 1 | Home | click | `text=Sekimas` | — | |
 | 2 | Sekimas | click | `text="Kroviniai"` | — | |
-| 3 | Kroviniai | fill | `[id$=":fAtgabenimoDokumentas"]` | vessel name | from vessel lookup |
-| 4 | Kroviniai | fill | `[id$=":fPavadinimas"]` | cargo name | skipped if empty |
-| 5 | Kroviniai | click | `input[type=submit][value="Filtruoti/Atnaujinti"]` | — | apply filters |
-| 6 | Kroviniai | retry | clear `[id$=":fPavadinimas"]` | — | only if 0 rows; re-filter on vessel alone |
+| 3 | Kroviniai | fill | `[id$=":fAtgabenimoDokumentas"]` | `""` | cleared — the vessel is **not** searched here (see below) |
+| 4 | Kroviniai | fill | `[id$=":fPavadinimas"]` | cargo keyword | first word of the order cargo (e.g. `Amonio`), then of each synonym |
+| 5 | Kroviniai | fill | `[id$=":limit"]` | `500` | default 50 can cut lots off |
+| 6 | Kroviniai | click | `input[type=submit][value="Filtruoti/Atnaujinti"]` | — | apply filters; next keyword if no row matches |
 | 7 | Kroviniai | read | `thead tr:last th` | — | **leaf** header row = column order of body `<td>`s |
 | 8 | Kroviniai | select row | — | — | see row-selection rules below |
-| 9 | Kroviniai | click | row `input[type=checkbox]` | — | tick chosen lot |
+| 9 | Kroviniai | click | row `input[type=checkbox]` | — | tick the chosen lot's **storage** row |
 | 10 | Kroviniai | click | `input[type=button][value="Krauti"]` | — | opens popup |
 | 11 | Popup | select | `#krova_tag_krauti select` (2nd) | `Klaipėdos konteinerių terminalas, UAB` | terminal |
 | 12 | Popup | click | `input[type=submit][value="Krauti"]` | — | opens PRK form |
@@ -50,12 +51,26 @@ From today's orders Excel row, matched by plate (`findRowByPlate`):
 The results table groups rows by shipment via **rowspan**:
 
 - The **parent** row carries all leaf columns; **sub-rows omit the leading columns**, so a
-  sub-row's cells are shifted left by `offset = leafHeaderCount - cellCount`.
-- Read `Paskutinis dokumentas` at `leafIndex - offset`.
-- **Eligible** = that cell contains `IMP` and does **not** contain `VZT` or `KDA`
-  (`VZT`/`KDA` = already loaded onto a truck). An `IMP` in *Saugojimo deklaracija* does not count
-  — only the `Paskutinis dokumentas` column.
-- Among eligible rows pick the largest `Svoris bruto, kg`; warn if below 24 000 kg.
+  sub-row's cells are shifted left by `offset = leafHeaderCount - cellCount`, and a sub-row
+  belongs to the lot (*Siuntos numeris*) of the parent row above it.
+- **Vessel:** keep rows whose *Transportas* cell names the stock vessel as a whole word
+  (`Laivas ULSAN 1078092, Maršalo s.`). Neither the *Atgabenimo dokumentas* nor the
+  *Atgabenęs transportas (pavadinimas)* filter found ULSAN (2026-11-09), so the vessel is matched
+  in the results, not in a filter.
+- **Cargo:** keep rows whose *Pavadinimas* is the ordered cargo (`sameCargo`: either name starts
+  the other, same NPK formula, or same synonym group) — a vessel can carry two cargoes.
+- **PRK already exists (Rule 6):** a row whose *Krauti/pakrauta į* is `Autotransportas <plate>`
+  (KIPIS writes `MLL371/RZ817`) with a PRK last document → stop, report it, file nothing.
+- **Loadable = in our storage** (operator rule, 2026-11-09): *Krauti/pakrauta į* is
+  `Saugojimo vieta — Vieta Ro-Ro ir generalinių krovinių terminalo sandėlis, Minijos g. 180` or
+  `Saugojimo vieta — Vieta Konteinerių terminalo sandėlis, Perkėlos g. 8`. Rows loading to
+  *Autotransportas* / *Vagonai* are other loads — ignored. (Replaces the old rule "last document
+  contains IMP, not VZT/KDA": these lots have PTA/PRK last documents and no IMP at all.)
+- **Which lot** (`lotMarks.chooseLot`): one lot → use it. Several → every lot must be marked by
+  the operator (bagged/bulk + loading order, dashboard *Lots* panel); take the lowest loading
+  order of the order's packaging that still holds one truck's gross weight. Any lot unmarked →
+  stop and list the lots for marking. Nothing in KIPIS shows packaging or the agreed loading
+  order — both say BULK, and the order is agreed with the terminal, often by phone.
 - Never set the `Buvimo vieta` filter — it over-constrains and returns zero rows.
 
 ## Derived values

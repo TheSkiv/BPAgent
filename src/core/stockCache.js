@@ -116,6 +116,30 @@ function matchingRows(cargoName, stockRows) {
   return matching;
 }
 
+// Whether a KIPIS lot's cargo name is the ordered cargo. Looser than the stock lookup in one
+// way: either name may be the start of the other ("AMONIO SULFATAS" ↔ "Amonio sulfatas (600) gran.").
+function sameCargo(orderCargo, otherName) {
+  const a = norm(orderCargo), b = norm(otherName);
+  if (!a || !b) return false;
+  if (a === b || a.startsWith(b) || b.startsWith(a)) return true;
+  const formula = extractFormula(orderCargo);
+  if (formula && String(otherName).includes(formula)) return true;
+  const group = synonymGroups().find(g => g.some(name => a.includes(name)));
+  return !!group && group.some(name => b.includes(name));
+}
+
+// Short words to type into KIPIS's Pavadinimas filter, which only matches short text (the
+// operators type e.g. "amonio"): the order's first word, then the first word of each synonym, in
+// case KIPIS names the cargo in the other language.
+function cargoKeywords(orderCargo) {
+  const firstWord = s => (String(s || '').match(/\p{L}+/u) || [''])[0];
+  let groups = [];
+  try { groups = JSON.parse(fs.readFileSync(SYNONYMS_PATH, 'utf8')).groups || []; } catch { /* no synonyms */ }
+  const group = groups.find(g => g.some(name => norm(orderCargo).includes(norm(name)))) || [];
+  const seen = new Set();
+  return [orderCargo, ...group].map(firstWord).filter(w => w && !seen.has(w.toLowerCase()) && seen.add(w.toLowerCase()));
+}
+
 // Sums netto per vessel and keeps each vessel's oldest discharge date, oldest-first.
 function byVesselOldestFirst(rows) {
   const byVessel = new Map();
@@ -154,4 +178,4 @@ function vesselBreakdown(cargoName, stockRows) {
   }));
 }
 
-module.exports = { fetchStockRows, resolveVessel, vesselBreakdown };
+module.exports = { fetchStockRows, resolveVessel, vesselBreakdown, sameCargo, cargoKeywords };

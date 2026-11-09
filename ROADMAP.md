@@ -98,9 +98,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.
 - [ ] **A4. Capture the PRK number at save time** (Phase 2, first half) into
   `docs.PRK.number`. Needed by A3, by dedup (A5) and by the `Šalinti` sweep.
-- [ ] **A5. Check KIPIS for an existing PRK before filing** (Rule 6). Wire
+- [~] **A5. Check KIPIS for an existing PRK before filing** (Rule 6). *First part BUILT
+  2026-11-09 (replica-tested, not yet live):* the lot search sees a `Autotransportas <plate>` row
+  with a PRK and stops; the order goes to `done` with the PRK number and status recorded. Still
+  missing: the PRK-list check for PRKs not visible on the lot (e.g. different cargo name). Wire
   `exportPrkList.js` into the worker so a PRK filed by hand, or by a run that crashed after
-  saving, blocks a duplicate. `doneTracker` alone cannot see those.
+  saving, blocks a duplicate. `doneTracker` alone cannot see those. **Proven needed
+  2026-11-09:** the test truck `MLL371//RZ817` already had a hand-filed PRK
+  (`261109-005045-PRK`, *Patvirtintas*) on the ULSAN lot — had the search worked, the run would
+  have filed a duplicate. Cheap first check, on the page the filler is already on: a lot sub-row
+  with *Krauti/pakrauta į* = `Autotransportas <plate>` (KIPIS writes `MLL371/RZ817`, one slash)
+  means a PRK exists for that truck → skip and report.
 - [ ] **A6. Exact order matching.** `findRowByPlate` matches the Excel row with
   `.includes()` (a short plate can match a longer one) and reads the Excel, not the order the
   worker picked — a same-day second trip can be filed with the first trip's row. File from the
@@ -109,12 +117,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   warning and files anyway. Unattended: → `needs_human` unless the order weight fits the lot.
 - [ ] **A8. Batch worker.** Loop all eligible orders in one run; continue past per-order
   failures; return made / skipped / failed. (Was "Batch pre-made PRKs" item 1 and 3.)
-- [ ] **A9. KIPIS session handling.** Login needs a human MFA code, so the machine cannot log
+- [~] **A9. KIPIS session handling.** *Part BUILT 2026-11-09:* RUN PRK and Process next refuse
+  to start while the KIPIS window is not open, and touch no order. Expiry detection mid-run and
+  keep-alive still to do. Login needs a human MFA code, so the machine cannot log
   itself back in. The worker must detect an expired session once, stop the whole run (not fail
   every order in turn), and raise a single human task "reopen KIPIS". Keep-alive approved (D3):
   while idle, periodically click between read-only menu pages (e.g. Sekimas → Kroviniai) —
   menu navigation only, never a form action button. Still to find out: the idle timeout, to
-  set the interval.
+  set the interval. **Seen live 2026-11-09:** pressing *Process next PRK* with KIPIS not open
+  (or its window closed) takes an order, fails it with "Browser not initialized" / "Target page
+  … has been closed", and moves on — two good orders were marked `failed` this way. The worker
+  must check the browser is open *before* taking an order and leave the order untouched if not.
 - [ ] **A10. Recover from a failed run.** A failure mid-form leaves a popup or half-filled form;
   `failed` orders are never retried. Define: reset to home, retry once for transient errors
   (timeouts), leave data errors (no vessel, no IMP lot, no weight) at `needs_human` with the reason.
@@ -142,6 +155,45 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   cargos now stop for the operator — `YARA BELA AXAN 27-04` (stock has `Yara Bela Axan N27,
   S3,7% (RSK)` on EASTERN VANQUISH; same product? → synonym), `Trigubas superfosfatas 0-46-0`
   (8 orders, in neither report — are the reports complete?), `Amonio salietra (N-34,4)`.
+  **First live PRK run after the fix (2026-11-09):** ULSAN resolved from stock correctly, but
+  KIPIS *Kroviniai* returned **0 rows for `Atgabenimo dokumentas` = ULSAN** even without the
+  cargo filter — so the stock reports' vessel name does not find this cargo in KIPIS. The
+  operator finds it by typing `amonio` in *Pavadinimas*, and the vessel is shown on the row.
+  **Likely cause (from the page map):** the filler types the vessel into
+  `Atgabenimo dokumentas` (`fAtgabenimoDokumentas`, the *arrival document* filter), but the
+  vessel lives in **`Atgabenęs transportas (pavadinimas)`** (`fAtgTranspPavad`; rows show e.g.
+  `Laivas SATURN J 9546174, S.Kristoferis`). It only worked before when an arrival document
+  happened to contain the vessel name. Also the full order cargo text
+  (`Amonio sulfatas (600) gran.`) is too specific for the *Pavadinimas* filter. **Checked by the
+  operator 2026-11-09: `Atgabenęs transportas (pavadinimas)` = ULSAN does not find it either**,
+  so the vessel field is not the (only) cause. **Seen in the operator's screenshot
+  (2026-11-09), `Pavadinimas` = `amonio`:** the vessel is in the *Transportas* column
+  (`Laivas ULSAN 1078092, Maršalo s.`); KIPIS cargo names are `AMONIO SULFATAS` and
+  `Amonio sulfato trąšos (granuliuotos)`; four ULSAN lots. **Last documents are PTA/PRK — no
+  IMP anywhere**, so the current IMP-based row rule (steps.md step 8) could never pick a lot
+  here even with the right filters.
+  **Selection rule given by the operator (replaces the IMP rule):** use only rows whose
+  *Krauti/pakrauta į* is one of our two terminal storage places —
+  `Saugojimo vieta — Vieta Ro-Ro ir generalinių krovinių terminalo sandėlis, Minijos g. 180` or
+  `Saugojimo vieta — Vieta Konteinerių terminalo sandėlis, Perkėlos g. 8`. Sub-rows loading to
+  `Autotransportas` / `Vagonai` are other trucks' and wagons' loads — ignore them.
+  Planned search: *Pavadinimas* = a short cargo keyword (first word, e.g. `Amonio`), then keep
+  rows whose *Transportas* contains the stock vessel, then apply the rule above.
+  **New KIPIS search BUILT 2026-11-09** (see `steps.md` "Row selection"): cargo keyword in
+  *Pavadinimas*, limit 500, vessel matched in *Transportas*, storage-place rule, lot marks.
+  Tested against a replica of the operator's ULSAN screenshot — correct rows, existing PRK
+  found for MLL371//RZ817, right storage row ticked; not yet run against live KIPIS.
+  **Choosing between lots — answered (operator, 2026-11-09):** lot 4 (`260924-001330-L`) is the
+  bagged lot **and** the one BPA agreed with the terminal to load first — often by phone, with no
+  paper trail. Nothing in KIPIS or the stock reports shows this, so the machine cannot derive
+  it: the operator's mark (A22) decides whenever more than one lot qualifies.
+- [~] **A23. Confirm the chosen lot is the ordered cargo.** *BUILT 2026-11-09 with the new
+  search (replica-tested):* only rows whose name passes `sameCargo` are considered; the old
+  vessel-only retry is gone. When the cargo-name filter returns
+  nothing, the filler retries with the vessel alone and takes the heaviest IMP lot — without
+  checking that lot's cargo name. A vessel carrying two cargoes (stock shows ELECTRAMAR with
+  NPK 11-11-21 and NPK 8-12-22) can get the wrong one. Read the row's cargo name and match it
+  to the order (same matching as the stock lookup, incl. synonyms); no match → stop.
   Original finding: on the first live test
   (2026-11-09): order cargo `Amonio sulfatas (600) gran.` failed all three tiers with "No vessel
   found", although the cargo is in stock (ULSAN, `AMMONIUM SULPHATE`, Helm AG report, ~5 842 t
@@ -163,15 +215,28 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   2026-11-09): bulk is often bagged internally without documents, so stock and KIPIS say `BULK`
   for cargo that ships packed. When order and stock disagree on packaging, the order wins.
 
-- [ ] **A22. Operator marks which KIPIS lots are packaged vs bulk.** Operator, 2026-11-09: most
+- [~] **A22. Operator marks which KIPIS lots are packaged vs bulk.** *v1 BUILT 2026-11-09
+  (replica-tested, not yet live):* `src/core/lotMarks.js` + `config/lot_marks.json`; dashboard
+  *Lots* panel lists lots a stopped run is waiting on (lot, KIPIS name, tonnes in storage, place,
+  trucks already loading) with bagged/bulk + load order, shows marked lots, and has a manual
+  "mark a lot" form for when a vessel is delivered. Rule: one lot → used; several → all must be
+  marked, lowest load order of the order's packaging that still holds one truck wins; when it
+  has less than a truck left the next one is used (**to confirm with the operator** — "clean out
+  one lot first" may mean the remainder should be asked about instead). Operator, 2026-11-09: most
   cargo reads `BULK` in KIPIS and the stock reports even when part of it is bagged; the bulk and
   packaged amounts are usually separate lots in KIPIS, but both may say bulk. The filler
   (step 8 of `steps.md`) picks the heaviest eligible IMP lot regardless, so a bagged order can be
   filed against the bulk lot, or the reverse. Needs a manual marking the operator sets once per
   lot (e.g. per shipment number in the dashboard), which the filler then uses to pick a lot
   matching the order's packaging. Unattended rule: if a vessel/cargo has more than one eligible
-  lot and none is marked, stop and ask — don't guess. Design open: what identifies a lot reliably
-  (shipment number `Siuntos numeris`?) and where the operator sets the mark.
+  lot and none is marked, stop and ask — don't guess. **Confirmed required 2026-11-09:** the
+  right lot is both a packaging fact and an internal loading-order agreement with the terminal
+  (often by phone), invisible in any system. A lot is identified by its shipment number
+  (`Siuntos numeris`, e.g. `260924-001330-L`). Proposed v1: when a run stops on "several lots,
+  none marked", the dashboard lists the candidate lots (number, KIPIS name, storage place,
+  weight left, whether trucks are already loading from it) with a *Use this lot* button; the
+  mark is saved per vessel + cargo + packaging and reused for later orders until the lot is
+  empty or the operator changes it.
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

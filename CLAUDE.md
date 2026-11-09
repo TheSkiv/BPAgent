@@ -97,6 +97,8 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
 | Cargo list | `C:\PortSystem\config\cargo.xlsx` |
 | Sender rules (Check/Not-Check) | `C:\PortSystem\config\senders.xlsx` |
 | Confirmed senders (auto-file authorisation) | `C:\PortSystem\config\confirmed_senders.json` |
+| Cargo name synonyms (LT ↔ EN, for stock + KIPIS matching) | `C:\PortSystem\config\cargo_synonyms.json` |
+| Lot marks (bagged/bulk + loading order per KIPIS lot, set in the dashboard) | `C:\PortSystem\config\lot_marks.json` |
 | Daily orders | `C:\PortSystem\data\YYYY-MM-DD_orders.xlsx` |
 | Daily order state | `C:\PortSystem\data\orders_state_YYYY-MM-DD.json` |
 | Secrets / API keys | `C:\PortSystem\.env` (`KIPIS_USER`, `KIPIS_PASS`, `OPENAI_API_KEY`, `KIPIS_DRY_RUN`, `AI_EXTRACT`, `IMAP_HOST`, `IMAP_PORT`, `IMAP_USER`, `IMAP_PASSWORD`) |

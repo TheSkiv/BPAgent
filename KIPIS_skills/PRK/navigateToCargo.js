@@ -126,6 +126,78 @@ function getPlates(row) {
   return [plate];
 }
 
+// The two storage places in our terminals. A lot row whose "Krauti/pakrauta į" names one of these
+// is cargo still in storage — loadable. Rows loading to Autotransportas / Vagonai are other trucks'
+// and wagons' loads (operator rule, 2026-11-09; replaces the old IMP-last-document rule — these
+// lots carry PTA/PRK last documents and no IMP at all).
+const OUR_STORAGE = [
+  /ro-ro ir generalinių krovinių terminalo sandėlis/i,
+  /konteinerių terminalo sandėlis/i,
+];
+const isOurStorage = dest => /saugojimo vieta/i.test(dest) && OUR_STORAGE.some(re => re.test(dest));
+const squash = s => String(s || '').replace(/\s+/g, ' ').trim();
+const plateKey = s => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+function parseKg(raw) {
+  const part = raw.includes('/') ? raw.split('/').pop() : raw;
+  const digits = part.replace(/[^\d]/g, '');
+  return digits ? parseInt(digits, 10) : 0;
+}
+
+// Filters Kroviniai by a cargo keyword and reads every row. Results use rowspan grouping: a lot's
+// first row has all columns, its sub-rows drop the leading rowspan'd ones (lot number, name, …), so
+// cells are shifted left by `offset` and sub-rows inherit the lot from the row above.
+async function searchLots(page, keyword) {
+  await page.locator('[id$=":fAtgabenimoDokumentas"]').fill('');
+  await page.locator('[id$=":fPavadinimas"]').fill(keyword);
+  // The default "Maks. įrašų skaičius" (50) can cut lots off a broad keyword search.
+  await page.locator('[id$=":limit"]').fill('500');
+  await page.locator('input[type="submit"][value="Filtruoti/Atnaujinti"]').click();
+  await page.waitForLoadState('networkidle');
+
+  const cargoTable = page.locator('table').filter({ has: page.locator('th', { hasText: 'Siuntos numeris' }) }).last();
+  if (!(await cargoTable.count())) return { rows: [], tableRows: null };
+
+  // Body <td>s align with the LEAF header row, not the group row above it.
+  const headers = (await cargoTable.locator('thead tr').last().locator('th').allTextContents()).map(h => squash(h).toLowerCase());
+  const idx = test => headers.findIndex(test);
+  const col = {
+    lot:       idx(h => h.startsWith('siuntos numeris')),
+    name:      idx(h => h === 'pavadinimas'),
+    transport: idx(h => h === 'transportas'),
+    weight:    idx(h => h.includes('svoris bruto, kg') && !h.includes('pradinis')),
+    lastDoc:   idx(h => h.includes('paskutinis dokumentas')),
+    dest:      idx(h => h.includes('krauti/pakrauta')),
+  };
+  const missing = Object.entries(col).filter(([, i]) => i === -1).map(([k]) => k);
+  if (missing.length) throw new Error(`Kroviniai table: column(s) not found: ${missing.join(', ')}`);
+
+  const tableRows = cargoTable.locator('xpath=./tbody/tr');
+  const count = await tableRows.count();
+  const rows = [];
+  let lot = '', name = '';
+  for (let i = 0; i < count; i++) {
+    const cells  = await tableRows.nth(i).locator('xpath=./td').allTextContents();
+    const offset = headers.length - cells.length;
+    if (offset < 0 || cells.length < 2) continue;
+    const cellAt = leafIdx => {
+      const k = leafIdx - offset;
+      return k >= 0 && k < cells.length ? squash(cells[k]) : '';
+    };
+    if (offset === 0) { lot = cellAt(col.lot); name = cellAt(col.name); }
+    if (!lot) continue;
+    rows.push({
+      i, lot, name,
+      transport: cellAt(col.transport),
+      weightKg:  parseKg(cellAt(col.weight)),
+      lastDoc:   cellAt(col.lastDoc),
+      dest:      cellAt(col.dest),
+    });
+  }
+  return { rows, tableRows };
+}
+
 async function navigateToCargo(page, data = {}) {
   await page.waitForLoadState('networkidle');
 
@@ -153,111 +225,67 @@ async function navigateToCargo(page, data = {}) {
 
     const vesselName = await getVesselName(row);
     const cargoName  = row['Cargo'] || row['cargo'] || '';
+    const weight     = getWeight(row);
+    const bags       = Math.round(weight / 600);
+    const total      = weight + bags;
+    const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
+    console.log(`Weight: ${weight}, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
 
-    // ── Apply filters ────────────────────────────────────────────────────────
-    const vesselInput = page.locator('[id$=":fAtgabenimoDokumentas"]');
-    await vesselInput.waitFor({ state: 'visible', timeout: 10000 });
-    await vesselInput.fill(vesselName);
-    console.log('Filled Atgabenimo dokumentas:', vesselName);
-
-    if (cargoName) {
-      await page.locator('[id$=":fPavadinimas"]').fill(cargoName);
-      console.log('Filled Pavadinimas:', cargoName);
+    // ── Find this vessel's lots of this cargo ───────────────────────────────────
+    // KIPIS's Pavadinimas filter only matches short text, and its vessel filters did not find
+    // the vessel (2026-11-09) — so search by a cargo keyword and pick the vessel from the
+    // Transportas column ("Laivas ULSAN 1078092, …").
+    const { cargoKeywords, sameCargo } = require('../../src/core/stockCache');
+    const vesselRe = new RegExp(`\\b${escapeRe(vesselName)}\\b`, 'i');
+    let rows = [], tableRows = null;
+    const tried = [];
+    for (const keyword of cargoKeywords(cargoName)) {
+      tried.push(keyword);
+      console.log(`Searching Kroviniai: Pavadinimas = "${keyword}"`);
+      const found = await searchLots(page, keyword);
+      rows = found.rows.filter(r => vesselRe.test(r.transport) && sameCargo(cargoName, r.name));
+      console.log(`  ${found.rows.length} row(s), ${rows.length} for ${vesselName} / this cargo`);
+      if (rows.length) { tableRows = found.tableRows; break; }
+    }
+    if (!rows.length) {
+      throw new Error(`No ${vesselName} lot of "${cargoName}" found in KIPIS (searched Pavadinimas: ${tried.join(', ')})`);
     }
 
-    await page.locator('input[type="submit"][value="Filtruoti/Atnaujinti"]').click();
-    await page.waitForLoadState('networkidle');
-    console.log('Filters applied, waiting for results...');
-
-    await page.waitForSelector('table tbody tr', { timeout: 15000 });
-
-    // ── Scope to cargo results table ─────────────────────────────────────────
-    let cargoTable = page.locator('table').filter({
-      has: page.locator('th', { hasText: 'Siuntos numeris' }),
-    }).last();
-
-    let rowCount = await cargoTable.locator('xpath=./tbody/tr').count();
-    console.log('Row count (with cargo filter):', rowCount);
-
-    // If cargo name filter returned nothing, retry without it
-    if (rowCount === 0 && cargoName) {
-      console.log('No results with cargo filter — retrying without Pavadinimas');
-      await page.locator('[id$=":fPavadinimas"]').fill('');
-      await page.locator('input[type="submit"][value="Filtruoti/Atnaujinti"]').click();
-      await page.waitForLoadState('networkidle');
-      await page.waitForSelector('table tbody tr', { timeout: 15000 });
-      cargoTable = page.locator('table').filter({
-        has: page.locator('th', { hasText: 'Siuntos numeris' }),
-      }).last();
-      rowCount = await cargoTable.locator('xpath=./tbody/tr').count();
-      console.log('Row count (vessel-only filter):', rowCount);
+    // ── RULES.md Rule 6: is there already a PRK for this truck? ─────────────────
+    // A sub-row loading to "Autotransportas <plate>" with a PRK as its last document is a PRK
+    // someone already filed — by hand or by an earlier run. KIPIS writes "MLL371/RZ817".
+    const existing = rows.find(r => /autotransportas/i.test(r.dest) && plateKey(r.dest).includes(plateKey(data.plate)) && /PRK/i.test(r.lastDoc));
+    if (existing) {
+      console.log(`PRK already exists for ${data.plate}: ${existing.lastDoc} (lot ${existing.lot}) — not filing another`);
+      return { submitted: false, existingPrk: existing.lastDoc, lot: existing.lot };
     }
 
-    if (rowCount === 0) throw new Error('No cargo rows found after filtering');
+    // ── Pick the lot (operator's marks: bagged/bulk + loading order) ─────────────
+    const loadingRows = lot => rows.filter(r => r.lot === lot && /autotransportas|vagonai/i.test(r.dest)).length;
+    const candidates = rows
+      .filter(r => isOurStorage(r.dest))
+      .map(r => ({ i: r.i, lot: r.lot, name: r.name, place: r.dest, weightKg: r.weightKg, trucksLoading: loadingRows(r.lot) }));
+    for (const c of candidates) console.log(`  lot ${c.lot} "${c.name}" — ${c.weightKg} kg in storage, ${c.trucksLoading} truck/wagon load(s) on it`);
 
-    // ── Identify columns ─────────────────────────────────────────────────────
-    // The header is two rows: a group row (Siuntos duomenys / Atgabenta / Veiksmai su siunta)
-    // and the real leaf-column row. Body <td>s align with the LEAF row, so index off that —
-    // the flattened `thead th` list would be off by the group-row cells.
-    const headers = await cargoTable.locator('thead tr').last().locator('th').allTextContents();
-
-    const lastDocIdx = headers.findIndex(h => h.toLowerCase().includes('paskutinis dokumentas'));
-    console.log('Last-document column index:', lastDocIdx, lastDocIdx !== -1 ? `(${headers[lastDocIdx].replace(/\s+/g, ' ').trim()})` : '(not found)');
-    if (lastDocIdx === -1) throw new Error('Could not locate "Paskutinis dokumentas" column in results table');
-
-    const svorisIdx = headers.findIndex(h => h.toLowerCase().includes('svoris bruto, kg'));
-    console.log('Weight column index:', svorisIdx, svorisIdx !== -1 ? `(${headers[svorisIdx].replace(/\s+/g, ' ').trim()})` : '(not found)');
-
-    const parseRemaining = (raw) => {
-      const part = raw.includes('/') ? raw.split('/').pop() : raw;
-      const digits = part.replace(/[^\d]/g, '');
-      return digits ? parseInt(digits, 10) : 0;
-    };
-
-    // ── Pick the available shipment ───────────────────────────────────────────
-    // A VZT (važtaraštis) or KDA (krovos darbų aktas) in the last-document column means the
-    // row is already loaded onto a truck. The available vessel cargo has an IMP as its last
-    // document — and only in THIS column (a dispatched row can carry an IMP in Saugojimo
-    // deklaracija). Results use rowspan grouping: a parent row has all columns, but its
-    // sub-rows drop the leading rowspan'd columns, so cells are shifted left by `offset`.
-    const tableRows    = cargoTable.locator('xpath=./tbody/tr');
-    const eligibleRows = [];
-
-    for (let i = 0; i < rowCount; i++) {
-      const cells  = await tableRows.nth(i).locator('xpath=./td').allTextContents();
-      const offset = headers.length - cells.length;
-      if (offset < 0) continue; // not a data row (e.g. repeated header)
-      const cellAt = (leafIdx) => {
-        const k = leafIdx - offset;
-        return k >= 0 && k < cells.length ? cells[k] : '';
-      };
-      const lastDoc = cellAt(lastDocIdx).toUpperCase().trim();
-      const weight  = svorisIdx !== -1 ? parseRemaining(cellAt(svorisIdx)) : 0;
-      const dispatched = /\b(VZT|KDA)\b/.test(lastDoc);
-      const eligible   = /\bIMP\b/.test(lastDoc) && !dispatched;
-      console.log(`Row ${i}: lastDoc="${lastDoc}" weight=${weight} kg ${eligible ? 'ELIGIBLE' : 'skip'}`);
-      if (eligible) eligibleRows.push({ i, weight });
+    const lotMarks = require('../../src/core/lotMarks');
+    const choice = lotMarks.chooseLot(candidates, packaging, total);
+    if (choice.stop) {
+      if (choice.needsMarking) {
+        lotMarks.addPending({
+          vessel: vesselName, cargo: cargoName, packaging, plate: data.plate,
+          candidates: candidates.map(({ i, ...c }) => c),
+        });
+      }
+      blocked = `lot choice — ${choice.stop}`;
+      console.warn(`Not filing: ${blocked}`);
+      return { submitted: false, check, fieldCheck, blocked, needsLotMarking: !!choice.needsMarking };
     }
+    console.log(`Lot chosen: ${choice.note}`);
 
-    if (eligibleRows.length === 0) {
-      throw new Error('No available IMP shipment found — every row is already dispatched (VZT/KDA) or has no IMP last document');
-    }
-
-    eligibleRows.sort((a, b) => b.weight - a.weight);
-    const bestRowIdx = eligibleRows[0].i;
-    const bestWeight = eligibleRows[0].weight;
-
-    if (bestWeight < 24000) {
-      console.warn(`Warning: selected shipment remaining weight is ${bestWeight} kg — below 24 000 kg threshold`);
-    } else {
-      console.log(`Selected row ${bestRowIdx} with ${bestWeight} kg remaining`);
-    }
-
-    const targetRow = tableRows.nth(bestRowIdx);
-    const checkbox  = targetRow.locator('input[type="checkbox"]');
+    const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');
     await checkbox.first().scrollIntoViewIfNeeded();
     await checkbox.first().click();
-    console.log('Checkbox clicked in row', bestRowIdx);
+    console.log(`Checkbox ticked: lot ${choice.pick.lot}, storage row with ${choice.pick.weightKg} kg`);
 
     console.log('Clicking Krauti button to open popup...');
     await page.locator('input[type="button"][value="Krauti"]').click();
@@ -347,11 +375,6 @@ async function navigateToCargo(page, data = {}) {
     await page.locator('a[onclick*="prkr_kroviniai"]').click();
     await page.waitForLoadState('networkidle');
 
-    const weight = getWeight(row);
-    const bags   = Math.round(weight / 600);
-    const total  = weight + bags;
-    console.log(`Weight: ${weight}, Bags: ${bags}, Total bruto: ${total}`);
-
     // Row text inputs: name contains "prkr_kroviniai" and ":0:", exclude checkboxes
     const rowInputs = page.locator('input[type="text"][name*="prkr_kroviniai"][name*=":0:"], input[type="number"][name*="prkr_kroviniai"][name*=":0:"]');
     await rowInputs.first().waitFor({ state: 'visible', timeout: 10000 });
@@ -428,4 +451,4 @@ async function navigateToCargo(page, data = {}) {
   return { submitted, check, fieldCheck, blocked };
 }
 
-module.exports = { navigateToCargo, findRowByPlate };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage };
