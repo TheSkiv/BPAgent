@@ -1,8 +1,11 @@
 const XLSX = require('xlsx');
 
 const { todayFilePath } = require('../../src/core/dateManager');
-const { checkPrkCompletion } = require('./checkPrk');
+const { checkPrkCompletion, readBackIssues } = require('./checkPrk');
 const INSTRUCTIONS_PATH = 'C:\\PortSystem\\Instructions\\Instructions.xlsx';
+
+const PAYER_CODE = 'LT242134730';
+const PAYER_NAME = 'UAB "BPA"';
 
 // Safety default: fill the PRK form but do NOT submit. Set KIPIS_DRY_RUN=false to auto-submit.
 const DRY_RUN = process.env.KIPIS_DRY_RUN !== 'false';
@@ -131,8 +134,10 @@ async function navigateToCargo(page, data = {}) {
     return { submitted: false };
   }
 
-  let submitted = false;
-  let check     = null;
+  let submitted  = false;
+  let check      = null;
+  let fieldCheck = null;
+  let blocked    = null;
   try {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
@@ -277,10 +282,10 @@ async function navigateToCargo(page, data = {}) {
     await page.getByRole('textbox', { name: /kita procedūra/i }).fill(' ');
 
     console.log('Filling Kodas (Mokėtojas už krovos)...');
-    await page.locator('[id$=":moketojas:subjf-kodas"]').fill('LT242134730');
+    await page.locator('[id$=":moketojas:subjf-kodas"]').fill(PAYER_CODE);
 
     console.log('Filling Pavadinimas (Mokėtojas už krovos)...');
-    await page.locator('[id$=":moketojas:subjf-pav"]').fill('UAB "BPA"');
+    await page.locator('[id$=":moketojas:subjf-pav"]').fill(PAYER_NAME);
 
     console.log('Filling Instrukcijos...');
     const instructions = getInstructions(row);
@@ -314,6 +319,21 @@ async function navigateToCargo(page, data = {}) {
       console.log(`Transport added for plate: ${plate}`);
     }
 
+    // Read back the main-tab fields now: adding a transport row re-renders the form, which is
+    // where an earlier fill could be lost, and these fields may not be readable once the
+    // Kroviniai tab is open.
+    const fieldIssues = await readBackIssues([
+      { field: 'Originalaus dokumento numeris', locator: page.locator('[id$=":prkr_info:originaloNumeris"]'), expected: plates.join(', ') },
+      { field: 'Mokėtojas — kodas',             locator: page.locator('[id$=":moketojas:subjf-kodas"]'),      expected: PAYER_CODE },
+      { field: 'Mokėtojas — pavadinimas',       locator: page.locator('[id$=":moketojas:subjf-pav"]'),        expected: PAYER_NAME },
+      { field: 'Instrukcijos',                  locator: page.locator('[id$=":prkr_info:instrukcijos"]'),     expected: instructions },
+      { field: 'Krovos darbų aktą tvirtinti automatiškai', locator: page.locator('[id$=":prkr_info:patvirtintiKda"]'),       expected: true, kind: 'checked' },
+      { field: 'Generuoti važtaraštį automatiškai',        locator: page.locator('[id$=":prkr_info:generuotiVaztarasti"]'), expected: true, kind: 'checked' },
+      // A saved transport row shows its plate as text; the plate typed into
+      // Originalaus dokumento numeris is an input value and does not count here.
+      ...plates.map(p => ({ field: `Transportas ${p}`, locator: page.getByText(p), expected: p, kind: 'present' })),
+    ]);
+
     console.log('Navigating to Kroviniai tab...');
     await page.locator('a[onclick*="prkr_kroviniai"]').click();
     await page.waitForLoadState('networkidle');
@@ -335,6 +355,17 @@ async function navigateToCargo(page, data = {}) {
 
     console.log('Form fields filled.');
 
+    fieldIssues.push(...await readBackIssues([
+      { field: 'Svoris bruto, kg', locator: rowInputs.nth(0), expected: total, kind: 'number' },
+      { field: 'Vietų skaičius',   locator: rowInputs.nth(2), expected: bags,  kind: 'number' },
+    ]));
+    fieldCheck = { ok: fieldIssues.length === 0, issues: fieldIssues };
+    if (fieldCheck.ok) console.log('Field read-back PASSED: every filled value is on the form.');
+    else {
+      console.warn('Field read-back FAILED:');
+      for (const i of fieldIssues) console.warn(`  ${i.field}: expected "${i.expected}", found "${i.found}"`);
+    }
+
     // AI check of the completed form, before Saugoti. Never proceeds past Saugoti — see RULES.md.
     console.log('Running AI completion check...');
     check = await checkPrkCompletion(page, {
@@ -345,8 +376,8 @@ async function navigateToCargo(page, data = {}) {
       bags,
       grossWeight:  total,
       instructions,
-      payerCode:    'LT242134730',
-      payerName:    'UAB "BPA"',
+      payerCode:    PAYER_CODE,
+      payerName:    PAYER_NAME,
     });
 
     if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);
@@ -356,13 +387,21 @@ async function navigateToCargo(page, data = {}) {
       for (const i of check.issues) console.warn(`  [${i.severity}] ${i.field}: expected "${i.expected}", found "${i.found}"`);
     }
 
-    const blockedByCheck = check.ok === false;
+    // RULES.md Rule 3 — never save an unverified form. The read-back must always pass; the AI check
+    // must not have failed. AI unavailable + read-back passed is enough to save (ROADMAP D2).
+    if (!fieldCheck.ok) {
+      blocked = 'field read-back failed: ' + fieldIssues.map(i => `${i.field} expected "${i.expected}", found "${i.found}"`).join('; ');
+    } else if (check.ok === false) {
+      blocked = `AI check failed: ${check.summary}`;
+    }
 
     if (DRY_RUN) {
       console.log('DRY RUN — PRK form filled but NOT saved. Review it in the browser and click Saugoti manually, or set KIPIS_DRY_RUN=false to auto-save the draft.');
-    } else if (blockedByCheck) {
-      console.warn('Not clicking Saugoti — AI check found high-severity issues. Review the form manually.');
+      if (blocked) console.warn(`(would not have saved — ${blocked})`);
+    } else if (blocked) {
+      console.warn(`Not clicking Saugoti — ${blocked}. The form is left open in KIPIS for manual review.`);
     } else {
+      if (check.ok === null) console.log('Saving on the field read-back alone (AI check unavailable — ROADMAP D2).');
       console.log('Saving PRK draft (Saugoti)...');
       const saveBtn = page.locator('input[type="submit"][value="Saugoti"]:visible').last();
       await saveBtn.scrollIntoViewIfNeeded();
@@ -377,7 +416,7 @@ async function navigateToCargo(page, data = {}) {
     throw error;
   }
 
-  return { submitted, check };
+  return { submitted, check, fieldCheck, blocked };
 }
 
 module.exports = { navigateToCargo, findRowByPlate };

@@ -77,14 +77,22 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - ✅ Live IMAP intake (re-pinned 2026-11-09), manual RECHECK only.
 
 ### To do — in order (each one blocks unattended filing)
-- [ ] **A1. Never save an unverified form.** Today `check.ok === null` (OpenAI down, no key,
-  bad JSON) still saves with nothing verified — `navigateToCargo.js` only blocks on
-  `ok === false`. Per D2: AI `null` + deterministic check (A2) passes → save; AI `null` +
-  deterministic fails (or A2 not built yet) → block (→ `needs_human`, reason "check
-  unavailable"). Build A1 and A2 together.
-- [ ] **A2. Deterministic pre-save field check** alongside the AI one: read back plate, payer
-  code/name, gross weight, bags and instructions from the form and compare exactly. Cheap,
-  can't hallucinate, and is enough on its own to save when the AI check is down (D2).
+- [~] **A1. Never save an unverified form.** *BUILT 2026-11-09, not yet run against live KIPIS.*
+  Save rule in `navigateToCargo.js`: the read-back (A2) must pass **and** the AI check must not
+  have failed; AI unavailable (`ok:null`) + read-back passed → save (D2). `checkPrkCompletion`
+  now returns `ok:null` on a network error or malformed reply instead of crashing the run. A
+  blocked save leaves the form open in KIPIS, sets the order to `failed` with the reason (not
+  `needs_human` — that state feeds the sender-confirmation panel), and the dashboard shows
+  "Not saved — <reason>". Proper fix-and-resume prompts are A15.
+- [~] **A2. Deterministic pre-save field check.** *BUILT 2026-11-09, not yet run against live
+  KIPIS.* `readBackIssues()` in `checkPrk.js` reads each field straight from the form and
+  compares exactly (whitespace/case-insensitive text, numbers, checkboxes): Originalaus
+  dokumento numeris, payer code + name, Instrukcijos, both auto checkboxes, a transport row per
+  plate, then Svoris bruto and Vietų skaičius. Main-tab fields are read right after the
+  transport rows are added (the re-render most likely to wipe a fill). Comparison logic tested
+  offline with stand-in fields. **To verify on the first live run:** that a saved transport row
+  shows its plate as page text (the transport check looks for that) — if not, every save will
+  be blocked with "Transportas <plate>: not on the page" and the check needs a different locator.
 - [ ] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
   `submitted = true` without looking. Wait for the saved-document state (PRK number in the
   header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.

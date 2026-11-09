@@ -74,29 +74,33 @@ async function checkPrkCompletion(page, expected) {
 
   const state = await captureFormState(page);
 
-  const resp = await fetch(OPENAI_URL, {
-    method:  'POST',
-    headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model:           MODEL,
-      temperature:     0,
-      response_format: { type: 'json_object' },
-      messages: [
-        { role: 'system', content: `${loadRules()}\n\n---\n\n${SYSTEM_PROMPT}` },
-        { role: 'user',   content:
-            'Expected order data:\n' + JSON.stringify(expected, null, 1) +
-            '\n\nForm fields currently on the page:\n' + JSON.stringify(state.fields, null, 1) +
-            '\n\nButtons present:\n' + JSON.stringify(state.buttons) },
-      ],
-    }),
-  });
-
-  if (!resp.ok) {
-    return { ok: null, issues: [], summary: `OpenAI API ${resp.status} — PRK check failed` };
+  // A network failure or malformed reply means "check unavailable" (ok:null), not a crashed run —
+  // the caller then relies on the deterministic read-back alone (ROADMAP D2).
+  let parsed;
+  try {
+    const resp = await fetch(OPENAI_URL, {
+      method:  'POST',
+      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model:           MODEL,
+        temperature:     0,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: `${loadRules()}\n\n---\n\n${SYSTEM_PROMPT}` },
+          { role: 'user',   content:
+              'Expected order data:\n' + JSON.stringify(expected, null, 1) +
+              '\n\nForm fields currently on the page:\n' + JSON.stringify(state.fields, null, 1) +
+              '\n\nButtons present:\n' + JSON.stringify(state.buttons) },
+        ],
+      }),
+    });
+    if (!resp.ok) return { ok: null, issues: [], summary: `OpenAI API ${resp.status} — PRK check failed` };
+    const data = await resp.json();
+    parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+  } catch (err) {
+    return { ok: null, issues: [], summary: `AI check unavailable — ${err.message}` };
   }
 
-  const data   = await resp.json();
-  const parsed = JSON.parse(data.choices?.[0]?.message?.content || '{}');
   return {
     ok:      typeof parsed.ok === 'boolean' ? parsed.ok : null,
     issues:  Array.isArray(parsed.issues) ? parsed.issues : [],
@@ -104,4 +108,36 @@ async function checkPrkCompletion(page, expected) {
   };
 }
 
-module.exports = { checkPrkCompletion, captureFormState };
+const normText = s => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+const normNum  = s => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'));
+
+// Deterministic read-back: reads each field straight from the form and compares it exactly with
+// the value that was filled. Catches what the AI check cannot be trusted with — a field a JSF
+// re-render wiped (e.g. after adding a transport row), or a fill that never took — and still works
+// when OpenAI is down.
+// checks: [{ field, locator, expected, kind: 'value' | 'number' | 'checked' | 'present' }]
+async function readBackIssues(checks) {
+  const issues = [];
+  for (const { field, locator, expected, kind = 'value' } of checks) {
+    const count = await locator.count();
+    if (kind === 'present') {
+      if (count === 0) issues.push({ field, expected: String(expected), found: '(not on the page)', severity: 'high' });
+      continue;
+    }
+    if (count !== 1) {
+      issues.push({ field, expected: String(expected), found: count ? `(${count} matching fields)` : '(field not found)', severity: 'high' });
+      continue;
+    }
+    if (kind === 'checked') {
+      const checked = await locator.isChecked();
+      if (checked !== expected) issues.push({ field, expected: String(expected), found: String(checked), severity: 'high' });
+      continue;
+    }
+    const found = await locator.inputValue();
+    const same  = kind === 'number' ? normNum(found) === normNum(expected) : normText(found) === normText(expected);
+    if (!same) issues.push({ field, expected: String(expected), found, severity: 'high' });
+  }
+  return issues;
+}
+
+module.exports = { checkPrkCompletion, captureFormState, readBackIssues };

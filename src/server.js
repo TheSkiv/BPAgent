@@ -66,11 +66,14 @@ app.post('/run-prk', async (req, res) => {
         orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: 'PRK draft saved (Saugoti)' });
       }
       console.log('run-prk completed: PRK draft saved, marked done');
+    } else if (result.blocked) {
+      if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
+      console.log(`run-prk stopped before Saugoti: ${result.blocked}`);
     } else {
       if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
       console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
     }
-    res.json({ status: 'ok', submitted: result.submitted, check: result.check || null });
+    res.json({ status: 'ok', submitted: result.submitted, blocked: result.blocked || null, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     console.error('run-prk failed:', err.message);
     if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
@@ -210,10 +213,12 @@ app.post('/queue/process-next', async (req, res) => {
       markDone(next.plate);
       orderStore.attachDocument(next.id, { type: 'PRK', number: null, status: 'draft_saved' });
       orderStore.setState(next.id, 'done', { actor: 'kipis', detail: 'PRK draft saved' });
+    } else if (result.blocked) {
+      orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
     } else {
       orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
     }
-    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, check: result.check || null });
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, blocked: result.blocked || null, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
     console.error(`Queue: ${next.id} failed —`, err.message);

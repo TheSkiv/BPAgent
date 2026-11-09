@@ -601,8 +601,11 @@
           body: JSON.stringify({ value }),
         });
         const data = await res.json();
-        if (data.status === 'ok') {
-          setStatus('success', 'Done.');
+        if (data.status === 'ok' && data.blocked) {
+          setStatus('error', `Not saved — ${data.blocked}. The form is open in KIPIS: check it and press Saugoti by hand.`);
+          loadPipeline();
+        } else if (data.status === 'ok') {
+          setStatus('success', data.submitted ? 'PRK draft saved.' : 'Form filled (dry run) — not saved.');
           loadPipeline();
         } else {
           setStatus('error', `Error: ${data.message}`);
@@ -977,6 +980,7 @@
         const data = await res.json();
         if (data.status === 'empty')      pipelineStatusEl.textContent = data.message;
         else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate}: ${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
+        else if (data.blocked)            { pipelineStatusEl.textContent = `${data.plate}: not saved — ${data.blocked}. Check the form in KIPIS and press Saugoti by hand.`; pipelineStatusEl.style.color = '#fc8181'; }
         else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? 'PRK draft saved' : 'filled (dry run)'}`;
       } catch (err) {
         pipelineStatusEl.textContent = 'Network error: ' + err.message;
