@@ -38,7 +38,8 @@ async function captureFormState(page) {
         : (type === 'checkbox' || type === 'radio' ? String(el.checked) : (el.value || ''));
 
       if (!label && !value) continue;
-      fields.push({ label: label.slice(0, 60), name: el.name || '', type, value: String(value).slice(0, 120) });
+      // Long enough for the full loading instructions — at 120 the model saw them cut off.
+      fields.push({ label: label.slice(0, 60), name: el.name || '', type, value: String(value).slice(0, 1000) });
     }
 
     const buttons = [...document.querySelectorAll('input[type="submit"], input[type="button"], button')]
@@ -53,14 +54,13 @@ const SYSTEM_PROMPT = `You verify that a KIPIS "Prašymas krovai" (PRK) loading-
 
 You are given the expected order data and a snapshot of every visible field currently on the form.
 
-Check that:
+Check ONLY the fields this process fills:
 - The truck plate(s) appear in the original-document-number field.
 - The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg).
-- The payer code and name are filled.
+- The payer code and name match the expected ones.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
-- No required field that the expected data provides was left empty.
 
-Do NOT demand values the expected data does not contain. Ignore cosmetic differences in spacing or letter case.
+Every other field on the form — order number (Užsakymo numeris), sender and receiver (Siuntėjas, Gavėjas), shipment number (Siuntos numeris), dates and the rest — is outside this check. Never report them, even when empty. Do NOT demand values the expected data does not contain. Ignore cosmetic differences in spacing or letter case.
 
 Return a JSON object:
 { "ok": <bool>, "issues": [ { "field": string, "expected": string, "found": string, "severity": "high"|"low" } ], "summary": string }
@@ -105,9 +105,24 @@ async function checkPrkCompletion(page, expected, mainTabFields = []) {
     return { ok: null, issues: [], summary: `AI check unavailable — ${err.message}` };
   }
 
+  if (typeof parsed.ok !== 'boolean') return { ok: null, issues: [], summary: 'AI check gave no verdict' };
+
+  // A high-severity issue only blocks when it is about a value we filled — its "expected" must be
+  // one of the expected order values. The model still flagged fields this process never fills
+  // ("expected: not empty" for Užsakymo numeris, sender/receiver codes; seen live 2026-11-09);
+  // those are kept as `ignored` for the log but cannot stop the save.
+  const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
+  const ours = Object.values(expected).map(normText).filter(v => v.length >= 2);
+  const aboutOurs = i => {
+    const e = normText(i.expected);
+    return e.length >= 2 && ours.some(v => v === e || (e.length >= 6 && (v.includes(e) || e.includes(v))));
+  };
+  const blocking = issues.filter(i => i.severity === 'high' && aboutOurs(i));
+  const ignored  = issues.filter(i => i.severity === 'high' && !aboutOurs(i));
   return {
-    ok:      typeof parsed.ok === 'boolean' ? parsed.ok : null,
-    issues:  Array.isArray(parsed.issues) ? parsed.issues : [],
+    ok:      blocking.length === 0,
+    issues:  issues.filter(i => !ignored.includes(i)),
+    ignored,
     summary: parsed.summary || '',
   };
 }

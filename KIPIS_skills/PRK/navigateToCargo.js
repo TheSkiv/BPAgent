@@ -452,11 +452,12 @@ async function navigateToCargo(page, data = {}) {
     }, mainTabFields);
 
     if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);
-    else if (check.ok)          console.log(`AI check PASSED: ${check.summary}`);
+    else if (check.ok)          console.log(`AI check PASSED — no problem with any value this run filled. (Model's note: ${check.summary})`);
     else {
       console.warn(`AI check FAILED: ${check.summary}`);
       for (const i of check.issues) console.warn(`  [${i.severity}] ${i.field}: expected "${i.expected}", found "${i.found}"`);
     }
+    for (const i of check.ignored || []) console.log(`  (not blocking — not a field this run fills) ${i.field}: expected "${i.expected}", found "${i.found}"`);
 
     // RULES.md Rule 3 — never save an unverified form. The read-back must always pass; the AI check
     // must not have failed. AI unavailable + read-back passed is enough to save (ROADMAP D2).

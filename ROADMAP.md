@@ -87,7 +87,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   2026-11-09, fixed same day:** the AI check snapshotted the form after the Kroviniai tab was
   opened, when the main tab's fields are hidden and skipped, so it reported plate, payer and
   instructions as empty and blocked a correct form (the read-back had passed). It now gets the
-  main tab's snapshot taken before the tab switch plus the Kroviniai tab's. Not yet re-run live.
+  main tab's snapshot taken before the tab switch plus the Kroviniai tab's. **Second false
+  block, live 2026-11-09 (MFR324//NU551, Axan):** read-back passed, but the model demanded
+  fields this process never fills (Užsakymo numeris, sender/receiver codes, Siuntos numeris —
+  "expected: not empty") despite the prompt. Fixed: the prompt names the only fields to check,
+  and a high-severity issue now blocks **only if its expected value is one of the order values
+  we filled** — others are logged as "not blocking". Field values in the snapshot are no longer
+  cut at 120 characters (the model saw the instructions truncated). Tested offline on the live
+  reply (passes) and on wrong payer / wrong weight (still block).
 - [~] **A2. Deterministic pre-save field check.** *BUILT 2026-11-09, not yet run against live
   KIPIS.* `readBackIssues()` in `checkPrk.js` reads each field straight from the form and
   compares exactly (whitespace/case-insensitive text, numbers, checkboxes): Originalaus
@@ -286,7 +293,9 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   matches anywhere in the name). Fixed: search words now go most-specific first — grade formula
   (`11-11-21`), the order's own words minus `broadWords` (`Yara`, `Bela`, `YaraBela`, `NPK`,
   `Gran`, editable in `cargo_synonyms.json`), synonyms' words, broad words last; a word that hits
-  the cap is skipped for the next one. Axan → `AXAN`, NPK 11-11-21 → `11-11-21`. Was: The stock lookup picks one vessel
+  the cap is skipped for the next one. Axan → `AXAN`, NPK 11-11-21 → `11-11-21`. **Live run 5:**
+  `AXAN` → 4 lots, one in our storage (`260801-000106-L`, EASTERN VANQUISH, 174 t) → form filled
+  → read-back PASSED → AI check falsely blocked again (fixed, see A1). Was: The stock lookup picks one vessel
   (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
   choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
   oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.
