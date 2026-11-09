@@ -77,7 +77,8 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - ✅ Live IMAP intake (re-pinned 2026-11-09), manual RECHECK only.
 
 ### To do — in order (each one blocks unattended filing)
-- [~] **A1. Never save an unverified form.** *BUILT 2026-11-09, not yet run against live KIPIS.*
+- [x] **A1. Never save an unverified form.** *BUILT 2026-11-09; live-verified the same day — first
+  draft saved with both checks passing, confirmed correct by the operator.*
   Save rule in `navigateToCargo.js`: the read-back (A2) must pass **and** the AI check must not
   have failed; AI unavailable (`ok:null`) + read-back passed → save (D2). `checkPrkCompletion`
   now returns `ok:null` on a network error or malformed reply instead of crashing the run. A
@@ -95,8 +96,8 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   we filled** — others are logged as "not blocking". Field values in the snapshot are no longer
   cut at 120 characters (the model saw the instructions truncated). Tested offline on the live
   reply (passes) and on wrong payer / wrong weight (still block).
-- [~] **A2. Deterministic pre-save field check.** *BUILT 2026-11-09, not yet run against live
-  KIPIS.* `readBackIssues()` in `checkPrk.js` reads each field straight from the form and
+- [x] **A2. Deterministic pre-save field check.** *BUILT 2026-11-09; live-verified (passed on
+  three real forms, incl. the transport-row check).* `readBackIssues()` in `checkPrk.js` reads each field straight from the form and
   compares exactly (whitespace/case-insensitive text, numbers, checkboxes): Originalaus
   dokumento numeris, payer code + name, Instrukcijos, both auto checkboxes, a transport row per
   plate, then Svoris bruto and Vietų skaičius. Main-tab fields are read right after the
@@ -298,7 +299,8 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   → read-back PASSED → AI check falsely blocked again (fixed, see A1). **Live run 6 — FIRST PRK
   DRAFT SAVED by the new code (MFR324//NU551, 2026-11-09):** `AXAN` → lot `260801-000106-L`
   (EASTERN VANQUISH, 150 t) → read-back PASSED → AI check PASSED → `Saugoti` → order `done`.
-  Save itself not yet confirmed by code (A3) — the operator checks the draft in KIPIS.
+  Save itself not yet confirmed by code (A3) — **the operator checked the draft in KIPIS and
+  confirmed it is correct.**
   **Operator decision, same day: `Originalaus dokumento numeris` stays empty** (it carried the
   plates). The filler no longer fills it (still waits on it as the form-loaded signal), the
   read-back checks it is empty, and the AI check is told it is empty on purpose. Was: The stock lookup picks one vessel
