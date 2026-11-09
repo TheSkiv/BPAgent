@@ -53,7 +53,9 @@ The results table groups rows by shipment via **rowspan**:
 - The **parent** row carries all leaf columns; **sub-rows omit the leading columns**, so a
   sub-row's cells are shifted left by `offset = leafHeaderCount - cellCount`, and a sub-row
   belongs to the lot (*Siuntos numeris*) of the parent row above it.
-- **Vessel:** keep rows whose *Transportas* cell names the stock vessel as a whole word
+- **Vessel:** keep rows whose *Transportas* cell names **any** stock vessel holding ≥ 24 t of the
+  cargo (all of them are searched; the lot marks choose between vessels — ROADMAP A26), as a
+  whole word
   (`Laivas ULSAN 1078092, Maršalo s.`). Neither the *Atgabenimo dokumentas* nor the
   *Atgabenęs transportas (pavadinimas)* filter found ULSAN (2026-11-09), so the vessel is matched
   in the results, not in a filter.

@@ -1069,11 +1069,11 @@
           }
           return `<div class="confirm-card" data-vessel="${escHtml(p.vessel)}" data-cargo="${escHtml(p.cargo)}">
             <div class="confirm-subject">${escHtml(p.vessel)} — ${escHtml(p.cargo)}</div>
-            <div class="confirm-meta">Waiting: ${escHtml(p.plate)} (${escHtml(p.packaging)}). Mark each lot bagged or bulk, and the order to load them in (1 = first).</div>
+            <div class="confirm-meta">Waiting: ${escHtml(p.plate)} (${escHtml(p.packaging)}). Mark each lot bagged or bulk, and the order to load them in (1 = first) — across all vessels listed.</div>
             ${Object.values(byLot).map(c => {
               const m = lotMarksByLot[c.lot];
-              return `<div class="lot-row" data-lot="${escHtml(c.lot)}">
-                <div class="lot-info">${escHtml(c.lot)} — ${escHtml(c.name)}
+              return `<div class="lot-row" data-lot="${escHtml(c.lot)}" data-vessel="${escHtml(c.vessel || '')}">
+                <div class="lot-info">${escHtml(c.lot)} — ${c.vessel ? escHtml(c.vessel) + ' · ' : ''}${escHtml(c.name)}
                   <small>${tonnes(c.weightKg)} in ${escHtml(placeShort(c.place))}${c.trucksLoading ? ` · ${c.trucksLoading} truck/wagon load(s) on it` : ''}</small></div>
                 ${packagingSelect(m ? m.packaging : '')}
                 <input class="lot-order" type="number" min="1" placeholder="Order" value="${m ? m.priority : ''}" />
@@ -1123,7 +1123,7 @@
         const card = btn.closest('.confirm-card');
         await saveLotMark({
           lot,
-          vessel:    card.getAttribute('data-vessel'),
+          vessel:    row.getAttribute('data-vessel') || card.getAttribute('data-vessel'),
           cargo:     card.getAttribute('data-cargo'),
           packaging: row.querySelector('.lot-packaging').value,
           priority:  row.querySelector('.lot-order').value,

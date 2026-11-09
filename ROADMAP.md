@@ -271,7 +271,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
      KREETE → EASTERN VANQUISH, TSP 46 → SEA CARRIER / OSLO CARRIER 2).
   3. Synonym added: `Trigubas superfosfatas` = `TSP 46` (Helm AG: OSLO CARRIER 2, SEA CARRIER,
      ADAROSE) — 9 orders today. `Amonio salietra` is in neither report.
-- [ ] **A26. Which vessel, when several carry the cargo.** The stock lookup picks one vessel
+- [~] **A26. Which vessel, when several carry the cargo.** *BUILT 2026-11-09 (operator: marks
+  decide):* `getVesselNames` returns every stock vessel with ≥ 24 t of the cargo; KIPIS lots on
+  all of them are candidates, so with several lots the operator's marks choose across vessels
+  (unmarked → stop and ask). The chosen lot's vessel goes to the AI check; the Lots panel shows
+  and saves each lot's vessel. Live stock: TSP → OSLO CARRIER 2, SEA CARRIER, ADAROSE; NPK
+  11-11-21 → SKAGENBANK, ELECTRAMAR. Not yet run live. Was: The stock lookup picks one vessel
   (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
   choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
   oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.

@@ -44,14 +44,17 @@ function findRowByPlate(inputPlate) {
   return row;
 }
 
-async function getVesselName(row) {
+// Every vessel the cargo can be loaded from. All of them are searched in KIPIS and the operator's
+// lot marks pick between their lots — the loading order is agreed with the terminal, so picking
+// one vessel here (oldest first, as before) could file against the wrong one (ROADMAP A26).
+async function getVesselNames(row) {
   const cargo = row['Cargo'] || row['cargo'];
   if (!cargo) throw new Error('Field "Cargo" not found in row');
 
   // 1. Live stock data (GBL + Helm AG reports). When it is reachable it is the authority:
-  // cargo.xlsx never refreshes a cargo's vessel and goes stale (ROADMAP A21), so it and
-  // Instructions.xlsx are only used while the stock app is down.
-  const { fetchStockRows, resolveVessel } = require('../../src/core/stockCache');
+  // cargo.xlsx can still lag the stock (ROADMAP A21), so it and Instructions.xlsx are only used
+  // while the stock app is down.
+  const { fetchStockRows, vesselBreakdown } = require('../../src/core/stockCache');
   let stockRows = null;
   try {
     stockRows = await fetchStockRows();
@@ -59,25 +62,29 @@ async function getVesselName(row) {
     console.warn(`Stock reports unreachable (${err.message}) — falling back to cargo.xlsx / Instructions.xlsx`);
   }
   if (stockRows) {
-    const fromStock = resolveVessel(cargo, stockRows);
-    if (fromStock) { console.log('Vessel from stock:', fromStock); return fromStock; }
-    if (fromStock === '') throw new Error(`Cargo "${cargo}" is in stock, but no vessel has 24 t or more left`);
-    throw new Error(`Cargo "${cargo}" not found in either stock report (GBL, Helm AG) — check the cargo name, or add its name to config/cargo_synonyms.json`);
+    const breakdown = vesselBreakdown(cargo, stockRows);
+    if (!breakdown.length) {
+      throw new Error(`Cargo "${cargo}" not found in either stock report (GBL, Helm AG) — check the cargo name, or add its name to config/cargo_synonyms.json`);
+    }
+    const vessels = breakdown.filter(v => v.sufficient).map(v => v.vessel);
+    if (!vessels.length) throw new Error(`Cargo "${cargo}" is in stock, but no vessel has 24 t or more left`);
+    console.log(`Vessels from stock: ${breakdown.filter(v => v.sufficient).map(v => `${v.vessel} (${Math.round(v.nettoKg / 1000)} t)`).join(', ')}`);
+    return vessels;
   }
 
   // 2. cargo.xlsx lookup (with fuzzy matching)
   const { getVesselForCargo } = require('../../src/core/cargoList');
   const fromCargo = getVesselForCargo(cargo);
   if (fromCargo) {
-    const vessel = fromCargo.split(' / ')[0].trim(); // first vessel if multiple
-    console.log('Vessel from cargo list:', vessel);
-    return vessel;
+    const vessels = fromCargo.split(' / ').map(v => v.trim()).filter(Boolean);
+    console.log('Vessels from cargo list:', vessels.join(', '));
+    return vessels;
   }
 
   // 3. Instructions.xlsx fallback
   const instructions = readInstructions();
   const match = instructions.find(r => cargoMatches(r['Cargo'] || '', cargo));
-  if (match && match['Vessel']) { console.log('Vessel from Instructions:', match['Vessel']); return match['Vessel']; }
+  if (match && match['Vessel']) { console.log('Vessel from Instructions:', match['Vessel']); return [match['Vessel']]; }
 
   throw new Error(`No vessel found for cargo: "${cargo}"`);
 }
@@ -233,8 +240,8 @@ async function navigateToCargo(page, data = {}) {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
 
-    const vesselName = await getVesselName(row);
-    const cargoName  = row['Cargo'] || row['cargo'] || '';
+    const vesselNames = await getVesselNames(row);
+    const cargoName   = row['Cargo'] || row['cargo'] || '';
     const weight     = getWeight(row);
     const bagKg      = getBagKg(cargoName);
     const bags       = Math.round(weight / bagKg);
@@ -242,24 +249,28 @@ async function navigateToCargo(page, data = {}) {
     const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
     console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
 
-    // ── Find this vessel's lots of this cargo ───────────────────────────────────
+    // ── Find the lots of this cargo on every stock vessel ───────────────────────
     // KIPIS's Pavadinimas filter only matches short text, and its vessel filters did not find
-    // the vessel (2026-11-09) — so search by a cargo keyword and pick the vessel from the
+    // the vessel (2026-11-09) — so search by a cargo keyword and read the vessel from the
     // Transportas column ("Laivas ULSAN 1078092, …").
     const { cargoKeywords, sameCargo } = require('../../src/core/stockCache');
-    const vesselRe = new RegExp(`\\b${escapeRe(vesselName)}\\b`, 'i');
+    const vesselRes = vesselNames.map(v => ({ vessel: v, re: new RegExp(`\\b${escapeRe(v)}\\b`, 'i') }));
+    const vesselOf  = transport => (vesselRes.find(v => v.re.test(transport)) || {}).vessel || '';
+    const vesselList = vesselNames.join(', ');
     let rows = [], tableRows = null;
     const tried = [];
     for (const keyword of cargoKeywords(cargoName)) {
       tried.push(keyword);
       console.log(`Searching Kroviniai: Pavadinimas = "${keyword}"`);
       const found = await searchLots(page, keyword);
-      rows = found.rows.filter(r => vesselRe.test(r.transport) && sameCargo(cargoName, r.name));
-      console.log(`  ${found.rows.length} row(s), ${rows.length} for ${vesselName} / this cargo`);
+      rows = found.rows
+        .map(r => ({ ...r, vessel: vesselOf(r.transport) }))
+        .filter(r => r.vessel && sameCargo(cargoName, r.name));
+      console.log(`  ${found.rows.length} row(s), ${rows.length} for ${vesselList} / this cargo`);
       if (rows.length) { tableRows = found.tableRows; break; }
     }
     if (!rows.length) {
-      throw new Error(`No ${vesselName} lot of "${cargoName}" found in KIPIS (searched Pavadinimas: ${tried.join(', ')})`);
+      throw new Error(`No lot of "${cargoName}" on ${vesselList} found in KIPIS (searched Pavadinimas: ${tried.join(', ')})`);
     }
 
     // ── RULES.md Rule 6: is there already a PRK for this truck? ─────────────────
@@ -275,15 +286,15 @@ async function navigateToCargo(page, data = {}) {
     const loadingRows = lot => rows.filter(r => r.lot === lot && /autotransportas|vagonai/i.test(r.dest)).length;
     const candidates = rows
       .filter(r => isOurStorage(r.dest))
-      .map(r => ({ i: r.i, lot: r.lot, name: r.name, place: r.dest, weightKg: r.weightKg, trucksLoading: loadingRows(r.lot) }));
-    for (const c of candidates) console.log(`  lot ${c.lot} "${c.name}" — ${c.weightKg} kg in storage, ${c.trucksLoading} truck/wagon load(s) on it`);
+      .map(r => ({ i: r.i, lot: r.lot, vessel: r.vessel, name: r.name, place: r.dest, weightKg: r.weightKg, trucksLoading: loadingRows(r.lot) }));
+    for (const c of candidates) console.log(`  lot ${c.lot} ${c.vessel} "${c.name}" — ${c.weightKg} kg in storage, ${c.trucksLoading} truck/wagon load(s) on it`);
 
     const lotMarks = require('../../src/core/lotMarks');
     const choice = lotMarks.chooseLot(candidates, packaging, total);
     if (choice.stop) {
       if (choice.needsMarking) {
         lotMarks.addPending({
-          vessel: vesselName, cargo: cargoName, packaging, plate: data.plate,
+          vessel: vesselList, cargo: cargoName, packaging, plate: data.plate,
           candidates: candidates.map(({ i, ...c }) => c),
         });
       }
@@ -296,7 +307,8 @@ async function navigateToCargo(page, data = {}) {
     const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');
     await checkbox.first().scrollIntoViewIfNeeded();
     await checkbox.first().click();
-    console.log(`Checkbox ticked: lot ${choice.pick.lot}, storage row with ${choice.pick.weightKg} kg`);
+    console.log(`Checkbox ticked: lot ${choice.pick.lot} (${choice.pick.vessel}), storage row with ${choice.pick.weightKg} kg`);
+    const vesselName = choice.pick.vessel;
 
     console.log('Clicking Krauti button to open popup...');
     await page.locator('input[type="button"][value="Krauti"]').click();
@@ -464,4 +476,4 @@ async function navigateToCargo(page, data = {}) {
   return { submitted, check, fieldCheck, blocked };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, getVesselNames };
