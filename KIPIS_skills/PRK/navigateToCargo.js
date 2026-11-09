@@ -48,13 +48,22 @@ async function getVesselName(row) {
   const cargo = row['Cargo'] || row['cargo'];
   if (!cargo) throw new Error('Field "Cargo" not found in row');
 
-  // 1. Live stock data — most current, same as the web UI
+  // 1. Live stock data (GBL + Helm AG reports). When it is reachable it is the authority:
+  // cargo.xlsx never refreshes a cargo's vessel and goes stale (ROADMAP A21), so it and
+  // Instructions.xlsx are only used while the stock app is down.
+  const { fetchStockRows, resolveVessel } = require('../../src/core/stockCache');
+  let stockRows = null;
   try {
-    const { fetchStockRows, resolveVessel } = require('../../src/core/stockCache');
-    const stockRows = await fetchStockRows();
+    stockRows = await fetchStockRows();
+  } catch (err) {
+    console.warn(`Stock reports unreachable (${err.message}) — falling back to cargo.xlsx / Instructions.xlsx`);
+  }
+  if (stockRows) {
     const fromStock = resolveVessel(cargo, stockRows);
     if (fromStock) { console.log('Vessel from stock:', fromStock); return fromStock; }
-  } catch { /* BPA unreachable, try next */ }
+    if (fromStock === '') throw new Error(`Cargo "${cargo}" is in stock, but no vessel has 24 t or more left`);
+    throw new Error(`Cargo "${cargo}" not found in either stock report (GBL, Helm AG) — check the cargo name, or add its name to config/cargo_synonyms.json`);
+  }
 
   // 2. cargo.xlsx lookup (with fuzzy matching)
   const { getVesselForCargo } = require('../../src/core/cargoList');

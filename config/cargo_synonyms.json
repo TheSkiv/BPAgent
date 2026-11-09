@@ -1,0 +1,7 @@
+{
+  "about": "Names for the same cargo, so an order in Lithuanian finds a stock row in English. Each group is one cargo; matching ignores case, spaces and punctuation, and a name matches if it appears anywhere in the order's or the stock's cargo text. Add a group or a spelling when an order fails with 'not found in either stock report'. Do not put different grades (e.g. gMOP and sMOP) in one group.",
+  "groups": [
+    ["Amonio sulfatas", "Ammonium sulphate", "Ammonium sulfate", "Ammoniuim sulphate"],
+    ["Karbamidas", "Urea"]
+  ]
+}

@@ -1,6 +1,15 @@
 const http = require('http');
+const fs   = require('fs');
+const path = require('path');
 
-const STOCK_URL = 'http://192.168.1.146:3000/api/stock-report?report=stock_gbl&sheet=Sheet3';
+// Both stock reports carry vessel cargo for this terminal; reading only one makes the other
+// report's cargo look "not in stock" (ROADMAP A21). They name the product column differently.
+const STOCK_REPORTS = [
+  { name: 'GBL',     url: 'http://192.168.1.146:3000/api/stock-report?report=stock_gbl&sheet=Sheet3' },
+  { name: 'Helm AG', url: 'http://192.168.1.146:3000/api/stock-report?report=stock_helm&sheet=Sheet3' },
+];
+const PRODUCT_COLUMNS = ['Produktas', 'Product Name'];
+const SYNONYMS_PATH   = path.resolve(__dirname, '../../config/cargo_synonyms.json');
 const MIN_NETTO_KG = 24000;
 const TTL_MS = 5 * 60 * 1000;
 
@@ -40,36 +49,48 @@ function fetchJson(url) {
   });
 }
 
-async function fetchStockRows() {
-  if (_rows && Date.now() - _loadedAt < TTL_MS) return _rows;
-
-  const raw  = await fetchJson(STOCK_URL);
+function parseReport(raw, report) {
   const data = Array.isArray(raw.data) ? raw.data : [];
-  if (data.length < 2) { _rows = []; _loadedAt = Date.now(); return []; }
+  if (data.length < 2) return [];
 
   const [headers, ...rest] = data;
   const col = name => headers.indexOf(name);
+  const productCol = PRODUCT_COLUMNS.map(col).find(i => i !== -1) ?? -1;
 
-  _rows = rest
+  return rest
     .map(r => ({
-      vessel:     String(r[col('Laivas')]     || '').trim(),
-      produktas:  String(r[col('Produktas')]  || '').trim(),
+      report,
+      vessel:     String(r[col('Laivas')] || '').trim(),
+      produktas:  String(r[productCol]    || '').trim(),
       netto:      parseNetto(r[col('Netto')]),
       discharged: parseDischarged(r[col('Discharged')]),
     }))
     .filter(r => r.vessel && r.vessel !== 'STOCK' && r.produktas && r.produktas !== 'STOCK');
+}
 
+// All-or-nothing: if one report can't be read, the stock picture is incomplete and a cargo from
+// that report would wrongly look absent — so the caller is told the stock is unavailable instead.
+async function fetchStockRows() {
+  if (_rows && Date.now() - _loadedAt < TTL_MS) return _rows;
+
+  const reports = await Promise.all(STOCK_REPORTS.map(async r => parseReport(await fetchJson(r.url), r.name)));
+  _rows = reports.flat();
   _loadedAt = Date.now();
   return _rows;
 }
 
-// Synchronous: given pre-loaded stock rows and a cargo name, returns the single
-// vessel that should be used (oldest with >= 24t). Returns:
-//   string  — vessel name to display (may be '' if cargo is in stock but all depleted)
-//   null    — cargo not found in stock at all (caller should fall back to cargo.xlsx)
-function resolveVessel(cargoName, stockRows) {
-  if (!cargoName || !stockRows) return null;
+// Groups of names for the same cargo — orders are usually Lithuanian, stock reports English.
+// Read on every lookup so an operator's edit to the file applies without a restart.
+function synonymGroups() {
+  try {
+    const { groups } = JSON.parse(fs.readFileSync(SYNONYMS_PATH, 'utf8'));
+    return Array.isArray(groups) ? groups.map(g => g.map(norm).filter(Boolean)) : [];
+  } catch {
+    return [];
+  }
+}
 
+function matchingRows(cargoName, stockRows) {
   const normCargo = norm(cargoName);
 
   // Pass 1: exact normalized name match
@@ -86,21 +107,38 @@ function resolveVessel(cargoName, stockRows) {
     matching = stockRows.filter(r => norm(r.produktas).startsWith(normCargo));
   }
 
-  if (!matching.length) return null; // not found in stock → caller falls back
+  // Pass 4: synonym match (e.g. "Amonio sulfatas (600) gran." ↔ "AMMONIUM SULPHATE")
+  if (!matching.length) {
+    const group = synonymGroups().find(g => g.some(name => normCargo.includes(name)));
+    if (group) matching = stockRows.filter(r => group.some(name => norm(r.produktas).includes(name)));
+  }
 
-  // Group by vessel, sum netto, track oldest discharged date
+  return matching;
+}
+
+// Sums netto per vessel and keeps each vessel's oldest discharge date, oldest-first.
+function byVesselOldestFirst(rows) {
   const byVessel = new Map();
-  for (const r of matching) {
+  for (const r of rows) {
     if (!byVessel.has(r.vessel)) byVessel.set(r.vessel, { netto: 0, discharged: r.discharged });
     const e = byVessel.get(r.vessel);
     e.netto += r.netto;
     if (r.discharged < e.discharged) e.discharged = r.discharged;
   }
+  return [...byVessel.entries()].sort((a, b) => a[1].discharged - b[1].discharged);
+}
 
-  const sufficient = [...byVessel.entries()]
-    .filter(([, v]) => v.netto >= MIN_NETTO_KG)
-    .sort((a, b) => a[1].discharged - b[1].discharged);
+// Synchronous: given pre-loaded stock rows and a cargo name, returns the single
+// vessel that should be used (oldest with >= 24t). Returns:
+//   string  — vessel name to display (may be '' if cargo is in stock but all depleted)
+//   null    — cargo not found in stock at all
+function resolveVessel(cargoName, stockRows) {
+  if (!cargoName || !stockRows) return null;
 
+  const matching = matchingRows(cargoName, stockRows);
+  if (!matching.length) return null;
+
+  const sufficient = byVesselOldestFirst(matching).filter(([, v]) => v.netto >= MIN_NETTO_KG);
   return sufficient.length ? sufficient[0][0] : '';
 }
 
@@ -109,35 +147,11 @@ function resolveVessel(cargoName, stockRows) {
 function vesselBreakdown(cargoName, stockRows) {
   if (!cargoName || !stockRows) return [];
 
-  const normCargo = norm(cargoName);
-  let matching = stockRows.filter(r => norm(r.produktas) === normCargo);
-
-  if (!matching.length) {
-    const formula = extractFormula(cargoName);
-    if (formula) matching = stockRows.filter(r => r.produktas.includes(formula));
-  }
-
-  if (!matching.length && normCargo.length >= 3) {
-    matching = stockRows.filter(r => norm(r.produktas).startsWith(normCargo));
-  }
-
-  if (!matching.length) return [];
-
-  const byVessel = new Map();
-  for (const r of matching) {
-    if (!byVessel.has(r.vessel)) byVessel.set(r.vessel, { netto: 0, discharged: r.discharged });
-    const e = byVessel.get(r.vessel);
-    e.netto += r.netto;
-    if (r.discharged < e.discharged) e.discharged = r.discharged;
-  }
-
-  return [...byVessel.entries()]
-    .sort((a, b) => a[1].discharged - b[1].discharged)
-    .map(([vessel, v]) => ({
-      vessel,
-      nettoKg:   Math.round(v.netto),
-      sufficient: v.netto >= MIN_NETTO_KG,
-    }));
+  return byVesselOldestFirst(matchingRows(cargoName, stockRows)).map(([vessel, v]) => ({
+    vessel,
+    nettoKg:   Math.round(v.netto),
+    sufficient: v.netto >= MIN_NETTO_KG,
+  }));
 }
 
 module.exports = { fetchStockRows, resolveVessel, vesselBreakdown };

@@ -130,6 +130,49 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - [ ] **A14. Keep the server alive.** No process supervisor; a crash or a closed terminal stops
   everything silently (startup is a manual `node --use-system-ca src/server.js`).
 
+- [~] **A21. Vessel lookup misses stock it should find.** *BUILT 2026-11-09 (causes 1–4 below),
+  tested against the live stock reports, not yet in a live PRK run.* `stockCache.js` reads GBL +
+  Helm AG Sheet3 (all-or-nothing: if one report fails, stock counts as unreachable), maps both
+  product-column names, and adds a synonym pass from `config/cargo_synonyms.json` (operator
+  editable, applied without restart). **Decision (operator, 2026-11-09): stock is the
+  authority** — if the stock app is reachable and the cargo is in neither report, or every
+  vessel has under 24 t, the run stops with the reason ("not found in either stock report…")
+  instead of using `cargo.xlsx`; `cargo.xlsx` / `Instructions.xlsx` are used only while the stock
+  app is down. Live check on today's orders: Amonio sulfatas → ULSAN, Karbamidas → HEINZ; three
+  cargos now stop for the operator — `YARA BELA AXAN 27-04` (stock has `Yara Bela Axan N27,
+  S3,7% (RSK)` on EASTERN VANQUISH; same product? → synonym), `Trigubas superfosfatas 0-46-0`
+  (8 orders, in neither report — are the reports complete?), `Amonio salietra (N-34,4)`.
+  Original finding: on the first live test
+  (2026-11-09): order cargo `Amonio sulfatas (600) gran.` failed all three tiers with "No vessel
+  found", although the cargo is in stock (ULSAN, `AMMONIUM SULPHATE`, Helm AG report, ~5 842 t
+  at KKT). Four separate causes, all to fix:
+  1. **`stockCache.js` reads only the GBL report** (`stock_gbl` Sheet3). The Helm AG report
+     (`stock_helm` Sheet3) is never consulted by the PRK lookup — only by `syncCargo.js`.
+  2. **The Helm report names its product column `Product Name`, not `Produktas`** (GBL), so
+     adding the URL alone would still drop every Helm row. Packaging column also differs
+     (`Įpakavimas` vs `Capacity`).
+  3. **Lithuanian vs English names.** Orders say `Amonio sulfatas`, stock says
+     `AMMONIUM SULPHATE`; none of the three match passes links them. Needs a cargo-name synonym
+     list (LT ↔ EN, common spellings) kept as data.
+  4. **`cargo.xlsx` goes stale silently.** `syncCargo` only adds cargo names it hasn't seen;
+     it never updates the vessel of an existing row, so `Ammoniuim Sulphate` → RIX SPIRIT (an
+     old vessel, per the operator) stays forever. Proposed: when the stock lists have no row for
+     a cargo, an unattended run stops and asks instead of trusting `cargo.xlsx` (operator to
+     confirm).
+  Also seen: the order says 600 kg bags, the stock row says `BULK`. **Not a block** (operator,
+  2026-11-09): bulk is often bagged internally without documents, so stock and KIPIS say `BULK`
+  for cargo that ships packed. When order and stock disagree on packaging, the order wins.
+
+- [ ] **A22. Operator marks which KIPIS lots are packaged vs bulk.** Operator, 2026-11-09: most
+  cargo reads `BULK` in KIPIS and the stock reports even when part of it is bagged; the bulk and
+  packaged amounts are usually separate lots in KIPIS, but both may say bulk. The filler
+  (step 8 of `steps.md`) picks the heaviest eligible IMP lot regardless, so a bagged order can be
+  filed against the bulk lot, or the reverse. Needs a manual marking the operator sets once per
+  lot (e.g. per shipment number in the dashboard), which the filler then uses to pick a lot
+  matching the order's packaging. Unattended rule: if a vessel/cargo has more than one eligible
+  lot and none is marked, stop and ask — don't guess. Design open: what identifies a lot reliably
+  (shipment number `Siuntos numeris`?) and where the operator sets the mark.
+
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the
   user can take, e.g. "MLL365//RZ815: no weight in the email" with a field to fill that sends
