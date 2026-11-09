@@ -265,13 +265,16 @@ async function navigateToCargo(page, data = {}) {
     const vesselOf  = transport => (vesselRes.find(v => v.re.test(transport)) || {}).vessel || '';
     const vesselList = vesselNames.join(', ');
     let rows = [], tableRows = null;
-    const tried = [];
+    const tried = [], truncatedWords = [];
     for (const keyword of cargoKeywords(cargoName)) {
       tried.push(keyword);
       console.log(`Searching Kroviniai: Pavadinimas = "${keyword}"`);
       const found = await searchLots(page, keyword);
       if (found.truncated) {
-        throw new Error(`KIPIS cut the "${keyword}" search off at ${SEARCH_LIMIT} lots, so some lots may be missing — not choosing a lot from an incomplete list`);
+        // Some lots are not shown — never choose from that list; try the next word.
+        console.log(`  "${keyword}" hit KIPIS's ${SEARCH_LIMIT}-lot limit — too broad, trying the next word`);
+        truncatedWords.push(keyword);
+        continue;
       }
       rows = found.rows
         .map(r => ({ ...r, vessel: vesselOf(r.transport) }))
@@ -280,7 +283,8 @@ async function navigateToCargo(page, data = {}) {
       if (rows.length) { tableRows = found.tableRows; break; }
     }
     if (!rows.length) {
-      throw new Error(`No lot of "${cargoName}" on ${vesselList} found in KIPIS (searched Pavadinimas: ${tried.join(', ')})`);
+      const cut = truncatedWords.length ? ` — too broad, over ${SEARCH_LIMIT} lots: ${truncatedWords.join(', ')}` : '';
+      throw new Error(`No lot of "${cargoName}" on ${vesselList} found in KIPIS (searched Pavadinimas: ${tried.join(', ')}${cut})`);
     }
 
     // ── RULES.md Rule 6: is there already a PRK for this truck? ─────────────────

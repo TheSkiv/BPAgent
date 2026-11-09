@@ -20,9 +20,9 @@ the stock app is down. Lot choice uses the operator's marks in `config/lot_marks
 | 1 | Home | click | `text=Sekimas` | — | |
 | 2 | Sekimas | click | `text="Kroviniai"` | — | |
 | 3 | Kroviniai | fill | `[id$=":fAtgabenimoDokumentas"]` | `""` | cleared — the vessel is **not** searched here (see below) |
-| 4 | Kroviniai | fill | `[id$=":fPavadinimas"]` | cargo keyword | first word of the order cargo (e.g. `Amonio`), then of each synonym |
+| 4 | Kroviniai | fill | `[id$=":fPavadinimas"]` | cargo keyword | most specific first: formula (`11-11-21`) → order words except brand/filler `broadWords` (`AXAN`, not `YARA`) → synonyms' words → broad words; matches anywhere in the name |
 | 5 | Kroviniai | fill | `[id$=":limit"]` | `500` | default 50 can cut lots off |
-| 6 | Kroviniai | click | `input[type=submit][value="Filtruoti/Atnaujinti"]` | — | apply filters; next keyword if no row matches |
+| 6 | Kroviniai | click | `input[type=submit][value="Filtruoti/Atnaujinti"]` | — | apply filters; next keyword if no row matches or the result hits the 500-lot cap |
 | 7 | Kroviniai | read | `thead tr:last th` | — | **leaf** header row = column order of body `<td>`s |
 | 8 | Kroviniai | select row | — | — | see row-selection rules below |
 | 9 | Kroviniai | click | row `input[type=checkbox]` | — | tick the chosen lot's **storage** row |

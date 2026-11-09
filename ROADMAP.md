@@ -281,8 +281,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   returned a very large table and it was read row by row (with the browser's 50 ms slowMo).
   Fixed: the table is read in one browser call (3 300 rows in ~2 s in a replica), and a result
   at the 500-lot cap now stops the run ("some lots may be missing") instead of choosing from an
-  incomplete list. If `YARA` really returns 500+ lots, the keyword needs narrowing (e.g. first
-  two words) — to see on the next live run. Was: The stock lookup picks one vessel
+  incomplete list. **Live run 4:** `YARA` did hit the 500-lot cap → stopped, nothing filed.
+  Operator: YARA is a company with many products — search `AXAN` (KIPIS's Pavadinimas filter
+  matches anywhere in the name). Fixed: search words now go most-specific first — grade formula
+  (`11-11-21`), the order's own words minus `broadWords` (`Yara`, `Bela`, `YaraBela`, `NPK`,
+  `Gran`, editable in `cargo_synonyms.json`), synonyms' words, broad words last; a word that hits
+  the cap is skipped for the next one. Axan → `AXAN`, NPK 11-11-21 → `11-11-21`. Was: The stock lookup picks one vessel
   (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
   choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
   oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.

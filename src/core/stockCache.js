@@ -158,16 +158,28 @@ function sameCargo(orderCargo, otherName) {
   return wordsMatch(orderCargo, otherName);
 }
 
-// Short words to type into KIPIS's Pavadinimas filter, which only matches short text (the
-// operators type e.g. "amonio"): the order's first word, then the first word of each synonym, in
-// case KIPIS names the cargo in the other language.
+// Words to type into KIPIS's Pavadinimas filter, most specific first. The filter matches anywhere
+// in the name but needs a short word (operators type "amonio", "axan"). A brand word like "YARA"
+// matches hundreds of lots and hits KIPIS's 500-lot cap (seen live 2026-11-09), so brand/filler
+// words from cargo_synonyms.json "broadWords" go last: grade formula → the order's own words →
+// synonyms' words → broad words.
 function cargoKeywords(orderCargo) {
-  const firstWord = s => (String(s || '').match(/\p{L}+/u) || [''])[0];
-  let groups = [];
-  try { groups = JSON.parse(fs.readFileSync(SYNONYMS_PATH, 'utf8')).groups || []; } catch { /* no synonyms */ }
-  const group = groups.find(g => g.some(name => norm(orderCargo).includes(norm(name)))) || [];
+  let config = {};
+  try { config = JSON.parse(fs.readFileSync(SYNONYMS_PATH, 'utf8')); } catch { /* no config */ }
+  const groups = Array.isArray(config.groups) ? config.groups : [];
+  const broad  = new Set((config.broadWords || []).map(w => norm(w)));
+  const words  = s => String(s || '').match(/\p{L}{3,}/gu) || [];
+  const group  = groups.find(g => g.some(name => norm(orderCargo).includes(norm(name)))) || [];
+
+  const all = [...words(orderCargo), ...group.flatMap(words)];
+  const formula = extractFormula(orderCargo);
+  const ordered = [
+    ...(formula ? [formula] : []),
+    ...all.filter(w => !broad.has(norm(w))),
+    ...all.filter(w => broad.has(norm(w))),
+  ];
   const seen = new Set();
-  return [orderCargo, ...group].map(firstWord).filter(w => w && !seen.has(w.toLowerCase()) && seen.add(w.toLowerCase()));
+  return ordered.filter(w => !seen.has(w.toLowerCase()) && seen.add(w.toLowerCase()));
 }
 
 // Sums netto per vessel and keeps each vessel's oldest discharge date, oldest-first.
