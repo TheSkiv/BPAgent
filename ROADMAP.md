@@ -295,7 +295,13 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   `Gran`, editable in `cargo_synonyms.json`), synonyms' words, broad words last; a word that hits
   the cap is skipped for the next one. Axan → `AXAN`, NPK 11-11-21 → `11-11-21`. **Live run 5:**
   `AXAN` → 4 lots, one in our storage (`260801-000106-L`, EASTERN VANQUISH, 174 t) → form filled
-  → read-back PASSED → AI check falsely blocked again (fixed, see A1). Was: The stock lookup picks one vessel
+  → read-back PASSED → AI check falsely blocked again (fixed, see A1). **Live run 6 — FIRST PRK
+  DRAFT SAVED by the new code (MFR324//NU551, 2026-11-09):** `AXAN` → lot `260801-000106-L`
+  (EASTERN VANQUISH, 150 t) → read-back PASSED → AI check PASSED → `Saugoti` → order `done`.
+  Save itself not yet confirmed by code (A3) — the operator checks the draft in KIPIS.
+  **Operator decision, same day: `Originalaus dokumento numeris` stays empty** (it carried the
+  plates). The filler no longer fills it (still waits on it as the form-loaded signal), the
+  read-back checks it is empty, and the AI check is told it is empty on purpose. Was: The stock lookup picks one vessel
   (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
   choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
   oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.

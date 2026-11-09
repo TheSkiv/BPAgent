@@ -55,7 +55,7 @@ const SYSTEM_PROMPT = `You verify that a KIPIS "Prašymas krovai" (PRK) loading-
 You are given the expected order data and a snapshot of every visible field currently on the form.
 
 Check ONLY the fields this process fills:
-- The truck plate(s) appear in the original-document-number field.
+- The truck plate(s) appear as the transport (Į autotransportą) entry. The original-document-number field (Originalaus dokumento numeris) is deliberately left EMPTY — that is correct, never report it.
 - The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg).
 - The payer code and name match the expected ones.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
@@ -114,6 +114,8 @@ async function checkPrkCompletion(page, expected, mainTabFields = []) {
   const issues = Array.isArray(parsed.issues) ? parsed.issues : [];
   const ours = Object.values(expected).map(normText).filter(v => v.length >= 2);
   const aboutOurs = i => {
+    // Left empty on purpose (operator, 2026-11-09) — a model expecting the plate there is wrong.
+    if (/original/i.test(String(i.field))) return false;
     const e = normText(i.expected);
     return e.length >= 2 && ours.some(v => v === e || (e.length >= 6 && (v.includes(e) || e.includes(v))));
   };

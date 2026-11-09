@@ -347,10 +347,10 @@ async function navigateToCargo(page, data = {}) {
 
     const plates = getPlates(row);
 
-    console.log('Filling Originalaus dokumento numeris...');
+    // Originalaus dokumento numeris is left empty (operator, 2026-11-09 — it used to carry the
+    // plates). Still waited on: its appearance is how we know the PRK form has loaded.
     const originalDoc = page.getByRole('textbox', { name: /originalaus dokumento numeris/i });
     await originalDoc.waitFor({ state: 'visible', timeout: 10000 });
-    await originalDoc.fill(plates.join(', '));
 
     console.log('Filling Kita Procedūra...');
     await page.getByRole('textbox', { name: /kita procedūra/i }).fill(' ');
@@ -397,14 +397,13 @@ async function navigateToCargo(page, data = {}) {
     // where an earlier fill could be lost, and these fields may not be readable once the
     // Kroviniai tab is open.
     const fieldIssues = await readBackIssues([
-      { field: 'Originalaus dokumento numeris', locator: page.locator('[id$=":prkr_info:originaloNumeris"]'), expected: plates.join(', ') },
+      { field: 'Originalaus dokumento numeris (must stay empty)', locator: page.locator('[id$=":prkr_info:originaloNumeris"]'), expected: '' },
       { field: 'Mokėtojas — kodas',             locator: page.locator('[id$=":moketojas:subjf-kodas"]'),      expected: PAYER_CODE },
       { field: 'Mokėtojas — pavadinimas',       locator: page.locator('[id$=":moketojas:subjf-pav"]'),        expected: PAYER_NAME },
       { field: 'Instrukcijos',                  locator: page.locator('[id$=":prkr_info:instrukcijos"]'),     expected: instructions },
       { field: 'Krovos darbų aktą tvirtinti automatiškai', locator: page.locator('[id$=":prkr_info:patvirtintiKda"]'),       expected: true, kind: 'checked' },
       { field: 'Generuoti važtaraštį automatiškai',        locator: page.locator('[id$=":prkr_info:generuotiVaztarasti"]'), expected: true, kind: 'checked' },
-      // A saved transport row shows its plate as text; the plate typed into
-      // Originalaus dokumento numeris is an input value and does not count here.
+      // A saved transport row shows its plate as text (input values do not count here).
       ...plates.map(p => ({ field: `Transportas ${p}`, locator: page.getByText(p), expected: p, kind: 'present' })),
     ]);
     const mainTabFields = (await captureFormState(page)).fields;

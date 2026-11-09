@@ -29,7 +29,7 @@ the stock app is down. Lot choice uses the operator's marks in `config/lot_marks
 | 10 | Kroviniai | click | `input[type=button][value="Krauti"]` | — | opens popup |
 | 11 | Popup | select | `#krova_tag_krauti select` (2nd) | `Klaipėdos konteinerių terminalas, UAB` | terminal |
 | 12 | Popup | click | `input[type=submit][value="Krauti"]` | — | opens PRK form |
-| 13 | PRK form | fill | role textbox `originalaus dokumento numeris` | plates joined `, ` | |
+| 13 | PRK form | wait | role textbox `originalaus dokumento numeris` | — | **left empty** (operator, 2026-11-09; used to carry the plates) — only waited on as the "form loaded" signal; read-back checks it is empty |
 | 14 | PRK form | fill | role textbox `kita procedūra` | `" "` | single space |
 | 15 | PRK form | fill | `[id$=":moketojas:subjf-kodas"]` | `LT242134730` | payer code |
 | 16 | PRK form | fill | `[id$=":moketojas:subjf-pav"]` | `UAB "BPA"` | payer name |
