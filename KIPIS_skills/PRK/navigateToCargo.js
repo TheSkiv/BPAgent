@@ -156,6 +156,8 @@ const squash = s => String(s || '').replace(/\s+/g, ' ').trim();
 const plateKey = s => String(s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const SEARCH_LIMIT = 500;
+
 function parseKg(raw) {
   const part = raw.includes('/') ? raw.split('/').pop() : raw;
   const digits = part.replace(/[^\d]/g, '');
@@ -169,7 +171,7 @@ async function searchLots(page, keyword) {
   await page.locator('[id$=":fAtgabenimoDokumentas"]').fill('');
   await page.locator('[id$=":fPavadinimas"]').fill(keyword);
   // The default "Maks. įrašų skaičius" (50) can cut lots off a broad keyword search.
-  await page.locator('[id$=":limit"]').fill('500');
+  await page.locator('[id$=":limit"]').fill(String(SEARCH_LIMIT));
   await page.locator('input[type="submit"][value="Filtruoti/Atnaujinti"]').click();
   await page.waitForLoadState('networkidle');
 
@@ -191,18 +193,22 @@ async function searchLots(page, keyword) {
   if (missing.length) throw new Error(`Kroviniai table: column(s) not found: ${missing.join(', ')}`);
 
   const tableRows = cargoTable.locator('xpath=./tbody/tr');
-  const count = await tableRows.count();
+  // One browser call for the whole table: reading it row by row took minutes on a broad keyword
+  // ("YARA" — every Yara product on every vessel, with all their truck sub-rows; seen live
+  // 2026-11-09).
+  const allCells = await tableRows.evaluateAll(trs =>
+    trs.map(tr => [...tr.children].filter(c => c.tagName === 'TD').map(td => td.textContent)));
   const rows = [];
-  let lot = '', name = '';
-  for (let i = 0; i < count; i++) {
-    const cells  = await tableRows.nth(i).locator('xpath=./td').allTextContents();
+  let lot = '', name = '', lotCount = 0;
+  for (let i = 0; i < allCells.length; i++) {
+    const cells  = allCells[i];
     const offset = headers.length - cells.length;
     if (offset < 0 || cells.length < 2) continue;
     const cellAt = leafIdx => {
       const k = leafIdx - offset;
       return k >= 0 && k < cells.length ? squash(cells[k]) : '';
     };
-    if (offset === 0) { lot = cellAt(col.lot); name = cellAt(col.name); }
+    if (offset === 0) { lot = cellAt(col.lot); name = cellAt(col.name); lotCount++; }
     if (!lot) continue;
     rows.push({
       i, lot, name,
@@ -212,7 +218,8 @@ async function searchLots(page, keyword) {
       dest:      cellAt(col.dest),
     });
   }
-  return { rows, tableRows };
+  // KIPIS stops at "Maks. įrašų skaičius" lots: at the cap, some lots are simply not shown.
+  return { rows, tableRows, lotCount, truncated: lotCount >= SEARCH_LIMIT };
 }
 
 async function navigateToCargo(page, data = {}) {
@@ -263,10 +270,13 @@ async function navigateToCargo(page, data = {}) {
       tried.push(keyword);
       console.log(`Searching Kroviniai: Pavadinimas = "${keyword}"`);
       const found = await searchLots(page, keyword);
+      if (found.truncated) {
+        throw new Error(`KIPIS cut the "${keyword}" search off at ${SEARCH_LIMIT} lots, so some lots may be missing — not choosing a lot from an incomplete list`);
+      }
       rows = found.rows
         .map(r => ({ ...r, vessel: vesselOf(r.transport) }))
         .filter(r => r.vessel && sameCargo(cargoName, r.name));
-      console.log(`  ${found.rows.length} row(s), ${rows.length} for ${vesselList} / this cargo`);
+      console.log(`  ${found.lotCount} lot(s), ${found.rows.length} row(s); ${rows.length} for ${vesselList} / this cargo`);
       if (rows.length) { tableRows = found.tableRows; break; }
     }
     if (!rows.length) {

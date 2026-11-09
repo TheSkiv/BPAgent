@@ -276,7 +276,13 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   all of them are candidates, so with several lots the operator's marks choose across vessels
   (unmarked → stop and ask). The chosen lot's vessel goes to the AI check; the Lots panel shows
   and saves each lot's vessel. Live stock: TSP → OSLO CARRIER 2, SEA CARRIER, ADAROSE; NPK
-  11-11-21 → SKAGENBANK, ELECTRAMAR. Not yet run live. Was: The stock lookup picks one vessel
+  11-11-21 → SKAGENBANK, ELECTRAMAR. **Live run 3 (MFR324//NU551, Yara Axan, 2026-11-09):**
+  EASTERN VANQUISH from stock, 40 bags → keyword `YARA` → the run sat for minutes: KIPIS
+  returned a very large table and it was read row by row (with the browser's 50 ms slowMo).
+  Fixed: the table is read in one browser call (3 300 rows in ~2 s in a replica), and a result
+  at the 500-lot cap now stops the run ("some lots may be missing") instead of choosing from an
+  incomplete list. If `YARA` really returns 500+ lots, the keyword needs narrowing (e.g. first
+  two words) — to see on the next live run. Was: The stock lookup picks one vessel
   (oldest discharge with ≥ 24 t) *before* KIPIS is searched, so the operator's lot marks only
   choose among that vessel's lots. TSP 46 sits on three vessels (OSLO CARRIER 2 picked, as
   oldest); if the terminal is loading from SEA CARRIER first, the run picks the wrong vessel.
