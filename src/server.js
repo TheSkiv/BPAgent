@@ -29,7 +29,19 @@ function recordExistingPrk(order, plate, existingPrk) {
   const number = (existingPrk.match(/\d{6}-\d{6}-PRK/) || [null])[0];
   const status = (existingPrk.match(/\(([^)]+)\)/) || [null, 'exists'])[1];
   orderStore.attachDocument(order.id, { type: 'PRK', number, status });
-  orderStore.setState(order.id, 'done', { actor: 'kipis', detail: `PRK already in KIPIS: ${existingPrk} — not filed again` });
+  // A Ruošiamas PRK is still a draft — it waits for Pateikti like one this run saved (A11).
+  const state = /ruošiamas/i.test(status) ? 'drafted' : 'done';
+  orderStore.setState(order.id, state, { actor: 'kipis', detail: `PRK already in KIPIS: ${existingPrk} — not filed again` });
+}
+
+// A draft this run saved. It is not done: the operator still checks it and presses Pateikti
+// (human-only), then terminal@bpa.lt's dispatch email closes the order (ROADMAP A11).
+// markDone still blocks a second RUN PRK on the plate.
+function recordSavedDraft(order, plate, result) {
+  markDone(plate);
+  if (!order) return;
+  orderStore.attachDocument(order.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'Ruošiamas' });
+  orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti` });
 }
 
 const app = express();
@@ -78,12 +90,8 @@ app.post('/run-prk', async (req, res) => {
   try {
     const result = await kipisLoad.run({ plate: value });
     if (result.submitted) {
-      markDone(value);
-      if (tracked) {
-        orderStore.attachDocument(tracked.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'draft_saved' });
-        orderStore.setState(tracked.id, 'done', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber}` });
-      }
-      console.log(`run-prk completed: PRK ${result.prkNumber} saved, marked done`);
+      recordSavedDraft(tracked, value, result);
+      console.log(`run-prk completed: PRK ${result.prkNumber} saved — waiting for Pateikti`);
     } else if (result.existingPrk) {
       recordExistingPrk(tracked, value, result.existingPrk);
     } else if (result.blocked) {
@@ -231,9 +239,7 @@ app.post('/queue/process-next', async (req, res) => {
   try {
     const result = await kipisLoad.run({ plate: next.plate });
     if (result.submitted) {
-      markDone(next.plate);
-      orderStore.attachDocument(next.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'draft_saved' });
-      orderStore.setState(next.id, 'done', { actor: 'kipis', detail: `PRK draft saved: ${result.prkNumber}` });
+      recordSavedDraft(next, next.plate, result);
     } else if (result.existingPrk) {
       recordExistingPrk(next, next.plate, result.existingPrk);
     } else if (result.blocked) {

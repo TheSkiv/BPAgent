@@ -504,6 +504,8 @@
         <button id="recheckBtn">RECHECK</button>
       </div>
       <div id="recheckStatus"></div>
+      <div class="pipeline-group-title">Waiting for you — check the draft in KIPIS and press Pateikti</div>
+      <div id="pipelineAwaiting" class="pipeline-section"></div>
       <div class="pipeline-group-title">To do</div>
       <div id="pipelineQueue" class="pipeline-section"></div>
     </div>
@@ -642,7 +644,7 @@
         });
         const data = await res.json();
         if (data.status === 'ok' && data.existingPrk) {
-          setStatus('success', `PRK already in KIPIS (${data.existingPrk}) — not filed again, marked done.`);
+          setStatus('success', `PRK already in KIPIS (${data.existingPrk}) — not filed again.`);
           loadPipeline();
         } else if (data.status === 'ok' && data.needsLotMarking) {
           setStatus('error', `Not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`);
@@ -832,6 +834,7 @@
     });
 
     // --- Pipeline (state store): to-do queue + done ---
+    const pipelineAwaitingEl = document.getElementById('pipelineAwaiting');
     const pipelineQueueEl    = document.getElementById('pipelineQueue');
     const pipelineDoneEl     = document.getElementById('pipelineDone');
     const pipelineStatusEl   = document.getElementById('pipelineStatus');
@@ -892,11 +895,19 @@
           pipelineStatusEl.style.color = '#fc8181';
           return;
         }
-        const queue = data.queue || [];
-        const done  = data.done  || [];
-        const dups  = duplicatePlates([...queue, ...done]);
-        pipelineQueueOrders = queue;
+        // A saved draft (drafted, with a PRK number) waits for the operator's Pateikti; the
+        // terminal's dispatch email then closes it (ROADMAP A11). A dry-run fill has no number.
+        const awaitingPateikti = o => o.state === 'drafted' && o.docs?.PRK?.number;
+        const all      = data.queue || [];
+        const awaiting = all.filter(awaitingPateikti);
+        const queue    = all.filter(o => !awaitingPateikti(o));
+        const done     = data.done  || [];
+        const dups     = duplicatePlates([...all, ...done]);
+        pipelineQueueOrders = all;
 
+        pipelineAwaitingEl.innerHTML = awaiting.length
+          ? awaiting.map(o => pipeRow(o, dups, true)).join('')
+          : '<div class="task-empty">No drafts waiting.</div>';
         pipelineQueueEl.innerHTML = queue.length
           ? queue.map(o => pipeRow(o, dups, true)).join('')
           : '<div class="task-empty">Queue is empty.</div>';
@@ -904,7 +915,7 @@
           ? done.map(o => pipeRow(o, dups, false)).join('')
           : '<div class="task-empty">Nothing done yet today.</div>';
 
-        pipelineStatusEl.textContent = `${queue.length} to do · ${done.length} done`;
+        pipelineStatusEl.textContent = `${awaiting.length} waiting for Pateikti · ${queue.length} to do · ${done.length} done`;
         pipelineStatusEl.style.color = '#64748b';
       } catch (err) {
         pipelineStatusEl.textContent = 'Network error: ' + err.message;
@@ -932,7 +943,7 @@
       if (unassigned) handleCompanyClick(unassigned);
     });
 
-    pipelineQueueEl.addEventListener('click', async e => {
+    async function onQueueClick(e) {
       const unassigned = e.target.closest('.pipe-company.unassigned');
       if (unassigned) { handleCompanyClick(unassigned); return; }
 
@@ -957,7 +968,9 @@
       if (!row) return;
       const order = pipelineQueueOrders.find(o => o.id === row.getAttribute('data-id'));
       if (order) openEmailModal(order);
-    });
+    }
+    pipelineQueueEl.addEventListener('click', onQueueClick);
+    pipelineAwaitingEl.addEventListener('click', onQueueClick);
 
     loadPipeline();
 
@@ -1027,7 +1040,7 @@
         const data = await res.json();
         if (data.status === 'empty')      pipelineStatusEl.textContent = data.message;
         else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate ? data.plate + ': ' : ''}${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
-        else if (data.existingPrk)        pipelineStatusEl.textContent = `${data.plate}: PRK already in KIPIS (${data.existingPrk}) — not filed again, marked done.`;
+        else if (data.existingPrk)        pipelineStatusEl.textContent = `${data.plate}: PRK already in KIPIS (${data.existingPrk}) — not filed again.`;
         else if (data.needsLotMarking)    { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`; pipelineStatusEl.style.color = '#fc8181'; loadLots(); }
         else if (data.blocked)            { pipelineStatusEl.textContent = `${data.plate}: not saved — ${data.blocked}. Check the form in KIPIS and press Saugoti by hand.`; pipelineStatusEl.style.color = '#fc8181'; }
         else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? `PRK draft saved: ${data.prkNumber}` : 'filled (dry run)'}`;

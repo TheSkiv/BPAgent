@@ -155,6 +155,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - [ ] **A10. Recover from a failed run.** A failure mid-form leaves a popup or half-filled form;
   `failed` orders are never retried. Define: reset to home, retry once for transient errors
   (timeouts), leave data errors (no vessel, no IMP lot, no weight) at `needs_human` with the reason.
+- [~] **A11 BUILT 2026-11-10 (syntax-checked, not yet live):** a saved draft (and an existing
+  Ruošiamas PRK found on the lot) now leaves the order `drafted`, with its PRK number. The
+  dashboard lists those under "Waiting for you — check the draft in KIPIS and press Pateikti";
+  terminal@bpa.lt's dispatch email (sent after Pateikti) moves it to `done`, as does the Done
+  button. The plate stays in the done list, so RUN PRK still refuses to file it twice. Still
+  open: dry-run `drafted` orders (no number) are not picked by the worker.
 - [ ] **A11. Separate "draft saved" from "done".** A saved draft currently moves the order to
   `done`, though the operator still has to press `Pateikti`. Add a `drafted`-awaiting-review
   view so the operator gets a clear "drafts waiting for you" list. (Dry-run `drafted` orders are

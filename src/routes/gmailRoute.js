@@ -138,7 +138,9 @@ async function markConfirmedPlatesDone() {
         continue;
       }
 
-      if (!isDone(full)) {
+      // A saved draft is already in the done list (it blocks a second RUN PRK) but its order is
+      // still open, `drafted` — the dispatch email is what closes it (ROADMAP A11).
+      if (!isDone(full) || tracked?.state === 'drafted') {
         markDone(full);
         if (tracked) orderStore.setState(tracked.id, 'done', { actor: 'terminal', detail: 'PRK confirmed by terminal@bpa.lt' });
         marked.add(full);
