@@ -358,7 +358,7 @@ app.get('/lots/data', async (req, res) => {
   }
   const companies = [...companyNames].sort().map(company => {
     const { buyer, auto } = owners.buyerFor(company, releases);
-    return { company, buyer, auto, seller: owners.sellerFor(company), selfLoader: owners.isSelfLoader(company) };
+    return { company, buyer, auto, seller: owners.sellerFor(company), selfLoader: owners.isSelfLoader(company), receiverCountry: owners.receiverCountryFor(company) };
   });
 
   res.json({
@@ -388,8 +388,8 @@ app.post('/lots/confirm', (req, res) => {
 
 app.post('/lots/company', (req, res) => {
   try {
-    const { company, buyer, seller, selfLoader } = req.body || {};
-    res.json({ status: 'ok', setting: owners.setCompany(company, { buyer, seller, selfLoader }) });
+    const { company, buyer, seller, selfLoader, receiverCountry } = req.body || {};
+    res.json({ status: 'ok', setting: owners.setCompany(company, { buyer, seller, selfLoader, receiverCountry }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

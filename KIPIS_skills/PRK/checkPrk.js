@@ -59,6 +59,7 @@ Check ONLY the fields this process fills:
 - The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg).
 - The payer code and name match the expected ones.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
+- When the expected data has receiverCountry, the receiver's (Gavėjas) country (Valstybė) is that country. The receiver's code, name and address are left empty on purpose — never report them.
 
 Every other field on the form — order number (Užsakymo numeris), sender and receiver (Siuntėjas, Gavėjas), shipment number (Siuntos numeris), dates and the rest — is outside this check. Never report them, even when empty. Do NOT demand values the expected data does not contain. Ignore cosmetic differences in spacing or letter case.
 
@@ -136,7 +137,7 @@ const normNum  = s => Number(String(s ?? '').replace(/\s/g, '').replace(',', '.'
 // the value that was filled. Catches what the AI check cannot be trusted with — a field a JSF
 // re-render wiped (e.g. after adding a transport row), or a fill that never took — and still works
 // when OpenAI is down.
-// checks: [{ field, locator, expected, kind: 'value' | 'number' | 'checked' | 'present' }]
+// checks: [{ field, locator, expected, kind: 'value' | 'number' | 'checked' | 'present' | 'selectedText' }]
 async function readBackIssues(checks) {
   const issues = [];
   for (const { field, locator, expected, kind = 'value' } of checks) {
@@ -152,6 +153,11 @@ async function readBackIssues(checks) {
     if (kind === 'checked') {
       const checked = await locator.isChecked();
       if (checked !== expected) issues.push({ field, expected: String(expected), found: String(checked), severity: 'high' });
+      continue;
+    }
+    if (kind === 'selectedText') {   // a <select>: compare the chosen option's label, not its value
+      const text = await locator.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim());
+      if (normText(text) !== normText(expected)) issues.push({ field, expected: String(expected), found: text, severity: 'high' });
       continue;
     }
     const found = await locator.inputValue();

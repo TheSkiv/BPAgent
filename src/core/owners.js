@@ -122,6 +122,9 @@ function buyerFor(company, releases) {
 
 const isSelfLoader = company => !!(loadConfig().companies[company] || {}).selfLoader;
 const sellerFor    = company => (loadConfig().companies[company] || {}).seller || '';
+// The receiver's country to put on the PRK when KIPIS requires it and the lot leaves it empty
+// (operator, 2026-11-10: Agrokoncernas's own loads → "Lietuva", nothing else of the receiver).
+const receiverCountryFor = company => (loadConfig().companies[company] || {}).receiverCountry || '';
 
 // Where an order loads from. Returns { owner, vessels, source, note } or { stop }.
 // ownLotsOf(company, cargo) → [{ vessel }] from the lot registry (self-loaders' own lots).
@@ -171,17 +174,17 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf) {
     : `${company} matches no buyer in the Helm/Yara release lists — set who it buys from on the Lots page` };
 }
 
-function setCompany(company, { buyer, seller, selfLoader }) {
+function setCompany(company, { buyer, seller, selfLoader, receiverCountry }) {
   company = String(company || '').trim();
   if (!company) throw new Error('Missing company');
   const c = loadConfig();
   seller = String(seller || '').trim();
   if (seller && !c.sellers.some(s => s.name === seller)) throw new Error(`Unknown seller: ${seller}`);
-  c.companies[company] = { buyer: String(buyer || '').trim(), seller, selfLoader: !!selfLoader };
+  c.companies[company] = { buyer: String(buyer || '').trim(), seller, selfLoader: !!selfLoader, receiverCountry: String(receiverCountry || '').trim() };
   const e = c.companies[company];
-  if (!e.buyer && !e.seller && !e.selfLoader) delete c.companies[company];
+  if (!e.buyer && !e.seller && !e.selfLoader && !e.receiverCountry) delete c.companies[company];
   saveConfig(c);
   return c.companies[company] || null;
 }
 
-module.exports = { loadConfig, fetchReleases, resolveOrder, buyerFor, sellerFor, isSelfLoader, setCompany, releaseMatches, sameCompany };
+module.exports = { loadConfig, fetchReleases, resolveOrder, buyerFor, sellerFor, receiverCountryFor, isSelfLoader, setCompany, releaseMatches, sameCompany };

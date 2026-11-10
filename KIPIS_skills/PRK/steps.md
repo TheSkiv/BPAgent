@@ -36,6 +36,7 @@ stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `conf
 | 15 | PRK form | fill | `[id$=":moketojas:subjf-kodas"]` | `LT242134730` | payer code |
 | 16 | PRK form | fill | `[id$=":moketojas:subjf-pav"]` | `UAB "BPA"` | payer name |
 | 17 | PRK form | fill | `[id$=":prkr_info:instrukcijos"]` | instructions | see instruction rules |
+| 17a | PRK form | select | `[id$=":prkr_info:gavejas:subjf-valst"]` | company's *Receiver country* | only when empty and the company has the setting (Agrokoncernas → Lietuva); KIPIS will not open the Kroviniai tab without it ("Valstybė: Reikšmė privaloma"). Receiver code/name/address stay empty |
 | 18 | PRK form | check | label `krovos darbų aktą tvirtinti automatiškai` | ✓ | |
 | 19 | PRK form | check | label `generuoti važtaraštį automatiškai` | ✓ | |
 | 20 | PRK form | click | role button `pridėti` (first) | — | per plate: add transport |

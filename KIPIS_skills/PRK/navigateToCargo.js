@@ -348,6 +348,30 @@ async function navigateToCargo(page, data = {}) {
     const instructions = getInstructions(row);
     await page.locator('[id$=":prkr_info:instrukcijos"]').fill(instructions);
 
+    // Receiver's country (Gavėjas → Valstybė): KIPIS requires it before the Kroviniai tab opens,
+    // and some lots leave it empty (Agrokoncernas's own ULSAN lot, 2026-11-10). Filled from the
+    // company's setting (operator: "Lietuva only"), and only when empty — never over a value
+    // KIPIS took from the lot.
+    const receiverCountry = owners.receiverCountryFor(company);
+    const countrySelect   = page.locator('[id$=":prkr_info:gavejas:subjf-valst"]');
+    let countryFilled = '';
+    if (receiverCountry && await countrySelect.count()) {
+      const current = await countrySelect.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim());
+      if (!current || current === '--') {
+        const value = await countrySelect.evaluate((s, name) => {
+          const n = name.toLowerCase();
+          const o = [...s.options].find(x => x.textContent.trim().toLowerCase() === n)
+                 || [...s.options].find(x => x.textContent.toLowerCase().includes(n));
+          return o ? o.value : null;
+        }, receiverCountry);
+        if (!value) throw new Error(`Receiver country "${receiverCountry}" is not in KIPIS's country list`);
+        console.log(`Filling Gavėjas valstybė: ${receiverCountry} (${company}'s setting)...`);
+        await countrySelect.selectOption(value);
+        await page.waitForLoadState('networkidle');
+        countryFilled = receiverCountry;
+      }
+    }
+
     console.log('Checking Krovos darbų aktą tvirtinti automatiškai...');
     await page.getByLabel(/krovos darbų aktą tvirtinti automatiškai/i).check();
 
@@ -384,6 +408,7 @@ async function navigateToCargo(page, data = {}) {
       { field: 'Mokėtojas — kodas',             locator: page.locator('[id$=":moketojas:subjf-kodas"]'),      expected: PAYER_CODE },
       { field: 'Mokėtojas — pavadinimas',       locator: page.locator('[id$=":moketojas:subjf-pav"]'),        expected: PAYER_NAME },
       { field: 'Instrukcijos',                  locator: page.locator('[id$=":prkr_info:instrukcijos"]'),     expected: instructions },
+      ...(countryFilled ? [{ field: 'Gavėjas — valstybė', locator: countrySelect, expected: countryFilled, kind: 'selectedText' }] : []),
       { field: 'Krovos darbų aktą tvirtinti automatiškai', locator: page.locator('[id$=":prkr_info:patvirtintiKda"]'),       expected: true, kind: 'checked' },
       { field: 'Generuoti važtaraštį automatiškai',        locator: page.locator('[id$=":prkr_info:generuotiVaztarasti"]'), expected: true, kind: 'checked' },
       // A saved transport row shows its plate as text (input values do not count here).
@@ -449,6 +474,7 @@ async function navigateToCargo(page, data = {}) {
       instructions,
       payerCode:    PAYER_CODE,
       payerName:    PAYER_NAME,
+      ...(countryFilled ? { receiverCountry: countryFilled } : {}),
     }, mainTabFields);
 
     if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);

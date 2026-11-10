@@ -14,7 +14,9 @@
  "companies": {
   "Agrokoncernas": {
    "buyer": "",
-   "selfLoader": true
+   "seller": "",
+   "selfLoader": true,
+   "receiverCountry": "Lietuva"
   },
   "Transwina": {
    "buyer": "",

@@ -346,9 +346,11 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   *BUILT 2026-11-10; live the same day:* owners confirmed by the operator; 3 Linasagro TSP
   (Helm release → OSLO CARRIER 2) and 1 Agrokoncernas Urea (its Helm release → HEINZ, 500 kg
   bags) saved as 261110-003720/-003724/-003727/-003729-PRK; NGU792 (PRK) and LNF355 (VZT) found
-  already filed and skipped. **Blocked:** Agrokoncernas's own AS lot on ULSAN — KIPIS requires
-  the receiver's country (Gavėjas → Valstybė), empty on that lot; what to fill is the operator's
-  call (Rule 4). Operator: a KIPIS
+  already filed and skipped. Agrokoncernas's own AS lot on ULSAN: KIPIS requires the receiver's
+  country (Gavėjas → Valstybė), empty on that lot — operator: "Lietuva only". Now a per-company
+  *Receiver country* setting (Lots & owners page), filled only when the field is empty, read back
+  as the selected option. 5 AS trucks then saved from lot 260924-001330-L:
+  261110-003786/-003789/-003791/-003792/-003794-PRK. Operator: a KIPIS
   lot is an ownership unit, not a packaging one — ULSAN's ~6 000 t lot is all Helm's, from both
   terminals (KIPIS says KKT), the other three are Agrokoncernas's; a lot holds BB and bulk
   together; KIPIS shows no owner; Agrokoncernas's own stock is on a list we do not get; off-spec
