@@ -619,7 +619,8 @@ function cleanupState() {
   try { return JSON.parse(require('fs').readFileSync(CLEANUP_STATE_PATH, 'utf8')); } catch { return {}; }
 }
 
-async function runCleanup(by) {
+// opts.minAgeDays: 2 for the daily run (default); 0 for the operator's Run now (today's too).
+async function runCleanup(by, opts = {}) {
   if (isRunning) return { status: 'busy', message: 'Another KIPIS job is running.' };
   const notReady = await kipisNotReady();
   if (notReady) return { status: 'error', message: notReady };
@@ -628,7 +629,7 @@ async function runCleanup(by) {
   const state = { at: new Date().toISOString(), by };
   try {
     const page = getPage();
-    Object.assign(state, { status: 'ok' }, await withAutomation(page, () => prkDelete.sweepDrafts(page, by)));
+    Object.assign(state, { status: 'ok' }, await withAutomation(page, () => prkDelete.sweepDrafts(page, by, opts)));
     if (state.failed.length) state.status = 'stopped';
   } catch (err) {
     console.error('PRK cleanup failed:', err.message);
@@ -658,7 +659,8 @@ app.get('/prk/cleanup', (req, res) => {
 
 // Dashboard "run now": the same cleanup, same 2-day rule — for a day KIPIS was closed all morning.
 app.post('/prk/cleanup', async (req, res) => {
-  res.json(await runCleanup('dashboard: run now'));
+  // The operator's Run now also takes today's unused drafts (operator, 2026-11-10).
+  res.json(await runCleanup('dashboard: run now', { minAgeDays: 0 }));
 });
 
 // One of PortSystem's own Ruošiamas drafts, by number — same gates as the sweep (Rule 7).

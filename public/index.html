@@ -40,8 +40,8 @@
           <div class="line" id="watchLine">After each mail check and every 15 min.</div>
         </div>
         <div class="auto-row">
-          <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes PortSystem's Ruošiamas drafts for orders 2+ days old">Run now</button></div>
-          <div class="line" id="sweepLine">Once a day, drafts 2+ days old.</div>
+          <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
+          <div class="line" id="sweepLine">By itself once a day: drafts 2+ days old. The button: all of ours, today's too.</div>
         </div>
       </section>
 
@@ -438,14 +438,14 @@
         const r = await getJson('/prk/cleanup');
         if (!r.at) return;
         // Say why the others stayed: ours but under 2 days old, or made by other people.
-        const kept = [r.tooYoung && `${r.tooYoung} of ours under 2 days old`, r.othersKept && `${r.othersKept} by other people (never touched)`].filter(Boolean).join(', ');
+        const kept = [r.tooYoung && `${r.tooYoung} of ours under 2 days old (the daily run waits; the button takes them)`, r.othersKept && `${r.othersKept} by other people (never touched)`].filter(Boolean).join(', ');
         $('sweepLine').innerHTML = r.status === 'ok' || r.status === 'stopped'
           ? `Last run ${new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' })}: ${r.deleted.length} deleted${kept ? ` · kept ${kept}` : ''}${r.failed?.length ? ` — <span class="err">stopped at ${esc(r.failed[0].plate)}</span>` : ''}`
           : `<span class="err">Not done — ${esc(r.message)}</span>`;
       } catch { /* keep */ }
     }
     $('sweepBtn').addEventListener('click', async () => {
-      if (!confirm('Delete PortSystem\'s unused PRK drafts now?\n\nOnly Ruošiamas drafts for orders 2 or more days old. Today\'s and yesterday\'s drafts, and drafts made by people, are never touched. This cannot be undone.')) return;
+      if (!confirm('Delete ALL of PortSystem\'s unsubmitted (Ruošiamas) PRK drafts now — today\'s included?\n\nThis also deletes drafts for trucks still waiting for your Pateikti. Drafts already submitted, and drafts made by other people, are never touched.\n\nThis cannot be undone.')) return;
       $('sweepBtn').disabled = true;
       $('sweepLine').textContent = 'Reading KIPIS and deleting…';
       let r = null;

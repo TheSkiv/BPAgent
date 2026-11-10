@@ -83,9 +83,12 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
 2. **PortSystem created it** — its PRK number is on an order whose history shows PortSystem
    saved it ("PRK draft saved"). A PRK merely found in KIPIS and recorded on an order was made by
    a person: never delete a document a human made by hand.
-3. The order it belongs to is **2 or more days old** (and at most 30). A PRK is always for today
-   or tomorrow, so a draft whose order is two days old and still Ruošiamas was not used;
-   today's and yesterday's drafts are never touched (operator, 2026-11-10).
+3. **Automatic daily run:** the order it belongs to is **2 or more days old** (and at most 30). A
+   PRK is always for today or tomorrow, so a draft whose order is two days old and still
+   Ruošiamas was not used; the daily run never touches today's or yesterday's drafts.
+   **The operator's "Delete all now" button** also takes today's and yesterday's unsubmitted
+   drafts (operator, 2026-11-10) — its confirmation says so, including that drafts for trucks
+   still waiting for Pateikti go too.
 4. **Approved in advance by the operator** (2026-11-10): the server runs this cleanup by itself
    once a day — no button to forget. The dashboard's *Run cleanup now* runs the same rule. Only
    this cleanup and `POST /prk/delete` (one draft, by number) may click `Šalinti`.

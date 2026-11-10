@@ -491,6 +491,11 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [x] **Cleanup "Delete all now" — 2026-11-10.** A run that deleted nothing read like a failure:
+  the result now says how many drafts are ours but under 2 days old and how many are other
+  people's (never touched), and a busy/not-run press says so. Operator: the dashboard button
+  now deletes **all** of PortSystem's unsubmitted drafts, today's included (confirmation says
+  so); the automatic daily run keeps the 2-day rule. RULES.md Rule 7 updated.
 - [~] **A32. Emails the batch skips are read again alone — BUILT 2026-11-10.** UHB's three
   "Release 291568 DAP" emails (loading table with JSB303/IA973 and NEZ584/ZB927, bulk DAP from
   ADAROSE) were judged "not a truck order" each time they were in a batch of 10, so neither

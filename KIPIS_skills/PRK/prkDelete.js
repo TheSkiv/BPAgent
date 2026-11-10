@@ -134,14 +134,16 @@ async function deleteOurDraft(page, number, ours, by) {
 // that list; today's and yesterday's are not on it either), and deletes them one by one. Each
 // deletion is logged and closes its order. The first failure stops the sweep: the page may be
 // in an unknown state.
-async function sweepDrafts(page, by = 'daily cleanup') {
+// minAgeDays: 2 for the automatic daily run; the operator's "Run now" passes 0 — today's unused
+// drafts too (operator, 2026-11-10). Other people's drafts are never on the list either way.
+async function sweepDrafts(page, by = 'daily cleanup', { minAgeDays = CLEANUP_MIN_AGE_DAYS } = {}) {
   const { readFullPrkList } = require('./exportPrkList');
   const orderStore = require('../../src/core/orderStore');
 
-  const ours = orderStore.prkNumbersFiled({ minAgeDays: CLEANUP_MIN_AGE_DAYS });
+  const ours = orderStore.prkNumbersFiled({ minAgeDays });
   const { drafts } = await readFullPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
   const targets = drafts.filter(d => ours.has(d.number));
-  console.log(`PRK cleanup: ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} filed by PortSystem for orders ${CLEANUP_MIN_AGE_DAYS}+ days old`);
+  console.log(`PRK cleanup: ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} filed by PortSystem${minAgeDays ? ` for orders ${minAgeDays}+ days old` : ' (today\'s included)'}`);
 
   const deleted = [], failed = [];
   for (const d of targets) {
