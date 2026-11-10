@@ -1,0 +1,9 @@
+{
+ "sellers": [
+  { "name": "Helm", "stockReport": "Helm AG", "releases": "http://192.168.1.146:3000/api/stock_helm_sheet4" },
+  { "name": "Yara", "stockReport": "GBL",     "releases": "http://192.168.1.146:3000/api/stock_gbl_sheet4" }
+ ],
+ "companies": {
+  "Agrokoncernas": { "buyer": "", "selfLoader": true }
+ }
+}

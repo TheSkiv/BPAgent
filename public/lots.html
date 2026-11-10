@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lots &amp; owners</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; padding: 32px 20px; }
+    main { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+    a { color: #a5b4fc; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    h1 { font-size: 1.25rem; color: #a5b4fc; font-weight: 600; }
+    h2 { font-size: 0.95rem; color: #a5b4fc; font-weight: 600; margin-bottom: 8px; }
+    .hint { font-size: 0.78rem; color: #64748b; }
+    .warn { font-size: 0.8rem; color: #fbbf24; }
+    .err  { color: #fc8181; }
+    .ok   { color: #68d391; }
+    section { background: #1a1d29; border: 1px solid #2d3148; border-radius: 10px; padding: 14px 16px; }
+    select, input { background: #0f1117; color: #e2e8f0; border: 1px solid #2d3148; border-radius: 6px; padding: 4px 6px; font-size: 0.8rem; }
+    button { background: #4f46e5; color: #fff; border: 0; border-radius: 6px; padding: 5px 12px; font-size: 0.8rem; cursor: pointer; }
+    button:hover:not(:disabled) { background: #6366f1; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button.plain { background: transparent; color: #64748b; padding: 2px 6px; }
+    button.plain:hover { color: #fc8181; background: transparent; }
+
+    .vessel { border: 1px solid #2d3148; border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+    .vessel.todo { border-color: #92400e; }
+    .vessel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+    .vessel-head b { font-size: 0.9rem; }
+    .badge { font-size: 0.7rem; padding: 1px 7px; border-radius: 10px; border: 1px solid #92400e; color: #fbbf24; }
+    .vessel-head .spacer { flex: 1; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    /* Same column widths in every vessel card, so the cards line up */
+    .vessel table { table-layout: fixed; }
+    .vessel th:nth-child(1) { width: 150px; }
+    .vessel th:nth-child(3) { width: 90px; }
+    .vessel th:nth-child(4) { width: 50px; }
+    .vessel th:nth-child(5) { width: 160px; }
+    .vessel th:nth-child(6) { width: 62px; }
+    .vessel th:nth-child(7) { width: 36px; }
+    .vessel th:nth-child(3) { text-align: right; }
+    td, th { padding: 4px 6px; border-top: 1px solid rgba(148,163,184,0.12); text-align: left; vertical-align: middle; }
+    th { font-weight: 500; color: #64748b; font-size: 0.72rem; border-top: 0; }
+    td.num { text-align: right; white-space: nowrap; }
+    td.mono { font-family: ui-monospace, monospace; white-space: nowrap; }
+    td.name { color: #94a3b8; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .loading { color: #fbbf24; white-space: nowrap; }
+    select.suggested { border-color: #22543d; }
+    select.unset { border-color: #92400e; }
+    input.prio { width: 46px; }
+    .row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    details summary { cursor: pointer; font-size: 0.85rem; color: #a5b4fc; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Lots &amp; owners</h1>
+    <a href="/">← Dashboard</a>
+  </header>
+  <div id="warnings"></div>
+
+  <section>
+    <h2>Vessels and their lots</h2>
+    <p class="hint">Who owns each KIPIS lot. The owner is suggested from the stock reports (green border) — check it and press Confirm.
+      Change it any time. <b>#</b> overrides the loading order (1 = first); left empty, trucks continue the lot already being loaded, else the oldest.</p>
+    <div id="vessels"></div>
+  </section>
+
+  <section>
+    <h2>Find lots in KIPIS</h2>
+    <p class="hint">Reads KIPIS for a cargo word (e.g. <i>amonio</i>, <i>TSP</i>, <i>axan</i>) and adds the lots in our storage above — useful when a vessel is delivered. KIPIS must be open.</p>
+    <div class="row-actions" style="margin-top:8px">
+      <input id="scanWord" placeholder="Cargo word" />
+      <button id="scanBtn">Find</button>
+      <span id="scanStatus" class="hint"></span>
+    </div>
+  </section>
+
+  <section>
+    <h2>Companies</h2>
+    <p class="hint">Who each ordering company loads for: its name in the Helm/Yara release lists (matched automatically where the names agree),
+      and whether it also loads its own cargo (like Agrokoncernas).</p>
+    <table style="margin-top:8px">
+      <thead><tr><th>Company</th><th>Buyer in the release lists</th><th>Own cargo</th><th></th></tr></thead>
+      <tbody id="companies"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <details>
+      <summary>Releases (Helm release'ai, Yara perdavimai)</summary>
+      <table style="margin-top:8px">
+        <thead><tr><th>Seller</th><th>Buyer</th><th>Product</th><th>Vessel</th><th class="num">Left</th></tr></thead>
+        <tbody id="releases"></tbody>
+      </table>
+    </details>
+  </section>
+</main>
+
+<script>
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const tonnes = kg => (kg / 1000).toLocaleString('lt-LT', { maximumFractionDigits: 0 }) + ' t';
+  const post = async (url, body) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+
+  let data = null;
+
+  function ownerSelect(l) {
+    const value = l.confirmedAt ? l.owner : l.suggested;
+    const cls = l.confirmedAt ? '' : (l.suggested ? 'suggested' : 'unset');
+    const opts = [...new Set([...data.owners, ...(l.owner ? [l.owner] : [])])];
+    return `<select class="owner ${cls}"><option value="">— owner —</option>`
+      + opts.map(o => `<option${o === value ? ' selected' : ''}>${esc(o)}</option>`).join('')
+      + `</select>`;
+  }
+
+  function vesselCard(v) {
+    return `<div class="vessel${v.unconfirmed ? ' todo' : ''}" data-vessel="${esc(v.vessel)}">
+      <div class="vessel-head">
+        <b>${esc(v.vessel || '(vessel unknown)')}</b>
+        ${v.unconfirmed ? `<span class="badge">${v.unconfirmed} to confirm</span>` : ''}
+        <span class="spacer"></span>
+        <span class="hint vessel-status"></span>
+        <button class="confirm">${v.unconfirmed ? 'Confirm' : 'Save changes'}</button>
+      </div>
+      <table>
+        <thead><tr><th>Lot</th><th>KIPIS name</th><th class="num">In storage</th><th></th><th>Owner</th><th>#</th><th></th></tr></thead>
+        <tbody>${v.lots.map(l => `
+          <tr data-lot="${esc(l.lot)}" title="Last seen in KIPIS ${esc((l.seenAt || '').slice(0, 16).replace('T', ' '))}">
+            <td class="mono">${esc(l.lot)}</td>
+            <td class="name" title="${esc(l.name)}">${esc(l.name)}</td>
+            <td class="num">${tonnes(l.weightKg)}</td>
+            <td>${l.trucksLoading ? `<span class="loading" title="Trucks/wagons loading from this lot">▶ ${l.trucksLoading}</span>` : ''}</td>
+            <td>${ownerSelect(l)}</td>
+            <td><input class="prio" type="number" min="1" value="${l.priority ?? ''}" /></td>
+            <td><button class="plain forget" title="Remove this lot from the list (e.g. emptied)">✕</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  function companyRow(c) {
+    const opts = [...new Set([...data.buyers, ...(c.buyer ? [c.buyer] : [])])];
+    return `<tr data-company="${esc(c.company)}">
+      <td>${esc(c.company)}</td>
+      <td><select class="buyer${!c.buyer && !c.selfLoader ? ' unset' : ''}"><option value="">— none —</option>`
+        + opts.map(b => `<option${b === c.buyer ? ' selected' : ''}>${esc(b)}</option>`).join('')
+        + `</select> ${c.auto ? '<span class="hint">auto</span>' : ''}</td>
+      <td><input type="checkbox" class="self"${c.selfLoader ? ' checked' : ''} /></td>
+      <td><button class="save-company">Save</button> <span class="hint company-status"></span></td>
+    </tr>`;
+  }
+
+  async function load() {
+    data = await (await fetch('/lots/data')).json();
+    document.getElementById('warnings').innerHTML = (data.warnings || []).map(w => `<div class="warn">${esc(w)}</div>`).join('');
+    const listed = data.vessels.filter(v => v.listed), other = data.vessels.filter(v => !v.listed);
+    document.getElementById('vessels').innerHTML = (listed.length
+      ? listed.map(vesselCard).join('')
+      : '<p class="hint" style="margin-top:8px">No lots yet — they appear after a PRK run or a search below.</p>')
+      + (other.length
+        ? `<details style="margin-top:12px"><summary>Other vessels (${other.length}) — not in the stock or release lists</summary>${other.map(vesselCard).join('')}</details>`
+        : '');
+    document.getElementById('companies').innerHTML = data.companies.map(companyRow).join('');
+    document.getElementById('releases').innerHTML = data.releases.map(r => `<tr>
+      <td>${esc(r.seller)}</td><td>${esc(r.buyer)}</td><td>${esc(r.product)}</td><td>${esc(r.vessel)}</td>
+      <td class="num">${tonnes(r.remainingKg)}${r.bulk ? ' bulk' : ''}</td></tr>`).join('');
+  }
+
+  document.getElementById('vessels').addEventListener('change', e => {
+    if (e.target.matches('select.owner')) e.target.classList.remove('suggested', 'unset');
+  });
+
+  document.getElementById('vessels').addEventListener('click', async e => {
+    const card = e.target.closest('.vessel');
+    if (e.target.matches('button.confirm')) {
+      const lots = [...card.querySelectorAll('tr[data-lot]')].map(tr => ({
+        lot: tr.dataset.lot,
+        owner: tr.querySelector('select.owner').value,
+        priority: tr.querySelector('input.prio').value,
+      }));
+      const status = card.querySelector('.vessel-status');
+      if (lots.some(l => !l.owner)) { status.textContent = 'Pick an owner for every lot first.'; status.className = 'hint vessel-status err'; return; }
+      e.target.disabled = true;
+      const r = await post('/lots/confirm', { lots });
+      if (r.error) { status.textContent = r.error; status.className = 'hint vessel-status err'; e.target.disabled = false; return; }
+      await load();
+    } else if (e.target.matches('button.forget')) {
+      const lot = e.target.closest('tr').dataset.lot;
+      if (!confirm(`Remove lot ${lot} from the list? A later PRK run or search adds it back if it is still in KIPIS.`)) return;
+      await post('/lots/remove', { lot });
+      await load();
+    }
+  });
+
+  document.getElementById('companies').addEventListener('click', async e => {
+    if (!e.target.matches('button.save-company')) return;
+    const tr = e.target.closest('tr');
+    const status = tr.querySelector('.company-status');
+    const r = await post('/lots/company', {
+      company: tr.dataset.company,
+      buyer: tr.querySelector('select.buyer').value,
+      selfLoader: tr.querySelector('input.self').checked,
+    });
+    if (r.error) { status.textContent = r.error; status.className = 'hint company-status err'; return; }
+    await load();
+  });
+
+  document.getElementById('scanBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('scanBtn');
+    const status = document.getElementById('scanStatus');
+    const q = document.getElementById('scanWord').value.trim();
+    if (!q) return;
+    btn.disabled = true;
+    status.className = 'hint'; status.textContent = 'Reading KIPIS…';
+    try {
+      const r = await post('/lots/scan', { q });
+      if (r.status === 'ok') { status.className = 'hint ok'; status.textContent = `${r.lots} lot(s) on ${r.vessels.join(', ') || 'no vessel'}`; await load(); }
+      else { status.className = 'hint err'; status.textContent = r.message || r.error; }
+    } catch (err) {
+      status.className = 'hint err'; status.textContent = err.message;
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  load();
+</script>
+</body>
+</html>

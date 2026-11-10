@@ -9,9 +9,11 @@ code — it is the human-readable spec of the non-AI algorithm.
 ## Inputs
 
 From today's orders Excel row, matched by plate (`findRowByPlate`):
-`Plate`, `Cargo`, `Weight`, `Bulk`. Vessel from the BPA stock reports (GBL + Helm AG, with
-`config/cargo_synonyms.json`); `config/cargo.xlsx` → `Instructions/Instructions.xlsx` only while
-the stock app is down. Lot choice uses the operator's marks in `config/lot_marks.json`.
+`Plate`, `Cargo`, `Weight`, `Bulk`, `Sender`. **Whose cargo and which vessel** (`owners.resolveOrder`):
+the sender's company → its buyer name in the Helm release'ai / Yara perdavimai lists → that
+release's seller and vessel(s); no release and the company loads its own cargo
+(`config/owners.json`, e.g. Agrokoncernas) → its own confirmed lots' vessels. Anything else
+stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `config/lots.json`.
 
 ## Steps
 
@@ -54,9 +56,8 @@ The results table groups rows by shipment via **rowspan**:
 - The **parent** row carries all leaf columns; **sub-rows omit the leading columns**, so a
   sub-row's cells are shifted left by `offset = leafHeaderCount - cellCount`, and a sub-row
   belongs to the lot (*Siuntos numeris*) of the parent row above it.
-- **Vessel:** keep rows whose *Transportas* cell names **any** stock vessel holding ≥ 24 t of the
-  cargo (all of them are searched; the lot marks choose between vessels — ROADMAP A26), as a
-  whole word
+- **Vessel:** keep rows whose *Transportas* cell names one of the order's vessels (from its
+  release, or the self-loader's own lots), as a whole word
   (`Laivas ULSAN 1078092, Maršalo s.`). Neither the *Atgabenimo dokumentas* nor the
   *Atgabenęs transportas (pavadinimas)* filter found ULSAN (2026-11-09), so the vessel is matched
   in the results, not in a filter.
@@ -69,16 +70,15 @@ The results table groups rows by shipment via **rowspan**:
   `Saugojimo vieta — Vieta Konteinerių terminalo sandėlis, Perkėlos g. 8`. Rows loading to
   *Autotransportas* / *Vagonai* are other loads — ignored. (Replaces the old rule "last document
   contains IMP, not VZT/KDA": these lots have PTA/PRK last documents and no IMP at all.)
-- **Which lot** (`lotMarks.chooseLot`): one lot → use it. A lot marked loading order 1 for the
-  order's packaging that holds one truck → use it, even with other lots unmarked. Otherwise every
-  lot must be marked by the operator (bagged/bulk + loading order, dashboard *Lots* panel); take
-  the lowest loading order of the order's packaging that still holds one truck's gross weight.
-  Any lot unmarked → stop and list the lots for marking. A lot marked **Off-spec** is never
-  loaded.
+- **Which lot** (`lotRegistry.chooseLot`): a KIPIS lot is an **ownership** unit — it can hold BB
+  and bulk across both terminals, and KIPIS shows neither its owner nor its packaging (operator,
+  2026-11-10). Every candidate lot's owner must be confirmed on the Lots & owners page (suggested
+  from the stock reports by weight), else stop. Among the order owner's lots: the operator's
+  loading order (`#`), else the lot trucks are already loading from, else the oldest lot number —
+  the first that still holds one truck's gross weight. Packaging comes from the order only.
 - **Cargo names in KIPIS vary** — e.g. OSLO CARRIER 2's TSP is `Trąšos - TSP low Cd ''CE
   Fertilizers''`. When a vessel's lot is not found, look with `GET /kipis/lots?q=<word>&v=<vessel>`
-  (read-only) and add the spelling to a group in `config/cargo_synonyms.json`. Nothing in KIPIS shows packaging or the agreed loading
-  order — both say BULK, and the order is agreed with the terminal, often by phone.
+  (read-only) and add the spelling to a group in `config/cargo_synonyms.json`.
 - Never set the `Buvimo vieta` filter — it over-constrains and returns zero rows.
 
 ## Derived values

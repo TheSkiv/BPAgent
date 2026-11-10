@@ -44,51 +44,6 @@ function findRowByPlate(inputPlate) {
   return row;
 }
 
-// Every vessel the cargo can be loaded from. All of them are searched in KIPIS and the operator's
-// lot marks pick between their lots — the loading order is agreed with the terminal, so picking
-// one vessel here (oldest first, as before) could file against the wrong one (ROADMAP A26).
-async function getVesselNames(row) {
-  const cargo = row['Cargo'] || row['cargo'];
-  if (!cargo) throw new Error('Field "Cargo" not found in row');
-
-  // 1. Live stock data (GBL + Helm AG reports). When it is reachable it is the authority:
-  // cargo.xlsx can still lag the stock (ROADMAP A21), so it and Instructions.xlsx are only used
-  // while the stock app is down.
-  const { fetchStockRows, vesselBreakdown } = require('../../src/core/stockCache');
-  let stockRows = null;
-  try {
-    stockRows = await fetchStockRows();
-  } catch (err) {
-    console.warn(`Stock reports unreachable (${err.message}) — falling back to cargo.xlsx / Instructions.xlsx`);
-  }
-  if (stockRows) {
-    const breakdown = vesselBreakdown(cargo, stockRows);
-    if (!breakdown.length) {
-      throw new Error(`Cargo "${cargo}" not found in either stock report (GBL, Helm AG) — check the cargo name, or add its name to config/cargo_synonyms.json`);
-    }
-    const vessels = breakdown.filter(v => v.sufficient).map(v => v.vessel);
-    if (!vessels.length) throw new Error(`Cargo "${cargo}" is in stock, but no vessel has 24 t or more left`);
-    console.log(`Vessels from stock: ${breakdown.filter(v => v.sufficient).map(v => `${v.vessel} (${Math.round(v.nettoKg / 1000)} t)`).join(', ')}`);
-    return vessels;
-  }
-
-  // 2. cargo.xlsx lookup (with fuzzy matching)
-  const { getVesselForCargo } = require('../../src/core/cargoList');
-  const fromCargo = getVesselForCargo(cargo);
-  if (fromCargo) {
-    const vessels = fromCargo.split(' / ').map(v => v.trim()).filter(Boolean);
-    console.log('Vessels from cargo list:', vessels.join(', '));
-    return vessels;
-  }
-
-  // 3. Instructions.xlsx fallback
-  const instructions = readInstructions();
-  const match = instructions.find(r => cargoMatches(r['Cargo'] || '', cargo));
-  if (match && match['Vessel']) { console.log('Vessel from Instructions:', match['Vessel']); return [match['Vessel']]; }
-
-  throw new Error(`No vessel found for cargo: "${cargo}"`);
-}
-
 const DEFAULT_INSTRUCTIONS =
   'KRAUTI MAISUS TIK SU SVARIA BEI SVEIKA PAKUOTE!\n' +
   'MAISUS REIKIA GERAI NUVALYTI!\n' +
@@ -250,7 +205,6 @@ async function navigateToCargo(page, data = {}) {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
 
-    const vesselNames = await getVesselNames(row);
     const cargoName   = row['Cargo'] || row['cargo'] || '';
     const weight     = getWeight(row);
     const bagKg      = getBagKg(cargoName);
@@ -258,6 +212,22 @@ async function navigateToCargo(page, data = {}) {
     const total      = weight + bags;
     const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
     console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
+
+    // ── Whose cargo, on which vessel (owners.js) ─────────────────────────────────
+    // The order's company → its Helm/Yara release (seller + vessel), or a self-loader's own lots.
+    // Never "every vessel that has this cargo": that loaded one owner's trucks from another's lot.
+    const owners   = require('../../src/core/owners');
+    const registry = require('../../src/core/lotRegistry');
+    const { deriveCompany } = require('../../src/core/senderCompanies');
+    const company = deriveCompany(row['Sender'] || '');
+    const source  = await owners.resolveOrder({ company, cargo: cargoName, grossKg: total }, registry.ownLotsOf);
+    if (source.stop) {
+      blocked = `order source — ${source.stop}`;
+      console.warn(`Not filing: ${blocked}`);
+      return { submitted: false, check, fieldCheck, blocked, needsLotOwners: true };
+    }
+    console.log(`Loads from: ${source.note}`);
+    const vesselNames = source.vessels;
 
     // ── Find the lots of this cargo on every stock vessel ───────────────────────
     // KIPIS's Pavadinimas filter only matches short text, and its vessel filters did not find
@@ -299,29 +269,22 @@ async function navigateToCargo(page, data = {}) {
       return { submitted: false, existingPrk: existing.lastDoc, lot: existing.lot };
     }
 
-    // ── Pick the lot (operator's marks: bagged/bulk + loading order) ─────────────
+    // ── Pick the lot: the owner's, by loading order / already loading / oldest ───
     const loadingRows = lot => rows.filter(r => r.lot === lot && /autotransportas|vagonai/i.test(r.dest)).length;
     const candidates = rows
       .filter(r => isOurStorage(r.dest))
       .map(r => ({ i: r.i, lot: r.lot, vessel: r.vessel, name: r.name, place: r.dest, weightKg: r.weightKg, trucksLoading: loadingRows(r.lot) }));
     for (const c of candidates) console.log(`  lot ${c.lot} ${c.vessel} "${c.name}" — ${c.weightKg} kg in storage, ${c.trucksLoading} truck/wagon load(s) on it`);
 
-    const lotMarks = require('../../src/core/lotMarks');
-    const choice = lotMarks.chooseLot(candidates, packaging, total);
+    // Every lot seen goes on the Lots page, so the operator can confirm owners before they block.
+    registry.recordSeen(candidates.map(({ i, place, ...c }) => c));
+    const choice = registry.chooseLot(candidates, source.owner, total);
     if (choice.stop) {
-      if (choice.needsMarking) {
-        lotMarks.addPending({
-          vessel: vesselList, cargo: cargoName, packaging, plate: data.plate,
-          candidates: candidates.map(({ i, ...c }) => c),
-        });
-      }
       blocked = `lot choice — ${choice.stop}`;
       console.warn(`Not filing: ${blocked}`);
-      return { submitted: false, check, fieldCheck, blocked, needsLotMarking: !!choice.needsMarking };
+      return { submitted: false, check, fieldCheck, blocked, needsLotOwners: !!choice.needsOwners };
     }
     console.log(`Lot chosen: ${choice.note}`);
-    // A lot was found, so an earlier "mark these lots" request for this cargo no longer blocks.
-    lotMarks.clearPending(cargoName);
 
     const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');
     await checkbox.first().scrollIntoViewIfNeeded();
@@ -527,4 +490,4 @@ async function confirmSaved(page, timeout = 20000) {
   return { number: m[1], status };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, getVesselNames, confirmSaved };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, confirmSaved };

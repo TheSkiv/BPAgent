@@ -14,15 +14,16 @@ const { fetchAttachmentBytes }   = require('./core/imapMail');
 const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
-const lotMarks = require('./core/lotMarks');
-const lotStock = require('./core/lotStock');
+const owners      = require('./core/owners');
+const lotRegistry = require('./core/lotRegistry');
+const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
 function kipisOpen() {
   try { return !getPage().isClosed(); } catch { return false; }
 }
-const KIPIS_CLOSED = 'KIPIS is not open — press Open KIPIS (and enter the MFA code) first. No order was touched.';
+const KIPIS_CLOSED = 'KIPIS is not open ā€” press Open KIPIS (and enter the MFA code) first. No order was touched.';
 
 // A PRK someone already filed for this truck (seen on the lot in KIPIS): the order is handled.
 function recordExistingPrk(order, plate, existingPrk) {
@@ -31,9 +32,9 @@ function recordExistingPrk(order, plate, existingPrk) {
   const number = (existingPrk.match(/\d{6}-\d{6}-PRK/) || [null])[0];
   const status = (existingPrk.match(/\(([^)]+)\)/) || [null, 'exists'])[1];
   orderStore.attachDocument(order.id, { type: 'PRK', number, status });
-  // A Ruošiamas PRK is still a draft — it waits for Pateikti like one this run saved (A11).
-  const state = /ruošiamas/i.test(status) ? 'drafted' : 'done';
-  orderStore.setState(order.id, state, { actor: 'kipis', detail: `PRK already in KIPIS: ${existingPrk} — not filed again` });
+  // A RuoÅiamas PRK is still a draft ā€” it waits for Pateikti like one this run saved (A11).
+  const state = /ruoÅiamas/i.test(status) ? 'drafted' : 'done';
+  orderStore.setState(order.id, state, { actor: 'kipis', detail: `PRK already in KIPIS: ${existingPrk} ā€” not filed again` });
 }
 
 // A draft this run saved. It is not done: the operator still checks it and presses Pateikti
@@ -42,8 +43,8 @@ function recordExistingPrk(order, plate, existingPrk) {
 function recordSavedDraft(order, plate, result) {
   markDone(plate);
   if (!order) return;
-  orderStore.attachDocument(order.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'Ruošiamas' });
-  orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti` });
+  orderStore.attachDocument(order.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'RuoÅiamas' });
+  orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} ā€” waiting for Pateikti` });
 }
 
 const app = express();
@@ -93,17 +94,17 @@ app.post('/run-prk', async (req, res) => {
     const result = await kipisLoad.run({ plate: value });
     if (result.submitted) {
       recordSavedDraft(tracked, value, result);
-      console.log(`run-prk completed: PRK ${result.prkNumber} saved — waiting for Pateikti`);
+      console.log(`run-prk completed: PRK ${result.prkNumber} saved ā€” waiting for Pateikti`);
     } else if (result.existingPrk) {
       recordExistingPrk(tracked, value, result.existingPrk);
     } else if (result.blocked) {
-      if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
+      if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: `not saved ā€” ${result.blocked}; form left open in KIPIS for review` });
       console.log(`run-prk stopped before Saugoti: ${result.blocked}`);
     } else {
       if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
-      console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
+      console.log('run-prk completed: form filled (dry run) ā€” review and submit in KIPIS, not marked done');
     }
-    res.json({ status: 'ok', submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotOwners: !!result.needsLotOwners, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     console.error('run-prk failed:', err.message);
     if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
@@ -217,7 +218,7 @@ app.post('/confirmations/decide', async (req, res) => {
     } else {
       return res.status(400).json({ error: `Unknown action: ${action}` });
     }
-    console.log(`Confirmation "${action}" → ${affected} order(s) updated`);
+    console.log(`Confirmation "${action}" ā†’ ${affected} order(s) updated`);
     res.json({ status: 'ok', action, affected });
   } catch (err) {
     console.error('confirmation failed:', err.message);
@@ -245,22 +246,34 @@ app.post('/queue/process-next', async (req, res) => {
     } else if (result.existingPrk) {
       recordExistingPrk(next, next.plate, result.existingPrk);
     } else if (result.blocked) {
-      orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
+      orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: `not saved ā€” ${result.blocked}; form left open in KIPIS for review` });
     } else {
       orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
     }
-    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotMarking: !!result.needsLotMarking, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotOwners: !!result.needsLotOwners, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
-    console.error(`Queue: ${next.id} failed —`, err.message);
+    console.error(`Queue: ${next.id} failed ā€”`, err.message);
     res.json({ status: 'error', order: next.id, plate: next.plate, message: err.message });
   } finally {
     isRunning = false;
   }
 });
 
-// Read-only look at KIPIS lots: Sekimas → Kroviniai, the Pavadinimas filter, the table rows.
-// Only menu navigation and the filter button — never a form action. For checking why a run did
+// Sekimas ā†’ Kroviniai (unless already there), then the Pavadinimas filter. Read-only.
+async function kipisSearch(q) {
+  const page = getPage();
+  if (!await page.locator('[id$=":fPavadinimas"]').isVisible()) {
+    await page.getByText('Sekimas', { exact: true }).first().click();
+    await page.waitForLoadState('networkidle');
+    await page.locator('text="Kroviniai"').click();
+    await page.waitForLoadState('networkidle');
+  }
+  return searchLots(page, q);
+}
+
+// Read-only look at KIPIS lots: Sekimas ā†’ Kroviniai, the Pavadinimas filter, the table rows.
+// Only menu navigation and the filter button ā€” never a form action. For checking why a run did
 // not find a lot (e.g. a cargo named differently in KIPIS). ?q=keyword, &v=vessel substring.
 app.get('/kipis/lots', async (req, res) => {
   const q = String(req.query.q || '').trim();
@@ -270,14 +283,7 @@ app.get('/kipis/lots', async (req, res) => {
   if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
   isRunning = true;
   try {
-    const page = getPage();
-    if (!await page.locator('[id$=":fPavadinimas"]').isVisible()) {
-      await page.getByText('Sekimas', { exact: true }).first().click();
-      await page.waitForLoadState('networkidle');
-      await page.locator('text="Kroviniai"').click();
-      await page.waitForLoadState('networkidle');
-    }
-    const { rows, lotCount, truncated } = await searchLots(page, q);
+    const { rows, lotCount, truncated } = await kipisSearch(q);
     const shown = rows
       .filter(r => !v || r.transport.toLowerCase().includes(v))
       .map(({ lot, name, transport, weightKg, lastDoc, dest }) => ({ lot, name, transport, weightKg, lastDoc, dest, ourStorage: isOurStorage(dest) }));
@@ -289,18 +295,78 @@ app.get('/kipis/lots', async (req, res) => {
   }
 });
 
-// Lot marks: which KIPIS lot is bagged/bulk and the order lots are loaded in (ROADMAP A22),
-// plus lots a stopped PRK run is waiting on.
-// Pending entries come grouped by vessel, with the stock reports' BB / bulk / off-spec rows and
-// a suggested packaging per lot (lotStock.js).
-app.get('/lots', async (req, res) => {
-  const { lots, pending } = lotMarks.listMarks();
-  res.json({ lots, pending: await Promise.all(pending.map(lotStock.describePending)) });
+// ā”€ā”€ Lots & owners page (public/lots.html) ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€ā”€
+// Which owner each KIPIS lot belongs to, and which buyer / own cargo each ordering company loads
+// (owners.js, lotRegistry.js). Everything here can be changed by hand at any time.
+app.get('/lots/data', async (req, res) => {
+  const cfg = owners.loadConfig();
+  const warnings = [];
+  let stock = [], releases = [];
+  try { stock = await fetchStockRows(); } catch (err) { warnings.push(`Stock reports unreachable ā€” no owner suggestions (${err.message})`); }
+  try { releases = await owners.fetchReleases(); } catch (err) { warnings.push(`Release lists unreachable (${err.message})`); }
+
+  const selfLoaders = Object.entries(cfg.companies).filter(([, c]) => c.selfLoader).map(([name]) => name);
+  // Vessels in a stock or release list are the ones orders load from; lots on other vessels (old
+  // leftovers a search turned up) are shown apart and do not count as needing the operator.
+  const listed = new Set([...stock, ...releases].map(r => r.vessel.toLowerCase()));
+  const byVessel = new Map();
+  for (const l of lotRegistry.listLots()) {
+    if (!byVessel.has(l.vessel)) byVessel.set(l.vessel, []);
+    byVessel.get(l.vessel).push(l);
+  }
+  const vessels = [...byVessel.entries()].map(([vessel, lots]) => {
+    const suggested = lotRegistry.suggestOwners(lots, stock, cfg.sellers, selfLoaders);
+    const rows = lots
+      .map(l => ({ ...l, suggested: suggested.get(l.lot) || '' }))
+      .sort((a, b) => a.lot.localeCompare(b.lot));
+    return {
+      vessel,
+      listed: listed.has(String(vessel).toLowerCase()),
+      lots: rows,
+      unconfirmed: rows.filter(l => !l.confirmedAt).length,
+      seenAt: rows.reduce((m, l) => (l.seenAt > m ? l.seenAt : m), ''),
+    };
+  }).sort((a, b) => b.listed - a.listed || (b.unconfirmed > 0) - (a.unconfirmed > 0) || b.seenAt.localeCompare(a.seenAt));
+
+  // Every company ordering today, plus every company with a setting.
+  const companyNames = new Set(Object.keys(cfg.companies));
+  for (const o of orderStore.listOrders()) {
+    const c = senderCompanies.deriveCompany(o.email?.from || '');
+    if (c) companyNames.add(c);
+  }
+  const companies = [...companyNames].sort().map(company => {
+    const { buyer, auto } = owners.buyerFor(company, releases);
+    return { company, buyer, auto, selfLoader: owners.isSelfLoader(company) };
+  });
+
+  res.json({
+    vessels,
+    owners: [...cfg.sellers.map(s => s.name), ...selfLoaders],
+    companies,
+    buyers: [...new Set(releases.map(r => r.buyer))].sort(),
+    releases,
+    warnings,
+    attention: {
+      lots:      vessels.filter(v => v.listed).reduce((n, v) => n + v.unconfirmed, 0),
+      companies: companies.filter(c => !c.buyer && !c.selfLoader).length,
+    },
+  });
 });
 
-app.post('/lots/mark', (req, res) => {
+// { lots: [{ lot, owner, priority }] } ā€” confirms (or changes) owners and loading-order overrides.
+app.post('/lots/confirm', (req, res) => {
   try {
-    res.json({ status: 'ok', mark: lotMarks.setMark(req.body || {}) });
+    lotRegistry.confirmLots(Array.isArray(req.body?.lots) ? req.body.lots : []);
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/lots/company', (req, res) => {
+  try {
+    const { company, buyer, selfLoader } = req.body || {};
+    res.json({ status: 'ok', setting: owners.setCompany(company, { buyer, selfLoader }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -309,7 +375,33 @@ app.post('/lots/mark', (req, res) => {
 app.post('/lots/remove', (req, res) => {
   const { lot } = req.body || {};
   if (!lot) return res.status(400).json({ error: 'Missing lot' });
-  res.json({ status: lotMarks.removeMark(lot) ? 'ok' : 'not_found' });
+  res.json({ status: lotRegistry.removeLot(lot) ? 'ok' : 'not_found' });
+});
+
+// Reads KIPIS for a cargo word and adds every lot in our storage to the registry ā€” e.g. when a
+// vessel is delivered, before its first order. Read-only in KIPIS.
+app.post('/lots/scan', async (req, res) => {
+  const q = String(req.body?.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'Missing cargo word' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  isRunning = true;
+  try {
+    const { rows, truncated } = await kipisSearch(q);
+    if (truncated) return res.json({ status: 'error', message: `"${q}" matches over 500 lots in KIPIS ā€” use a more specific word` });
+    // "Laivas ULSAN 1078092, MarÅalo s." ā†’ ULSAN (the IMO number ends the name)
+    const vesselOf = t => ((String(t).match(/^Laivas\s+(.+?)\s+\d{7}\b/i) || [])[1] || '').trim();
+    const loading  = lot => rows.filter(r => r.lot === lot && /autotransportas|vagonai/i.test(r.dest)).length;
+    const seen = rows
+      .filter(r => isOurStorage(r.dest) && vesselOf(r.transport))
+      .map(r => ({ lot: r.lot, vessel: vesselOf(r.transport), name: r.name, weightKg: r.weightKg, trucksLoading: loading(r.lot) }));
+    lotRegistry.recordSeen(seen);
+    res.json({ status: 'ok', lots: new Set(seen.map(s => s.lot)).size, vessels: [...new Set(seen.map(s => s.vessel))] });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
 });
 
 // Manual override: operator marks an order done directly, bypassing PRK filing.
@@ -383,7 +475,7 @@ app.post('/set-cargo', (req, res) => {
 
     const updated = updateOrderFields(plate, fields);
     if (updated) {
-      console.log(`Manual order edit: ${plate} →${resolvedCargo ? ' ' + resolvedCargo : ''}${weight !== undefined ? ' ' + weight + 'kg' : ''}${grossWeight !== undefined ? ' gross ' + grossWeight + 'kg' : ''}${bulk ? ' [BULK]' : ''}`);
+      console.log(`Manual order edit: ${plate} ā†’${resolvedCargo ? ' ' + resolvedCargo : ''}${weight !== undefined ? ' ' + weight + 'kg' : ''}${grossWeight !== undefined ? ' gross ' + grossWeight + 'kg' : ''}${bulk ? ' [BULK]' : ''}`);
       if (id) orderStore.updateOrderFields(id, fields);
     }
     res.json({ status: updated ? 'ok' : 'not_found', cargo: resolvedCargo, vessel: resolvedVessel });

@@ -253,7 +253,7 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   2026-11-09): bulk is often bagged internally without documents, so stock and KIPIS say `BULK`
   for cargo that ships packed. When order and stock disagree on packaging, the order wins.
 
-- [~] **A22. Operator marks which KIPIS lots are packaged vs bulk.** *v1 BUILT 2026-11-09
+- [x] **A22. Superseded 2026-11-10 by A27 (lots are chosen by owner).** *Was: v1 BUILT 2026-11-09
   (replica-tested, not yet live):* `src/core/lotMarks.js` + `config/lot_marks.json`; dashboard
   *Lots* panel lists lots a stopped run is waiting on (lot, KIPIS name, tonnes in storage, place,
   trucks already loading) with bagged/bulk + load order, shows marked lots, and has a manual
@@ -311,7 +311,7 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
      KREETE → EASTERN VANQUISH, TSP 46 → SEA CARRIER / OSLO CARRIER 2).
   3. Synonym added: `Trigubas superfosfatas` = `TSP 46` (Helm AG: OSLO CARRIER 2, SEA CARRIER,
      ADAROSE) — 9 orders today. `Amonio salietra` is in neither report.
-- [~] **A26. Which vessel, when several carry the cargo.** *BUILT 2026-11-09 (operator: marks
+- [x] **A26. Superseded 2026-11-10 by A27: the vessel comes from the order's release or own lots.** *Was: BUILT 2026-11-09 (operator: marks
   decide):* `getVesselNames` returns every stock vessel with ≥ 24 t of the cargo; KIPIS lots on
   all of them are candidates, so with several lots the operator's marks choose across vessels
   (unmarked → stop and ask). The chosen lot's vessel goes to the AI check; the Lots panel shows
@@ -342,6 +342,36 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   Proposed: search KIPIS for the lots of *every* stock vessel carrying the product and let the
   lot marks decide across vessels (several unmarked lots → stop and ask, as now). To confirm
   with the operator.
+- [~] **A27. Lots are chosen by owner — replaces A22's bagged/bulk marks and A26's "every vessel".**
+  *BUILT 2026-11-10 (replica- and data-tested; owners not yet confirmed live).* Operator: a KIPIS
+  lot is an ownership unit, not a packaging one — ULSAN's ~6 000 t lot is all Helm's, from both
+  terminals (KIPIS says KKT), the other three are Agrokoncernas's; a lot holds BB and bulk
+  together; KIPIS shows no owner; Agrokoncernas's own stock is on a list we do not get; off-spec
+  often is not in KIPIS at all and is never loaded (dropped from the system). Helm and Yara sell
+  to buyers (Linas Agro, Baltic Agro, …); Agrokoncernas loads its own cargo for local farmers
+  (and also buys Urea from Helm). Built, one system for every client:
+  - `src/core/owners.js` + `config/owners.json`: sellers (Helm, Yara) with their stock report and
+    release list (Helm *release'ai* `/api/stock_helm_sheet4`, Yara *perdavimai*
+    `/api/stock_gbl_sheet4`: buyer, product, vessel, what is left). An order's company → its
+    buyer name in those lists (auto by name, e.g. Linasagro → "Linas Agro, AB") → the seller and
+    vessel(s) of a release with a truck left. No release + company loads its own cargo → its own
+    lots' vessels. Else stop. Live data: Linasagro TSP → Helm OSLO CARRIER 2 (1 878 t), Baltic
+    Agro Axan → Yara EASTERN VANQUISH, Agrokoncernas AS → own lots, Transwina → to set (a
+    forwarder; Rotogran has the Gran AS / Urea releases).
+  - `src/core/lotRegistry.js` + `config/lots.json`: every lot a run or a KIPIS search saw, with its
+    owner (confirmed by the operator) and an optional loading-order override. Owner suggested by
+    weight: a seller's stock-report total for the product (all packaging, both terminals) ↔ the
+    lot with the closest weight (±10 %); the vessel's other lots → the self-loader, only when a
+    seller lot was matched (HEINZ Urea: one lot, report drifted → no suggestion rather than a
+    wrong one). Lot choice: all candidate lots confirmed, else stop; the owner's lots by override,
+    else already loading, else oldest; must hold one truck.
+  - **Lots & owners page** (`/lots.html`, separate from the dashboard, which now only links to it
+    with a count of what needs the operator): vessels → lots (lot, KIPIS name, tonnes, ▶ trucks
+    loading, owner, #), Confirm per vessel; "Find lots in KIPIS" by cargo word (read-only);
+    companies (buyer name, own cargo); the release lists. Everything editable any time. Vessels in
+    no stock/release list are collapsed apart and not counted.
+  - Still open: release remaining vs trucks already filed today (A7); per-buyer choice when two
+    sellers release the same product (stops and asks today).
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

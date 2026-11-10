@@ -462,36 +462,12 @@
       min-height: 1em;
     }
 
-    /* Lots: cargo card → vessel → one line per lot */
-    .lot-cargo { border: 1px solid #3b4177; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
-    .lot-cargo-head { font-size: 0.85rem; color: #e2e8f0; font-weight: 600; margin-bottom: 4px; }
-    .lot-cargo-head span, .lot-vessel-head span { font-weight: 400; color: #64748b; font-size: 0.75rem; }
-    .lot-vessel { margin-top: 6px; }
-    .lot-vessel-head { font-size: 0.8rem; color: #a5b4fc; font-weight: 600; padding: 2px 0; }
-    .lot-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 0;
-      border-top: 1px solid rgba(148,163,184,0.12);
-      font-size: 0.78rem;
-      color: #cbd5e1;
-    }
-    .lot-row .lot-no { flex: 1 1 auto; font-family: ui-monospace, monospace; white-space: nowrap; }
-    .lot-row .lot-t  { width: 64px; text-align: right; white-space: nowrap; }
-    .lot-place { font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; border: 1px solid #475569; color: #94a3b8; }
-    .lot-place.KKT  { border-color: #0e7490; color: #67e8f9; }
-    .lot-place.RoRo { border-color: #6d28d9; color: #c4b5fd; }
-    .lot-loading { font-size: 0.68rem; color: #fbbf24; white-space: nowrap; }
-    .lot-row select, .lot-row input { width: auto; padding: 3px 4px; font-size: 0.78rem; }
-    .lot-row select.suggested { border-color: #22543d; }
-    .lot-row input.lot-order { width: 44px; }
-    .lot-row button { padding: 3px 8px; font-size: 0.75rem; }
-    .lot-mark { white-space: nowrap; color: #68d391; }
-    .lot-mark.offspec { color: #64748b; }
-    #lotAddForm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-    #lotAddForm input, #lotAddForm select { width: auto; flex: 1 1 110px; padding: 4px 6px; font-size: 0.8rem; }
-    #lotAddForm button { padding: 4px 10px; font-size: 0.78rem; }
+    #lotsLink { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px;
+      border: 1px solid #2d3148; border-radius: 8px; font-size: 0.85rem; color: #a5b4fc; text-decoration: none; }
+    #lotsLink:hover { border-color: #4f46e5; }
+    #lotsLink.todo { border-color: #92400e; }
+    #lotsAttention { font-size: 0.75rem; color: #64748b; }
+    #lotsLink.todo #lotsAttention { color: #fbbf24; }
   </style>
 </head>
 <body>
@@ -547,27 +523,8 @@
 
     <div id="status" class="idle">Idle</div>
 
-    <!-- Lots: which KIPIS lot is bagged/bulk and which is loaded first (agreed with the terminal) -->
-    <div class="pipeline-section">
-      <div class="pipeline-head">
-        <h2>Lots</h2>
-        <span id="lotsStatus" style="font-size:0.75rem;color:#64748b"></span>
-      </div>
-      <div id="lotsPending"></div>
-      <div class="pipeline-group-title">Marked lots</div>
-      <div id="lotsMarked"></div>
-      <details>
-        <summary style="cursor:pointer;font-size:0.8rem;color:#94a3b8">Mark a lot by hand (e.g. when a vessel is delivered)</summary>
-        <div id="lotAddForm">
-          <input id="lotAddNumber" placeholder="Lot no. (260924-001330-L)" />
-          <input id="lotAddVessel" placeholder="Vessel" />
-          <input id="lotAddCargo"  placeholder="Cargo" />
-          <select id="lotAddPackaging"><option value="">BB / Bulk…</option><option value="bagged">BB</option><option value="bulk">Bulk</option><option value="offspec">Off-spec (never loaded)</option></select>
-          <input id="lotAddOrder" type="number" min="1" placeholder="Load order" style="flex:0 1 90px" />
-          <button id="lotAddBtn">Save</button>
-        </div>
-      </details>
-    </div>
+    <!-- Lot owners and companies live on their own page (lots.html) -->
+    <a id="lotsLink" href="/lots.html">Lots &amp; owners → <span id="lotsAttention"></span></a>
 
     <div class="pipeline-section">
       <div class="pipeline-group-title">Done</div>
@@ -659,8 +616,8 @@
         if (data.status === 'ok' && data.existingPrk) {
           setStatus('success', `PRK already in KIPIS (${data.existingPrk}) — not filed again.`);
           loadPipeline();
-        } else if (data.status === 'ok' && data.needsLotMarking) {
-          setStatus('error', `Not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`);
+        } else if (data.status === 'ok' && data.needsLotOwners) {
+          setStatus('error', `Not filed — ${data.blocked}. Open Lots & owners, then run it again.`);
           loadPipeline();
           loadLots();
         } else if (data.status === 'ok' && data.blocked && /^lot choice/.test(data.blocked)) {
@@ -1058,7 +1015,7 @@
         if (data.status === 'empty')      pipelineStatusEl.textContent = data.message;
         else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate ? data.plate + ': ' : ''}${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
         else if (data.existingPrk)        pipelineStatusEl.textContent = `${data.plate}: PRK already in KIPIS (${data.existingPrk}) — not filed again.`;
-        else if (data.needsLotMarking)    { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`; pipelineStatusEl.style.color = '#fc8181'; loadLots(); }
+        else if (data.needsLotOwners)     { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. Open Lots & owners, then run it again.`; pipelineStatusEl.style.color = '#fc8181'; loadLots(); }
         else if (data.blocked && /^lot choice/.test(data.blocked)) { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. No form was opened in KIPIS.`; pipelineStatusEl.style.color = '#fc8181'; }
         else if (data.blocked)            { pipelineStatusEl.textContent = `${data.plate}: not saved — ${data.blocked}. Check the form in KIPIS and press Saugoti by hand.`; pipelineStatusEl.style.color = '#fc8181'; }
         else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? `PRK draft saved: ${data.prkNumber}` : 'filled (dry run)'}`;
@@ -1071,139 +1028,21 @@
       }
     });
 
-    // --- Lots: bagged/bulk + loading order per KIPIS lot (ROADMAP A22) ---
-    const lotsPendingEl = document.getElementById('lotsPending');
-    const lotsMarkedEl  = document.getElementById('lotsMarked');
-    const lotsStatusEl  = document.getElementById('lotsStatus');
-    let lotMarksByLot = {};
-
-    const tonnes = kg => kg >= 1000
-      ? (kg / 1000).toLocaleString('lt-LT', { maximumFractionDigits: 0 }) + ' t'
-      : Math.round(kg) + ' kg';
-    const PACK_LABEL = { bagged: 'BB', bulk: 'Bulk', offspec: 'Off-spec' };
-    const placeBadge = t => t ? `<span class="lot-place ${escHtml(t)}">${escHtml(t)}</span>` : '';
-
-    function packagingSelect(value, suggested) {
-      const v = value || suggested || '';
-      const hint = !value && suggested ? ' suggested" title="Preselected from the stock report — check, then Save' : '';
-      return `<select class="lot-packaging${hint}"><option value="">—</option>`
-        + Object.entries(PACK_LABEL).map(([k, label]) => `<option value="${k}"${v === k ? ' selected' : ''}>${label}</option>`).join('')
-        + `</select>`;
-    }
-
-    // One card per cargo waiting, split by vessel, one line per lot:
-    // lot · KKT/RoRo · tonnes · [BB/Bulk/Off-spec] · [order] · Save. Stock facts come from the
-    // stock reports (server: lotStock.js); the select is preselected from them, never saved unasked.
-    function pendingCard(p) {
-      const vessels = (p.vessels || []).map(v => {
-        const stock = v.stock.length
-          ? v.stock.map(s => `${PACK_LABEL[s.packaging] || '?'} ${tonnes(s.weightKg)}${s.terminal ? ' ' + s.terminal : ''}`).join(', ')
-          : 'not in the stock reports';
-        return `<div class="lot-vessel">
-          <div class="lot-vessel-head">${escHtml(v.vessel)} <span>· stock: ${escHtml(stock)}</span></div>
-          ${v.lots.map(l => {
-            const m = lotMarksByLot[l.lot];
-            return `<div class="lot-row" data-lot="${escHtml(l.lot)}" data-vessel="${escHtml(v.vessel)}" data-terminal="${escHtml(l.terminal)}" data-weight="${l.weightKg}">
-              <span class="lot-no" title="${escHtml(l.name)}">${escHtml(l.lot)}</span>
-              ${placeBadge(l.terminal)}
-              <span class="lot-t">${tonnes(l.weightKg)}</span>
-              ${l.trucksLoading ? `<span class="lot-loading" title="Trucks/wagons already loading from this lot">▶ ${l.trucksLoading}</span>` : ''}
-              ${packagingSelect(m && m.packaging, l.suggested)}
-              <input class="lot-order" type="number" min="1" placeholder="#" title="Loading order (1 = first)" value="${m && m.priority ? m.priority : ''}"${(m ? m.packaging : l.suggested) === 'offspec' ? ' disabled' : ''} />
-              <button data-lot-action="save">Save</button>
-            </div>`;
-          }).join('')}
-        </div>`;
-      }).join('');
-      return `<div class="lot-cargo" data-cargo="${escHtml(p.cargo)}">
-        <div class="lot-cargo-head">${escHtml(p.cargo)} <span>· ${escHtml(p.plate)} waiting (${escHtml(PACK_LABEL[p.packaging] || p.packaging)})</span></div>
-        ${vessels}
-      </div>`;
-    }
-
-    function markedList(lots) {
-      const byVessel = {};
-      for (const l of lots) (byVessel[l.vessel || '—'] = byVessel[l.vessel || '—'] || []).push(l);
-      return Object.keys(byVessel).sort().map(vessel => `<div class="lot-vessel">
-        <div class="lot-vessel-head">${escHtml(vessel)}</div>
-        ${byVessel[vessel].sort((a, b) => a.packaging.localeCompare(b.packaging) || (a.priority || 0) - (b.priority || 0)).map(l => `
-          <div class="lot-row" data-lot="${escHtml(l.lot)}">
-            <span class="lot-no" title="${escHtml(l.cargo)}">${escHtml(l.lot)}</span>
-            ${placeBadge(l.terminal)}
-            <span class="lot-t">${l.weightKg ? tonnes(l.weightKg) : ''}</span>
-            <span class="lot-mark ${escHtml(l.packaging)}">${PACK_LABEL[l.packaging] || l.packaging}${l.priority ? ' #' + l.priority : ''}</span>
-            <button data-lot-action="remove" title="Remove this mark">✕</button>
-          </div>`).join('')}
-      </div>`).join('');
-    }
-
+    // --- Lots & owners: the page is separate (lots.html); here only what needs the operator ---
     async function loadLots() {
+      const link = document.getElementById('lotsLink');
+      const el   = document.getElementById('lotsAttention');
       try {
-        const data = await (await fetch('/lots')).json();
-        lotMarksByLot = Object.fromEntries((data.lots || []).map(l => [l.lot, l]));
-
-        lotsPendingEl.innerHTML = (data.pending || []).map(pendingCard).join('');
-        lotsMarkedEl.innerHTML = (data.lots || []).length
-          ? markedList(data.lots)
-          : '<div class="task-empty">No lots marked yet.</div>';
-
-        const waiting = (data.pending || []).length;
-        lotsStatusEl.textContent = waiting ? `${waiting} cargo(s) waiting for your mark` : '';
-        lotsStatusEl.style.color = waiting ? '#fbbf24' : '#64748b';
-      } catch (err) {
-        lotsStatusEl.textContent = 'Network error: ' + err.message;
-        lotsStatusEl.style.color = '#fc8181';
+        const { attention } = await (await fetch('/lots/data')).json();
+        const parts = [];
+        if (attention.lots)      parts.push(`${attention.lots} lot(s) to confirm`);
+        if (attention.companies) parts.push(`${attention.companies} compan${attention.companies === 1 ? 'y' : 'ies'} to set`);
+        el.textContent = parts.join(' · ');
+        link.classList.toggle('todo', parts.length > 0);
+      } catch {
+        el.textContent = '';
       }
     }
-
-    async function saveLotMark(body) {
-      const res  = await fetch('/lots/mark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      const data = await res.json();
-      if (data.error) { lotsStatusEl.textContent = data.error; lotsStatusEl.style.color = '#fc8181'; return false; }
-      return true;
-    }
-
-    document.querySelector('.panel-kipis').addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-lot-action]');
-      if (!btn) return;
-      const row = btn.closest('.lot-row');
-      const lot = row.getAttribute('data-lot');
-      btn.disabled = true;
-      if (btn.getAttribute('data-lot-action') === 'remove') {
-        if (confirm(`Remove the mark for lot ${lot}?`)) {
-          await fetch('/lots/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lot }) });
-        }
-      } else {
-        await saveLotMark({
-          lot,
-          vessel:    row.getAttribute('data-vessel'),
-          cargo:     btn.closest('.lot-cargo').getAttribute('data-cargo'),
-          packaging: row.querySelector('.lot-packaging').value,
-          priority:  row.querySelector('.lot-order').value,
-          terminal:  row.getAttribute('data-terminal'),
-          weightKg:  row.getAttribute('data-weight'),
-        });
-      }
-      btn.disabled = false;
-      loadLots();
-    });
-
-    // Off-spec is never loaded: it takes no loading order.
-    document.querySelector('.panel-kipis').addEventListener('change', e => {
-      if (!e.target.matches('.lot-packaging')) return;
-      const order = e.target.closest('.lot-row').querySelector('.lot-order');
-      order.disabled = e.target.value === 'offspec';
-      if (order.disabled) order.value = '';
-      e.target.classList.remove('suggested');
-    });
-
-    document.getElementById('lotAddBtn').addEventListener('click', async () => {
-      const val = id => document.getElementById(id).value.trim();
-      if (await saveLotMark({ lot: val('lotAddNumber'), vessel: val('lotAddVessel'), cargo: val('lotAddCargo'), packaging: val('lotAddPackaging'), priority: val('lotAddOrder') })) {
-        ['lotAddNumber', 'lotAddVessel', 'lotAddCargo', 'lotAddOrder'].forEach(id => { document.getElementById(id).value = ''; });
-        loadLots();
-      }
-    });
 
     loadLots();
   </script>
