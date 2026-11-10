@@ -491,6 +491,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [~] **A31. MML743//SN216: wrongly bulk, gross weight ignored, cargo renamed — FIXED 2026-11-10.**
+  (1) The AI extraction (10 emails per call) marked it bulk although its email and waybill say
+  "Amonio sulfatas (600) gran."; run alone it says bagged every time — the flag bled over from a
+  neighbouring bulk email. Now bulk stays only on evidence in the truck's own email (BULK /
+  palaidas / birios, or MOP cargo); a bag size in the cargo name is never bulk; corrections are
+  logged. (2) The PRK computed gross itself and ignored the operator's figure: a gross weight
+  entered on the dashboard now goes into the PRK as written (empty = weight + 1 kg per bag), and
+  the AI check accepts it. The dashboard's suggested gross used 600 kg bags for everything — it
+  now reads the bag size from the cargo name and is only a hint. (3) Saving the order editor
+  replaced the cargo with the cargo list's name ("Amonio sulfatas (600) gran." → "Gran AS"),
+  losing the bag size — the cargo is now kept as typed.
 - [~] **A30. Bulk loading-order email — BUILT 2026-11-10 (preview tested; first send not yet).**
   Bulk is ordered by email first; the PRK follows once the terminal reports the loaded weight.
   A bulk truck not yet ordered is under *Needs you* with **Order loading** → the same preview and

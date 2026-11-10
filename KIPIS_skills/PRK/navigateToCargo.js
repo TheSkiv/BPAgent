@@ -244,9 +244,13 @@ async function navigateToCargo(page, data = {}) {
     const weight     = getWeight(row);
     const bagKg      = getBagKg(cargoName);
     const bags       = Math.round(weight / bagKg);
-    const total      = weight + bags;
+    // Gross weight: what the operator entered on the dashboard goes into the PRK as written
+    // (operator, 2026-11-10 — it was recomputed and the entered figure ignored); only when the
+    // field is empty is it weight + 1 kg per bag.
+    const enteredGross = Number(String(row['Gross Weight'] ?? '').replace(/[\s,]/g, '')) || 0;
+    const total      = enteredGross || weight + bags;
     const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
-    console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}, packaging: ${packaging}`);
+    console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}${enteredGross ? ' (entered on the dashboard)' : ''}, packaging: ${packaging}`);
 
     // ── Whose cargo, on which vessel (owners.js) ─────────────────────────────────
     // The order's company → its Helm/Yara release (seller + vessel), or a self-loader's own lots.
@@ -488,6 +492,7 @@ async function navigateToCargo(page, data = {}) {
       bagKg,
       bags,
       grossWeight:  total,
+      ...(enteredGross ? { grossEnteredByOperator: true } : {}),
       instructions,
       payerCode:    PAYER_CODE,
       payerName:    PAYER_NAME,

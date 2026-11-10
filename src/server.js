@@ -1033,15 +1033,20 @@ app.post('/set-cargo', (req, res) => {
   try {
     let resolvedCargo, resolvedVessel = '';
     const fields = {};
+    // The cargo is kept exactly as the operator typed it. It used to be replaced by the cargo
+    // list's name for it — "Amonio sulfatas (600) gran." became "Gran AS" (MML743//SN216,
+    // 2026-11-10), losing the bag size and taking a bulk-sounding name. The list is now only
+    // asked for the vessel hint shown after saving.
     if (cargo !== undefined) {
       const match    = findCargoInText(cargo);
-      resolvedCargo  = match ? match.cargo : cargo;
+      resolvedCargo  = cargo;
       resolvedVessel = match ? match.vessel : '';
-      fields.cargo   = resolvedCargo;
+      fields.cargo   = cargo;
     }
     if (weight !== undefined) fields.weight = weight;
     if (typeof bulk === 'boolean') fields.bulk = bulk;
-    if (grossWeight !== undefined) fields.grossWeight = grossWeight;
+    // '' clears it — then the PRK computes it (weight + 1 kg per bag).
+    if (grossWeight !== undefined) fields.grossWeight = String(grossWeight).trim();
 
     const updated = updateOrderFields(plate, fields);
     if (updated) {

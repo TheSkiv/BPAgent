@@ -221,6 +221,28 @@ async function pollAndProcessEmails({ max, query }) {
       ? await extractOrders(keptEmails)
       : extractOrdersDeterministic(keptEmails);
 
+    // Bulk only on evidence in this truck's own email. The model works on 10 emails per call and
+    // marked MML743//SN216 bulk (2026-11-10) although its email and waybill say "Amonio sulfatas
+    // (600) gran." — bagged; run alone it said bagged every time, so the flag bled over from a
+    // neighbouring bulk email. Kept bulk: the email says BULK / palaidas / birios, or the cargo
+    // is MOP potash (always bulk here). A bag size in the cargo name ("(600)") is never bulk.
+    const BULK_WORDS = /\bbulk\b|palaid|\bbiri(os|ų|ai)?\b/i;
+    const MOP_CARGO  = /\b[gs]?mop\b|kalio\s+chlorid/i;
+    const BAG_SIZE   = /\(\s*\d{3,4}\s*(kg)?\s*\)|\bpo\s+\d{3,4}\s*kg\b|\bbig\s*bags?\b|\bBB\b/i;
+    keptEmails.forEach((email, k) => {
+      const ext = extractions[k];
+      if (!ext?.relevant) return;
+      const text = `${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`;
+      for (const o of ext.orders) {
+        if (!o.bulk) continue;
+        const keep = !BAG_SIZE.test(o.cargo || '') && (MOP_CARGO.test(o.cargo || '') || BULK_WORDS.test(text));
+        if (!keep) {
+          console.log(`Bulk: ${o.plates.join('/')} "${o.cargo}" — the model said bulk, but its email does not (no BULK/palaidas/MOP${BAG_SIZE.test(o.cargo || '') ? ', and the cargo names a bag size' : ''}) → bagged`);
+          o.bulk = false;
+        }
+      }
+    });
+
     // Several waybills for one truck are one load: the truck's weight is their sum. The model
     // took one of two 12 t waybills for MLL371//RZ817 (2026-11-10). Checked here without the
     // model: a one-truck, non-bulk order whose email has 2+ waybills, each with a readable

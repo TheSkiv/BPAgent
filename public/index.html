@@ -74,7 +74,7 @@
       <div class="grid2">
         <div><label for="modalCargoInput">Cargo</label><input id="modalCargoInput" /></div>
         <div><label for="modalWeightInput">Weight, kg</label><input id="modalWeightInput" inputmode="numeric" /></div>
-        <div><label for="modalGrossWeightInput">Gross weight, kg</label><input id="modalGrossWeightInput" inputmode="numeric" /></div>
+        <div><label for="modalGrossWeightInput">Gross weight, kg — goes into the PRK as written</label><input id="modalGrossWeightInput" inputmode="numeric" /></div>
         <div><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink);font-weight:500"><input type="checkbox" id="modalBulkCheck" style="width:auto" /> Bulk cargo</label></div>
       </div>
       <div id="modalStatus" style="font-size:13px"></div>
@@ -456,14 +456,26 @@
 
     // ── The order dialog: source email, cargo, weight ────────────────────
     let currentOrder = null;
-    const BAG_KG = 600;
-    const grossOf = w => Number(w) ? String(Math.round(Number(w) + Number(w) / BAG_KG)) : '';
+    // The bag size from the cargo name, as the PRK run reads it: "(500)", "(600)", "po 600 kg";
+    // 600 when none is written. The suggested gross is only a hint — an empty field stays empty
+    // and the PRK computes it; a typed figure goes into the PRK as written.
+    const bagKgOf = cargo => {
+      const m = String(cargo || '').match(/\((\d{3,4})\)/) || String(cargo || '').match(/(\d{3,4})\s*kg\b/i);
+      const kg = m ? Number(m[1]) : 0;
+      return kg >= 300 && kg <= 1500 ? kg : 600;
+    };
+    const grossOf = (w, cargo) => Number(w) ? String(Number(w) + Math.round(Number(w) / bagKgOf(cargo))) : '';
+    const grossHint = () => {
+      const g = grossOf($('modalWeightInput').value, $('modalCargoInput').value);
+      $('modalGrossWeightInput').placeholder = g ? `Empty = ${g} (weight + 1 kg per ${bagKgOf($('modalCargoInput').value)} kg bag)` : '';
+    };
+    $('modalWeightInput').addEventListener('input', grossHint);
+    $('modalCargoInput').addEventListener('input', grossHint);
     function closeOrder() { $('orderDialog').classList.remove('open'); currentOrder = null; }
     $('modalClose').addEventListener('click', closeOrder);
     $('orderDialog').addEventListener('click', e => { if (e.target === $('orderDialog')) closeOrder(); });
     $('modalBulkCheck').addEventListener('change', () => {
       $('modalGrossWeightInput').disabled = $('modalBulkCheck').checked;
-      if (!$('modalBulkCheck').checked && !$('modalGrossWeightInput').value) $('modalGrossWeightInput').value = grossOf($('modalWeightInput').value);
     });
     async function openOrder(o) {
       currentOrder = o;
@@ -474,8 +486,9 @@
       $('modalAttachments').innerHTML = '';
       $('modalCargoInput').value = o.cargo || '';
       $('modalWeightInput').value = o.weight || '';
-      $('modalGrossWeightInput').value = o.grossWeight || grossOf(o.weight);
+      $('modalGrossWeightInput').value = o.grossWeight || '';
       $('modalGrossWeightInput').disabled = !!o.bulk;
+      grossHint();
       $('modalBulkCheck').checked = !!o.bulk;
       $('modalStatus').textContent = o.stage?.group === 'failed' && o.note ? `Why it stopped: ${o.note}` : '';
       $('orderDialog').classList.add('open');
@@ -500,7 +513,7 @@
           id: currentOrder.id, plate: currentOrder.plate,
           cargo: $('modalCargoInput').value.trim() || undefined,
           weight: $('modalWeightInput').value.trim() || undefined,
-          grossWeight: $('modalGrossWeightInput').value.trim() || undefined,
+          grossWeight: $('modalBulkCheck').checked ? undefined : $('modalGrossWeightInput').value.trim(),
           bulk: $('modalBulkCheck').checked,
         });
         if (d.status === 'ok') {
