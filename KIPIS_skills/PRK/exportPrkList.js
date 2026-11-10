@@ -111,8 +111,28 @@ async function setLimitAndFilter(page, limit) {
   await page.waitForLoadState('networkidle');
 }
 
-// Navigates to the list and applies the starting row limit.
-async function openPrkList({ limit = 500 } = {}) {
+// The "Būsenos" filter: a "..." button opens a dialog of status checkboxes
+// (name "…:busenuTipai", e.g. Ruošiamas = value 1); "Pasirinkti" applies the choice. The whole
+// list runs past KIPIS's 500-row cap (seen 2026-11-10), so the delete sweep reads Ruošiamas only.
+async function setStatusFilter(page, statuses) {
+  await page.locator('input[type="button"][onclick*="busenu_tipai_filter"]').first().click();
+  const dialog = page.locator('#busenu_tipai_filter');
+  await dialog.waitFor({ state: 'visible', timeout: 10000 });
+  const boxes = dialog.locator('input[type="checkbox"][name$=":busenuTipai"]');
+  const labels = await boxes.evaluateAll(bs => bs.map(b => (b.parentElement.textContent || '').replace(/\s+/g, ' ').trim()));
+  const wanted = statuses.map(s => s.toLowerCase());
+  for (const s of wanted) if (!labels.some(l => l.toLowerCase() === s)) throw new Error(`PRK list: no status filter "${s}" (have: ${labels.join(', ')})`);
+  for (let i = 0; i < labels.length; i++) {
+    const box = boxes.nth(i);
+    const want = wanted.includes(labels[i].toLowerCase());
+    if (await box.isChecked() !== want) await box.setChecked(want);
+  }
+  await dialog.locator('input[type="submit"][value="Pasirinkti"]').click();
+  await page.waitForLoadState('networkidle');
+}
+
+// Navigates to the list and applies the starting row limit (and the status filter, if given).
+async function openPrkList({ limit = 500, statuses = null } = {}) {
   const page = getPage();
 
   const how = await navigateToPrkList(page);
@@ -122,14 +142,15 @@ async function openPrkList({ limit = 500 } = {}) {
   }
   console.log(`PRK list: reached via ${how}`);
 
+  if (statuses) await setStatusFilter(page, statuses);
   await setLimitAndFilter(page, limit);
   return page;
 }
 
 // Navigates, reads, and re-queries with a higher limit if the first read was truncated —
 // never silently returns an incomplete list.
-async function readFullPrkList({ limit = 500 } = {}) {
-  const page = await openPrkList({ limit });
+async function readFullPrkList({ limit = 500, statuses = null } = {}) {
+  const page = await openPrkList({ limit, statuses });
   let current = limit;
   let result  = await readPrkListFromDom(page);
 
@@ -145,6 +166,10 @@ async function readFullPrkList({ limit = 500 } = {}) {
   }
 
   const drafts = result.docs.filter(d => d.status === DRAFT_STATUS);
+  if (statuses) {
+    const other = result.docs.filter(d => !statuses.some(s => s.toLowerCase() === String(d.status).toLowerCase()));
+    if (other.length) throw new Error(`PRK list: the status filter did not apply (${other.length} document(s) with other statuses, e.g. ${other[0].number} ${other[0].status})`);
+  }
   console.log(`PRK list: ${result.docs.length} document(s) read (limit=${current}), ${drafts.length} in ${DRAFT_STATUS}`);
   return { ...result, drafts, limitUsed: current };
 }

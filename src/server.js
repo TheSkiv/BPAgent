@@ -126,8 +126,9 @@ app.post('/prk/export', async (req, res) => {
     const { readFullPrkList } = require('../KIPIS_skills/PRK/exportPrkList');
     const { findDeletable }   = require('../KIPIS_skills/PRK/prkLedger');
     const limit = req.body?.limit || 500;
+    const statuses = Array.isArray(req.body?.statuses) ? req.body.statuses : null;   // e.g. ["Ruošiamas"]
 
-    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await withAutomation(getPage(), () => readFullPrkList({ limit }));
+    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await withAutomation(getPage(), () => readFullPrkList({ limit, statuses }));
 
     orderStore.syncFromExcel();
     const checked = findDeletable(drafts, {

@@ -84,7 +84,7 @@ async function sweepDrafts(page) {
   const orderStore = require('../../src/core/orderStore');
 
   const ours = orderStore.prkNumbersFiled();
-  const { drafts } = await readFullPrkList({ limit: 500 });
+  const { drafts } = await readFullPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
   const targets = drafts.filter(d => ours.has(d.number));
   console.log(`PRK sweep: ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} filed by PortSystem`);
 
