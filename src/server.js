@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express       = require('express');
 const path          = require('path');
-const { openKipis, getPage } = require('./core/browser');
+const { openKipis, getPage, probeSession, sessionStatus } = require('./core/browser');
 const kipisLoad     = require('../KIPIS_skills/PRK/kipisLoad');
 const kipisTest     = require('./actions/kipisTest');
 const gmailRoute    = require('./routes/gmailRoute');
@@ -27,6 +27,24 @@ function kipisOpen() {
   try { return !getPage().isClosed(); } catch { return false; }
 }
 const KIPIS_CLOSED = 'KIPIS is not open — press Open KIPIS (and enter the MFA code) first. No order was touched.';
+const KIPIS_LOGIN  = 'KIPIS is logged out — press Open KIPIS and enter the MFA code. No order was touched.';
+
+// Before every KIPIS job (ROADMAP A9): the window is open AND logged in. Returns the reason it is
+// not, or null. A logged-out session stops the job once, before any order is taken.
+async function kipisNotReady() {
+  if (!kipisOpen()) return KIPIS_CLOSED;
+  const { state } = await probeSession();
+  if (state === 'login') return KIPIS_LOGIN;
+  if (state === 'error') return 'KIPIS did not answer — check the network, then try again. No order was touched.';
+  return null;
+}
+
+// Keep-alive: the same background request every 10 minutes while nothing else drives KIPIS —
+// keeps the session from timing out between trucks, and keeps the dashboard's status current.
+setInterval(() => {
+  if (isRunning || !kipisOpen()) return;
+  probeSession().catch(() => {});
+}, 10 * 60 * 1000);
 
 // A PRK someone already filed for this truck (seen on the lot in KIPIS): the order is handled.
 function recordExistingPrk(order, plate, existingPrk) {
@@ -58,6 +76,16 @@ app.use('/gmail', gmailRoute);
 
 let isRunning = false;
 
+// KIPIS session for the dashboard: 'main' | 'login' | 'closed' | 'error', and since when.
+// Re-probes when the last answer is over 2 minutes old and no job is running.
+app.get('/kipis/status', async (req, res) => {
+  const s = sessionStatus();
+  if (!isRunning && (!s.at || Date.now() - Date.parse(s.at) > 2 * 60 * 1000)) {
+    return res.json(await probeSession().catch(() => sessionStatus()));
+  }
+  res.json(s);
+});
+
 app.post('/open-kipis', async (req, res) => {
   console.log('Received request: open-kipis');
   try {
@@ -84,7 +112,8 @@ app.post('/run-prk', async (req, res) => {
     return res.json({ status: 'error', message: 'Plate already filed (marked done). Unmark it first to re-run.' });
   }
 
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
 
   console.log(`Received request: run-prk | ${value}`);
   isRunning = true;
@@ -233,7 +262,8 @@ app.post('/confirmations/decide', async (req, res) => {
 // Takes the next ready NON-bulk order and files its PRK. One at a time, oldest first.
 app.post('/queue/process-next', async (req, res) => {
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
 
   orderStore.syncFromExcel();
   const next = orderStore.nextReadyNonBulk();
@@ -311,7 +341,8 @@ function cleanupState() {
 
 async function runCleanup(by) {
   if (isRunning) return { status: 'busy', message: 'Another KIPIS job is running.' };
-  if (!kipisOpen()) return { status: 'error', message: KIPIS_CLOSED };
+  const notReady = await kipisNotReady();
+  if (notReady) return { status: 'error', message: notReady };
   isRunning = true;
   console.log(`PRK cleanup: starting (${by})`);
   const state = { at: new Date().toISOString(), by };
@@ -335,7 +366,7 @@ async function runCleanup(by) {
 async function dailyCleanupTick() {
   if (new Date().getHours() < CLEANUP_FROM_HOUR) return;
   if (cleanupState().doneFor === todayString()) return;
-  if (isRunning || !kipisOpen()) return;   // try again next hour
+  if (isRunning || await kipisNotReady()) return;   // try again next hour
   await runCleanup('daily cleanup');
 }
 setInterval(() => { dailyCleanupTick().catch(err => console.error('PRK cleanup tick:', err.message)); }, 60 * 60 * 1000);
@@ -355,7 +386,8 @@ app.post('/prk/delete', async (req, res) => {
   const n = String(req.body?.number || '').trim();
   if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'number must be a PRK number' });
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
   isRunning = true;
   console.log(`Received request: prk/delete | ${n}`);
   try {
@@ -374,11 +406,14 @@ app.get('/prk/open', async (req, res) => {
   const n = String(req.query.n || '').trim();
   if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'n must be a PRK number' });
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
   isRunning = true;
   try {
     const page = getPage();
-    const header = await withAutomation(page, () => prkDelete.openDocument(page, n));
+    // ?via=list opens it from the Ruošiamas list (the way deletion does), else universal search.
+    const open = req.query.via === 'list' ? prkDelete.openFromDraftList : prkDelete.openDocument;
+    const header = await withAutomation(page, () => open(page, n));
     const buttons = await page.locator('input[type="button"]:visible, input[type="submit"]:visible')
       .evaluateAll(bs => bs.map(b => ({ value: b.value, name: b.name })));
     res.json({ status: 'ok', title: await page.title(), header, buttons });
@@ -411,7 +446,8 @@ app.get('/kipis/lots', async (req, res) => {
   const v = String(req.query.v || '').trim().toLowerCase();
   if (!q) return res.status(400).json({ error: 'Missing q' });
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
   isRunning = true;
   try {
     const { rows, lotCount, truncated } = await kipisSearch(q);
@@ -516,7 +552,8 @@ app.post('/lots/scan', async (req, res) => {
   const q = String(req.body?.q || '').trim();
   if (!q) return res.status(400).json({ error: 'Missing cargo word' });
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
   isRunning = true;
   try {
     const { rows, truncated } = await kipisSearch(q);

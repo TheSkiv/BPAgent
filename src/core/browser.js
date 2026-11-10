@@ -68,11 +68,91 @@ function clearSessionLock() {
   });
 }
 
+// ── Session state (ROADMAP A9) ───────────────────────────────────────────────
+// A background request with the window's own cookies: lands on the KIPIS app → logged in;
+// redirected to the login realm (/auth/realms/…) → logged out. It touches nothing on screen, so
+// it doubles as the keep-alive while the operator is using the window (a menu click would pull
+// the page away from them — D3 allowed clicks; a request is the quieter way to the same end).
+const APP_PATH = '/kipis/web/faces/secure/index.jsp';
+let lastSession = { state: 'closed', at: null, since: null };
+
+function noteSession(state) {
+  const now = new Date().toISOString();
+  if (state !== lastSession.state) {
+    console.log(`KIPIS session: ${lastSession.state} → ${state} (${now.slice(11, 16)} UTC)`);
+    lastSession = { state, at: now, since: now };
+  } else {
+    lastSession.at = now;
+  }
+  return lastSession;
+}
+
+// 'main' (logged in) | 'login' (login / MFA needed) | 'closed' (no window) | 'error' (no answer)
+async function probeSession() {
+  if (!context || !kipis_page || kipis_page.isClosed()) return noteSession('closed');
+  try {
+    const origin = new URL(/^https?:/.test(kipis_page.url()) ? kipis_page.url() : KIPIS_URL).origin;
+    const res = await context.request.get(origin + APP_PATH, { timeout: 20000 });
+    const url = res.url();
+    if (/\/auth\/realms\//.test(url)) return noteSession('login');
+    return noteSession(res.ok() ? 'main' : 'error');
+  } catch (err) {
+    console.warn(`KIPIS session probe failed: ${err.message}`);
+    return noteSession('error');
+  }
+}
+
+const sessionStatus = () => ({ ...lastSession });
+
+// Login on an open page: fill the credentials (the operator then enters the MFA code), wait for
+// the KIPIS menu, close a parallel session if KIPIS asks. Waits as long as the operator needs.
+async function loginFlow(page) {
+  await page.goto(KIPIS_URL);
+  try {
+    const loginInput = page.getByRole('textbox', { name: /prisijungimo vardas/i });
+    await loginInput.waitFor({ state: 'visible', timeout: 5000 });
+    console.log('Login form detected, filling credentials...');
+    await loginInput.fill(kipisUser());
+    await page.getByRole('textbox', { name: /slaptažodis/i }).fill(kipisPass());
+    await page.getByRole('button', { name: /prisijungti/i }).click();
+    await page.waitForLoadState('networkidle');
+    const mfaInput = page.locator('input[type="text"], input[type="number"], input[type="tel"]').first();
+    await mfaInput.waitFor({ state: 'visible', timeout: 10000 });
+    await mfaInput.focus();
+    console.log('Credentials submitted. Waiting for login...');
+  } catch {
+    console.log('Login form not found, assuming session active or at MFA step.');
+  }
+
+  console.log('Waiting for login...');
+
+  const reached = await Promise.race([
+    page.getByText('Sekimas', { exact: true }).first().waitFor({ timeout: 0 }).then(() => 'main'),
+    page.waitForSelector('text=Uždaryti sesij', { timeout: 0 }).then(() => 'session'),
+  ]);
+
+  if (reached === 'session') {
+    console.log('Existing session detected, closing it...');
+    await page.locator('text=Uždaryti sesij').first().click();
+    await page.getByText('Sekimas', { exact: true }).first().waitFor({ timeout: 0 });
+  }
+
+  noteSession('main');
+  console.log('Login detected. KIPIS opened.');
+}
+
 async function openKipis() {
   ensureTodayExcel();
 
   if (kipis_page && !kipis_page.isClosed()) {
-    console.log('KIPIS already open, reusing existing page.');
+    // Seen 2026-11-10: the window was open but logged out, and this returned without logging in.
+    const { state } = await probeSession();
+    if (state === 'main') {
+      console.log('KIPIS already open and logged in, reusing existing page.');
+      return;
+    }
+    console.log(`KIPIS window open but not logged in (${state}) — logging in again on it...`);
+    await loginFlow(kipis_page);
     return;
   }
 
@@ -128,39 +208,7 @@ async function openKipis() {
   kipis_page = context.pages()[0] || await context.newPage();
   attachDownloadHandler(kipis_page);
   await installPateiktiGuard(kipis_page);
-  await kipis_page.goto(KIPIS_URL);
-
-  // Auto-fill credentials if login form is present
-  try {
-    const loginInput = kipis_page.getByRole('textbox', { name: /prisijungimo vardas/i });
-    await loginInput.waitFor({ state: 'visible', timeout: 5000 });
-    console.log('Login form detected, filling credentials...');
-    await loginInput.fill(kipisUser());
-    await kipis_page.getByRole('textbox', { name: /slaptažodis/i }).fill(kipisPass());
-    await kipis_page.getByRole('button', { name: /prisijungti/i }).click();
-    await kipis_page.waitForLoadState('networkidle');
-    const mfaInput = kipis_page.locator('input[type="text"], input[type="number"], input[type="tel"]').first();
-    await mfaInput.waitFor({ state: 'visible', timeout: 10000 });
-    await mfaInput.focus();
-    console.log('Credentials submitted. Waiting for login...');
-  } catch {
-    console.log('Login form not found, assuming session active or at MFA step.');
-  }
-
-  console.log('Waiting for login...');
-
-  const reached = await Promise.race([
-    kipis_page.waitForSelector('text=Sekimas', { timeout: 0 }).then(() => 'main'),
-    kipis_page.waitForSelector('text=Uždaryti sesij', { timeout: 0 }).then(() => 'session'),
-  ]);
-
-  if (reached === 'session') {
-    console.log('Existing session detected, closing it...');
-    await kipis_page.locator('text=Uždaryti sesij').first().click();
-    await kipis_page.waitForSelector('text=Sekimas', { timeout: 0 });
-  }
-
-  console.log('Login detected. KIPIS opened.');
+  await loginFlow(kipis_page);
 }
 
 function getPage() {
@@ -168,4 +216,4 @@ function getPage() {
   return kipis_page;
 }
 
-module.exports = { openKipis, getPage, setAutoOpenDownloads };
+module.exports = { openKipis, getPage, setAutoOpenDownloads, probeSession, sessionStatus };

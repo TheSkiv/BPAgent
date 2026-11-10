@@ -299,6 +299,11 @@
     #status.success { background: #0f2820; border-color: #22543d; color: #68d391; }
     #status.error   { background: #2d0f0f; border-color: #742a2a; color: #fc8181; }
 
+    #kipisSession { font-size: 0.75rem; margin-top: -4px; }
+    #kipisSession.main   { color: #68d391; }
+    #kipisSession.login  { color: #fbbf24; font-weight: 600; }
+    #kipisSession.closed, #kipisSession.error { color: #64748b; }
+
     #sweepBtn {
       background: transparent; color: #fc8181; border: 1px solid #742a2a; border-radius: 6px;
       padding: 3px 10px; font-size: 0.72rem; letter-spacing: 0; text-transform: none; cursor: pointer;
@@ -533,6 +538,7 @@
       <button id="openBtn">OPEN KIPIS</button>
       <button id="runBtn">RUN PRK</button>
     </div>
+    <div id="kipisSession" class="closed" title="Checked in the background every few minutes; also keeps the KIPIS session from timing out">KIPIS: …</div>
 
     <div id="status" class="idle">Idle</div>
 
@@ -612,8 +618,31 @@
         setStatus('error', `Network error: ${err.message}`);
       } finally {
         setBusy(false);
+        loadKipisSession();
       }
     });
+
+    // KIPIS session (ROADMAP A9): logged in / login needed / closed, from a background check.
+    const SESSION_TEXT = {
+      main:   'KIPIS: logged in',
+      login:  'KIPIS: logged out — press OPEN KIPIS and enter the MFA code',
+      closed: 'KIPIS: not open',
+      error:  'KIPIS: not answering',
+    };
+    async function loadKipisSession() {
+      const el = document.getElementById('kipisSession');
+      try {
+        const s = await (await fetch('/kipis/status')).json();
+        el.className = s.state || 'closed';
+        const since = s.since ? ` (since ${new Date(s.since).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' })})` : '';
+        el.textContent = (SESSION_TEXT[s.state] || `KIPIS: ${s.state}`) + (s.state === 'main' ? '' : since);
+      } catch {
+        el.className = 'error';
+        el.textContent = 'KIPIS: status unknown';
+      }
+    }
+    loadKipisSession();
+    setInterval(loadKipisSession, 60 * 1000);
 
     async function runPrk(value) {
       if (!value) { setStatus('error', 'Please enter a truck plate.'); return; }

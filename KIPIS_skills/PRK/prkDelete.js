@@ -13,13 +13,24 @@ const REASON = 'PortSystem: nepanaudotas juodraštis (sunkvežimis neatvyko)';
 
 // "Prašymas krovai: 261110-003786-PRK, Ruošiamas, Saugojimo vieta -> Autotransportas"
 async function readDocHeader(page) {
-  const text = await page.locator('body').innerText().catch(() => '');
+  // document.body directly: a strict locator('body') failed (silently, via the catch) on pages
+  // with a second <body> inside them, and the header read as missing (seen 2026-11-10).
+  const text = await page.evaluate(() => document.body ? document.body.innerText : '').catch(() => '');
   const m = text.match(/Prašymas krovai:\s*(\d{6}-\d{6}-PRK)\s*,\s*([^,\n]+)/);
   return m ? { number: m[1], status: m[2].trim() } : null;
 }
 
+// The header renders after the load event settles — read it only once it names this document
+// (seen 2026-11-10: read too early, the header of an open draft came back empty).
+async function waitForHeader(page, number, timeout = 15000) {
+  await page.getByText(new RegExp(`Prašymas krovai:\\s*${number}`)).first().waitFor({ timeout }).catch(() => {});
+  return readDocHeader(page);
+}
+
 // Opens a document by its number through KIPIS's "Universali paieška" (on every page): the
 // magnifier button shows the dialog, the number goes in, "Ieškoti" opens it. Read-only.
+// Not used for deleting: its two quick submits (Tab posts the number, Ieškoti submits the form)
+// sometimes get KIPIS's "Užklausa negalioja…" error page (seen 2026-11-10).
 async function openDocument(page, number) {
   await page.locator('input.ieskojimoMygtukas').first().click();
   const input = page.locator('[id$=":ieskomasNumeris"]');
@@ -29,7 +40,21 @@ async function openDocument(page, number) {
   await page.waitForLoadState('networkidle');
   await page.locator('[id$=":paieskosMygtukas"]').click();
   await page.waitForLoadState('networkidle');
-  return readDocHeader(page);
+  return waitForHeader(page, number);
+}
+
+// Opens a draft the way a person does: the PRK list filtered to Ruošiamas, then its number (a
+// link in the "KIPIS numeris" column). Also proves, right before deleting, that KIPIS still
+// lists it as Ruošiamas.
+async function openFromDraftList(page, number) {
+  const { openPrkList } = require('./exportPrkList');
+  await openPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
+  const link = page.locator('a', { hasText: new RegExp(`^\\s*${number}\\s*$`) });
+  const count = await link.count();
+  if (count !== 1) throw new Error(`${number}: ${count ? `${count} links` : 'not'} in KIPIS's ${DRAFT_STATUS} list — not deleted`);
+  await link.click();
+  await page.waitForLoadState('networkidle');
+  return waitForHeader(page, number);
 }
 
 // Deletes one Ruošiamas draft. Pateikti and Šalinti are siblings differing only by an index
@@ -37,8 +62,8 @@ async function openDocument(page, number) {
 // read the visible Pateikti's name, derive the :1: sibling, and click it only if its label is
 // exactly "Šalinti". Same for the confirmation dialog. Anything unexpected → throw, nothing clicked.
 async function deleteDraft(page, number) {
-  const before = await openDocument(page, number);
-  if (!before || before.number !== number) throw new Error(`${number}: search did not open it (page shows ${before ? before.number : 'no PRK'})`);
+  const before = await openFromDraftList(page, number);
+  if (!before || before.number !== number) throw new Error(`${number}: the list link did not open it (page shows ${before ? before.number : 'no PRK'}) — not deleted`);
   if (before.status !== DRAFT_STATUS) throw new Error(`${number}: status is "${before.status}", not ${DRAFT_STATUS} — not deleted`);
 
   const pateikti = page.locator('input[type="button"][value="Pateikti"]:visible');
@@ -63,6 +88,7 @@ async function deleteDraft(page, number) {
   await assertNotPateikti(confirm);
   await confirm.click();
   await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(1500);   // let the page re-render before reading whether it is gone
 
   const after = await readDocHeader(page);
   if (after && after.number === number && after.status === DRAFT_STATUS) {
@@ -128,4 +154,4 @@ async function sweepDrafts(page, by = 'daily cleanup') {
   };
 }
 
-module.exports = { openDocument, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };
+module.exports = { openDocument, openFromDraftList, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };

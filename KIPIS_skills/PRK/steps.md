@@ -119,11 +119,13 @@ An off-by-one submits a customs document instead of deleting a draft. **Never se
 index alone.** The `_id…` numbers are JSF session-generated and change between sessions, so they
 must never be hardcoded either.
 
-**Built 2026-11-10** (`prkDelete.js`): `openDocument` opens a PRK by number through the
-**Universali paieška** dialog on every page (`input.ieskojimoMygtukas` → `[id$=":ieskomasNumeris"]`,
-Tab to post it → `[id$=":paieskosMygtukas"]` "Ieškoti") — verified live on 261110-003794-PRK
-(buttons `_id3:_id4602:0:_id4603` Pateikti / `…:1:…` Šalinti). `deleteDraft` follows the procedure
-below; `sweepDrafts` runs it for every PortSystem draft whose order is 2+ days old — daily, by
+**Built 2026-11-10** (`prkDelete.js`): `openFromDraftList` opens a draft the way a person does —
+the PRK list with *Būsenos* = Ruošiamas, then its number, a link in the *KIPIS numeris* column — so
+KIPIS also confirms it is still Ruošiamas right before deleting; the header is read once it names
+the document (it renders late). Buttons seen live: `_id3:_id4602:0:_id4603` Pateikti / `…:1:…`
+Šalinti. (`openDocument` via the **Universali paieška** dialog — `input.ieskojimoMygtukas` →
+`[id$=":ieskomasNumeris"]`, Tab → "Ieškoti" — works sometimes but often lands on "Užklausa
+negalioja…": not used for deleting.) `deleteDraft` follows the procedure below; `sweepDrafts` runs it for every PortSystem draft whose order is 2+ days old — daily, by
 itself (server), or via the dashboard's *Run cleanup now*. The list is read with the *Būsenos*
 filter set to Ruošiamas (the full list is past KIPIS's 500-row cap).
 

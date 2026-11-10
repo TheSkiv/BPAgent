@@ -141,6 +141,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   warning and files anyway. Unattended: → `needs_human` unless the order weight fits the lot.
 - [ ] **A8. Batch worker.** Loop all eligible orders in one run; continue past per-order
   failures; return made / skipped / failed. (Was "Batch pre-made PRKs" item 1 and 3.)
+- [~] **A9 BUILT 2026-11-10 (tested live; keep-alive effect over hours not yet seen):**
+  `browser.probeSession()` — a background request with the window's own cookies to the KIPIS
+  app: redirected to `/auth/realms/…` = logged out (verified: a cookie-less request lands there).
+  It touches nothing on screen (a menu click would pull the page away from the operator), and
+  runs every 10 minutes while idle as the **keep-alive**. Every KIPIS job (RUN PRK, Process next,
+  lot search/scan, PRK open/delete, cleanup) checks it first and stops once with "KIPIS is logged
+  out — press Open KIPIS and enter the MFA code. No order was touched." *Open KIPIS* on an open
+  but logged-out window now logs in again on it (before: "reusing existing page" and nothing
+  happened, seen 2026-11-10). Dashboard: "KIPIS: logged in / logged out — … / not open" under
+  the buttons, refreshed every minute; session changes are logged with the time, so the real
+  idle timeout will show in the server log. Still open: notifications (A17) when it logs out.
 - [~] **A9. KIPIS session handling.** *Part BUILT 2026-11-09:* RUN PRK and Process next refuse
   to start while the KIPIS window is not open, and touch no order. Expiry detection mid-run and
   keep-alive still to do. Login needs a human MFA code, so the machine cannot log
