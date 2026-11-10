@@ -407,7 +407,16 @@ async function navigateToCargo(page, data = {}) {
       // A saved transport row shows its plate as text (input values do not count here).
       ...plates.map(p => ({ field: `Transportas ${p}`, locator: page.getByText(p), expected: p, kind: 'present' })),
     ]);
-    const mainTabFields = (await captureFormState(page)).fields;
+    // A saved transport row shows its plate as text, not an input, so captureFormState misses it
+    // and the model reported the plate as empty (seen live 2026-11-10). Give it the rows' text.
+    const transportRows = [];
+    for (const p of plates) {
+      const el = page.getByText(p).first();
+      if (!await el.count()) continue;
+      const text = await el.evaluate(n => (n.closest('tr') || n).innerText.replace(/\s+/g, ' ').trim());
+      transportRows.push({ label: 'Į autotransportą (saved transport row)', name: '', type: 'text', value: text.slice(0, 200) });
+    }
+    const mainTabFields = [...transportRows, ...(await captureFormState(page)).fields];
 
     console.log('Navigating to Kroviniai tab...');
     await page.locator('a[onclick*="prkr_kroviniai"]').click();

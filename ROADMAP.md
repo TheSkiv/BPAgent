@@ -111,6 +111,10 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   the number and status go on the order (`docs.PRK.number`) and to the dashboard message. Not
   found, or a status other than Ruošiamas → the run throws and the order is `failed`, never
   `done` on a guess; if KIPIS did save it, the rerun's existing-PRK check finds it on the lot.
+  - 2026-11-10 live run (KPG387//IA977, Axan) stopped before Saugoti: read-back passed, but the
+    AI check reported the plate empty. A saved transport row is page text, not an input, so the
+    AI snapshot never contained it (the first run's pass was the model letting it slide). Fixed:
+    the snapshot now carries each transport row's text. Save confirmation still to be seen live.
 - [ ] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
   `submitted = true` without looking. Wait for the saved-document state (PRK number in the
   header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.
