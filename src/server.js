@@ -761,9 +761,14 @@ app.get('/lots/data', async (req, res) => {
     };
   }).sort((a, b) => b.listed - a.listed || (b.unconfirmed > 0) - (a.unconfirmed > 0) || b.seenAt.localeCompare(a.seenAt));
 
-  // Every company ordering today, plus every company with a setting.
+  // Every company with a real order today, plus every company with a setting. Orders still
+  // waiting for the sender's confirmation, and cancelled ones (blocked / rejected senders), do not
+  // count: a container email from MSC (a logistics company, blocked) put MSC on this list as a
+  // "company to set" (operator, 2026-11-10) — a mistakenly grabbed email must never land here.
+  const REAL_ORDER_STATES = new Set(['ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'done', 'failed']);
   const companyNames = new Set(Object.keys(cfg.companies));
   for (const o of orderStore.listOrders()) {
+    if (!REAL_ORDER_STATES.has(o.state)) continue;
     const c = senderCompanies.deriveCompany(o.email?.from || '');
     if (c) companyNames.add(c);
   }
