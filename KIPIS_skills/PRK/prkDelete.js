@@ -74,6 +74,27 @@ function audit(entry) {
   fs.appendFileSync(AUDIT_PATH, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n');
 }
 
+// One of PortSystem's own drafts (Rule 7 condition 2: its number is in `ours`, from
+// orderStore.prkNumbersFiled). Deletes, logs, closes the order; throws (logged) on any doubt.
+async function deleteOurDraft(page, number, ours, by) {
+  const orderStore = require('../../src/core/orderStore');
+  ours = ours || orderStore.prkNumbersFiled();
+  const o = ours.get(number);
+  if (!o) throw new Error(`${number} was not saved by PortSystem — not deleted (RULES.md Rule 7)`);
+  try {
+    const r = await deleteDraft(page, number);
+    audit({ action: 'Šalinti', number, plate: o.plate, orderId: o.orderId, orderDate: o.date, statusBefore: r.statusBefore, statusAfter: r.statusAfter, by });
+    orderStore.attachDocument(o.orderId, { type: 'PRK', number, status: 'Ištrintas (Šalinti)' }, { actor: 'operator', date: o.date });
+    orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${number} deleted (Šalinti) — not used`, date: o.date });
+    console.log(`PRK delete: ${number} (${o.plate}) deleted — ${by}`);
+    return { number, plate: o.plate };
+  } catch (err) {
+    audit({ action: 'Šalinti FAILED', number, plate: o.plate, orderId: o.orderId, error: err.message, by });
+    console.error(`PRK delete: ${number} failed — ${err.message}`);
+    throw err;
+  }
+}
+
 // The dashboard button. Reads KIPIS's PRK list (never truncated — readFullPrkList re-queries
 // past the row cap), keeps the Ruošiamas drafts PortSystem itself saved for orders of today or
 // earlier (orderStore.prkNumbersFiled — a person's draft is never on that list, and an order file
@@ -90,18 +111,10 @@ async function sweepDrafts(page) {
 
   const deleted = [], failed = [];
   for (const d of targets) {
-    const o = ours.get(d.number);
     try {
-      const r = await deleteDraft(page, d.number);
-      audit({ action: 'Šalinti', number: d.number, plate: o.plate, orderId: o.orderId, orderDate: o.date, statusBefore: r.statusBefore, statusAfter: r.statusAfter, by: 'dashboard button' });
-      orderStore.attachDocument(o.orderId, { type: 'PRK', number: d.number, status: 'Ištrintas (Šalinti)' }, { actor: 'operator', date: o.date });
-      orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${d.number} deleted (Šalinti) — not used`, date: o.date });
-      console.log(`PRK sweep: deleted ${d.number} (${o.plate})`);
-      deleted.push({ number: d.number, plate: o.plate });
+      deleted.push(await deleteOurDraft(page, d.number, ours, 'dashboard button'));
     } catch (err) {
-      audit({ action: 'Šalinti FAILED', number: d.number, plate: o.plate, orderId: o.orderId, error: err.message, by: 'dashboard button' });
-      console.error(`PRK sweep: ${d.number} failed — ${err.message}`);
-      failed.push({ number: d.number, plate: o.plate, error: err.message });
+      failed.push({ number: d.number, plate: ours.get(d.number).plate, error: err.message });
       break;
     }
   }
@@ -112,4 +125,4 @@ async function sweepDrafts(page) {
   };
 }
 
-module.exports = { openDocument, readDocHeader, deleteDraft, sweepDrafts, audit, DRAFT_STATUS };
+module.exports = { openDocument, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS };

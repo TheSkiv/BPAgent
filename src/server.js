@@ -315,6 +315,25 @@ app.post('/prk/sweep', async (req, res) => {
   }
 });
 
+// One of PortSystem's own Ruošiamas drafts, by number — same gates as the sweep (Rule 7).
+app.post('/prk/delete', async (req, res) => {
+  const n = String(req.body?.number || '').trim();
+  if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'number must be a PRK number' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  isRunning = true;
+  console.log(`Received request: prk/delete | ${n}`);
+  try {
+    const page = getPage();
+    const r = await withAutomation(page, () => prkDelete.deleteOurDraft(page, n, null, 'operator request'));
+    res.json({ status: 'ok', ...r });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
 // Read-only: opens a KIPIS document by number (universal search) and returns its header.
 app.get('/prk/open', async (req, res) => {
   const n = String(req.query.n || '').trim();

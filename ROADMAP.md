@@ -707,7 +707,12 @@ and at end of shift, delete the `Ruošiamas` drafts the terminal never used.*
   excluded) → delete one by one, stop at the first failure; each deletion logged to
   `data/prk_deletions.jsonl` and its order set `cancelled`. Dashboard: *Delete unused drafts*
   (with a browser confirm). Mock-tested (deletes on the real layout; refuses swapped buttons and
-  submitted documents; Pateikti never pressed). **Not yet run live on a real draft.**
+  submitted documents; Pateikti never pressed). **Live 2026-11-10:** the full PRK list is past
+  KIPIS's 500-row cap, so the sweep first sets the list's *Būsenos* filter to Ruošiamas (27
+  drafts: 14 PortSystem's, 13 colleagues' back to 2019 — left alone). `POST /prk/delete` (one
+  draft, same gates) refused a colleague's draft and deleted GRJ153//FF276's 261110-003794-PRK:
+  searching it afterwards gives KIPIS's error page and it left the Ruošiamas list. The truck was
+  re-filed as 261110-003968-PRK. The dashboard button itself has not been pressed yet.
   Matching is now by PRK number (captured at save, A4), not plate. Open: orders have no due
   date, so "today or earlier" means the order arrived today or earlier.
 
