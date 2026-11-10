@@ -213,6 +213,7 @@ async function navigateToCargo(page, data = {}) {
   let fieldCheck = null;
   let blocked    = null;
   let saved      = null;
+  let loadsFrom  = null;
   try {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
@@ -232,7 +233,8 @@ async function navigateToCargo(page, data = {}) {
     const registry = require('../../src/core/lotRegistry');
     const { deriveCompany } = require('../../src/core/senderCompanies');
     const company = deriveCompany(row['Sender'] || '');
-    const source  = await owners.resolveOrder({ company, cargo: cargoName, grossKg: total }, registry.ownLotsOf);
+    const { pendingReleaseKg } = require('../../src/core/orderStore');
+    const source  = await owners.resolveOrder({ company, cargo: cargoName, grossKg: total }, registry.ownLotsOf, pendingReleaseKg);
     if (source.stop) {
       blocked = `order source — ${source.stop}`;
       console.warn(`Not filing: ${blocked}`);
@@ -300,6 +302,11 @@ async function navigateToCargo(page, data = {}) {
       return { submitted: false, check, fieldCheck, blocked, needsLotOwners: !!choice.needsOwners };
     }
     console.log(`Lot chosen: ${choice.note}`);
+    // Recorded on the order once saved: later orders subtract it from the release (A7).
+    loadsFrom = {
+      owner: source.owner, source: source.source, vessel: choice.pick.vessel, lot: choice.pick.lot, grossKg: total,
+      releaseKey: (source.releases || []).find(r => r.vessel === choice.pick.vessel)?.key || null,
+    };
 
     const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');
     await checkbox.first().scrollIntoViewIfNeeded();
@@ -515,7 +522,7 @@ async function navigateToCargo(page, data = {}) {
     throw error;
   }
 
-  return { submitted, check, fieldCheck, blocked, prkNumber: saved?.number || null, prkStatus: saved?.status || null };
+  return { submitted, check, fieldCheck, blocked, prkNumber: saved?.number || null, prkStatus: saved?.status || null, loadsFrom };
 }
 
 // After Saugoti, KIPIS swaps the header "Naujas dokumentas" for

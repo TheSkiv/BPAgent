@@ -149,6 +149,32 @@ function attachDocument(id, { type, number = null, status = 'drafted' }, { actor
   return order;
 }
 
+// What a filed order loads from — { owner, source, vessel, lot, grossKg, releaseKey } — so later
+// orders can see what is already promised from a release (ROADMAP A7).
+function setLoadsFrom(id, loadsFrom, { date } = {}) {
+  if (!loadsFrom) return null;
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  order.loadsFrom = loadsFrom;
+  save(db, date);
+  return order;
+}
+
+// Gross kg of PortSystem drafts filed against a release and not yet done — today's and
+// yesterday's orders (a PRK is for today or tomorrow). Once an order is done its truck is loaded
+// and the release list's "left" takes it off itself.
+function pendingReleaseKg(releaseKey) {
+  if (!releaseKey) return 0;
+  let kg = 0;
+  for (const date of [daysAgo(0), daysAgo(1)]) {
+    for (const o of load(date).orders) {
+      if (o.state === 'drafted' && o.loadsFrom?.releaseKey === releaseKey) kg += Number(o.loadsFrom.grossKg) || 0;
+    }
+  }
+  return kg;
+}
+
 // A local calendar date `days` before today, YYYY-MM-DD (like todayString — not toISOString,
 // which is UTC and shifts the day).
 function daysAgo(days) {
@@ -285,5 +311,5 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields, prkNumbersFiled,
+  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg,
 };

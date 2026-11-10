@@ -503,6 +503,7 @@
       <div class="pipeline-head">
         <h2>Pipeline</h2>
         <span id="pipelineStatus" style="font-size:0.75rem;color:#64748b"></span>
+        <button id="fileAllBtn" title="Files a PRK draft for every ready (non-bulk) truck, oldest first. Continues past a truck that fails; stops if KIPIS logs out.">File all ready</button>
         <button id="processNextBtn">Process next PRK</button>
         <button id="recheckBtn">RECHECK</button>
       </div>
@@ -1046,6 +1047,36 @@
     });
 
     loadConfirmations();
+
+    // A8: every ready truck in one go. The summary names each truck and what happened to it.
+    const fileAllBtn = document.getElementById('fileAllBtn');
+    fileAllBtn.addEventListener('click', async () => {
+      fileAllBtn.disabled = processNextBtn.disabled = true;
+      pipelineStatusEl.style.color = '#a5b4fc';
+      pipelineStatusEl.textContent = 'Filing every ready truck — this takes about a minute per truck…';
+      try {
+        const r = await (await fetch('/queue/file-all', { method: 'POST' })).json();
+        if (r.status !== 'ok') { pipelineStatusEl.textContent = r.message; pipelineStatusEl.style.color = '#fc8181'; return; }
+        const line = (label, list, show) => list.length ? `${label}: ${list.map(show).join(', ')}` : '';
+        const parts = [
+          line('Saved, waiting for your Pateikti', r.saved, x => `${x.plate} (${x.prkNumber})`),
+          line('Already filed', r.existing, x => x.plate),
+          line('Not filed', r.blocked, x => `${x.plate} — ${x.message}`),
+          line('Failed', r.failed, x => `${x.plate} — ${x.message}`),
+        ].filter(Boolean);
+        if (r.stoppedBecause) parts.push(`Stopped: ${r.stoppedBecause}`);
+        pipelineStatusEl.textContent = parts.length ? parts.join(' · ') : 'No ready trucks to file.';
+        pipelineStatusEl.style.color = (r.blocked.length || r.failed.length || r.stoppedBecause) ? '#fbbf24' : '#68d391';
+        if (r.blocked.some(x => x.needsLotOwners)) loadLots();
+      } catch (err) {
+        pipelineStatusEl.textContent = 'Network error: ' + err.message;
+        pipelineStatusEl.style.color = '#fc8181';
+      } finally {
+        fileAllBtn.disabled = processNextBtn.disabled = false;
+        loadPipeline();
+        loadKipisSession();
+      }
+    });
 
     processNextBtn.addEventListener('click', async () => {
       processNextBtn.disabled = true;

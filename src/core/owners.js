@@ -126,9 +126,15 @@ const sellerFor    = company => (loadConfig().companies[company] || {}).seller |
 // (operator, 2026-11-10: Agrokoncernas's own loads → "Lietuva", nothing else of the receiver).
 const receiverCountryFor = company => (loadConfig().companies[company] || {}).receiverCountry || '';
 
-// Where an order loads from. Returns { owner, vessels, source, note } or { stop }.
+// One release line, as a stable key for "trucks already filed against it".
+const releaseKey = r => [r.seller, r.buyer, r.vessel, r.product].join('|');
+
+// Where an order loads from. Returns { owner, vessels, source, note, releases? } or { stop }.
 // ownLotsOf(company, cargo) → [{ vessel }] from the lot registry (self-loaders' own lots).
-async function resolveOrder({ company, cargo, grossKg }, ownLotsOf) {
+// pendingKgFor(releaseKey) → gross kg of PortSystem drafts on that release not yet submitted and
+// loaded (ROADMAP A7): the release list's "left" does not count them yet, so they are taken off
+// before deciding a truck still fits.
+async function resolveOrder({ company, cargo, grossKg }, ownLotsOf, pendingKgFor = () => 0) {
   if (!company) return { stop: 'the order has no company — name the sender on the dashboard' };
 
   let releases = [];
@@ -136,16 +142,30 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf) {
 
   const { buyer } = buyerFor(company, releases);
   if (buyer) {
-    const mine = releases.filter(r => r.buyer === buyer && releaseMatches(cargo, r.product));
-    const open = mine.filter(r => r.remainingKg >= grossKg * 0.9);   // net vs gross: bags add ~0.2 %
+    // One balance per seller+buyer+vessel+product: Linas Agro has two TSP lines on OSLO CARRIER 2
+    // (one used up, one with 1 878 t) — our drafts must come off their sum once, not off each.
+    const merged = new Map();
+    for (const r of releases.filter(x => x.buyer === buyer && releaseMatches(cargo, x.product))) {
+      const k = releaseKey(r);
+      if (merged.has(k)) merged.get(k).remainingKg += r.remainingKg;
+      else merged.set(k, { ...r });
+    }
+    const mine = [...merged.values()];
+    const left = r => r.remainingKg - pendingKgFor(releaseKey(r));
+    const open = mine.filter(r => left(r) >= grossKg * 0.9);   // net vs gross: bags add ~0.2 %
+    const show = r => `${r.vessel} ${Math.round(left(r) / 1000)} t left${pendingKgFor(releaseKey(r)) ? ` after ${Math.round(pendingKgFor(releaseKey(r)) / 1000)} t of our drafts` : ''}`;
     if (open.length) {
       const sellers = [...new Set(open.map(r => r.seller))];
       if (sellers.length > 1) return { stop: `${company} has ${cargo} releases from ${sellers.join(' and ')} — set which one on the Lots page` };
       const vessels = [...new Set(open.map(r => r.vessel))];
-      return { owner: sellers[0], vessels, source: 'release', note: `${buyer}'s ${sellers[0]} release on ${vessels.join(', ')} (${open.map(r => Math.round(r.remainingKg / 1000) + ' t').join(', ')} left)` };
+      return {
+        owner: sellers[0], vessels, source: 'release',
+        releases: open.map(r => ({ key: releaseKey(r), vessel: r.vessel })),
+        note: `${buyer}'s ${sellers[0]} release (${open.map(show).join(', ')})`,
+      };
     }
     if (mine.length && !isSelfLoader(company)) {
-      return { stop: `${buyer}'s release for ${cargo} has less than one truck left (${mine.map(r => `${r.vessel} ${Math.round(r.remainingKg / 1000)} t`).join(', ')})` };
+      return { stop: `${buyer}'s release for ${cargo} has less than one truck left (${mine.map(show).join(', ')})` };
     }
   }
 
@@ -187,4 +207,4 @@ function setCompany(company, { buyer, seller, selfLoader, receiverCountry }) {
   return c.companies[company] || null;
 }
 
-module.exports = { loadConfig, fetchReleases, resolveOrder, buyerFor, sellerFor, receiverCountryFor, isSelfLoader, setCompany, releaseMatches, sameCompany };
+module.exports = { loadConfig, fetchReleases, resolveOrder, releaseKey, buyerFor, sellerFor, receiverCountryFor, isSelfLoader, setCompany, releaseMatches, sameCompany };

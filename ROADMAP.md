@@ -137,10 +137,20 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   `.includes()` (a short plate can match a longer one) and reads the Excel, not the order the
   worker picked — a same-day second trip can be filed with the first trip's row. File from the
   order-store record by id; exact plate match only.
-- [ ] **A7. Treat low stock as a stop, not a warning.** A chosen lot under 24 000 kg only logs a
-  warning and files anyway. Unattended: → `needs_human` unless the order weight fits the lot.
-- [ ] **A8. Batch worker.** Loop all eligible orders in one run; continue past per-order
-  failures; return made / skipped / failed. (Was "Batch pre-made PRKs" item 1 and 3.)
+- [x] **A7. Low stock is a stop — DONE 2026-11-10.** The lot must hold the truck's gross weight
+  (lotRegistry.chooseLot, A27), and the release must too, **after our own unsubmitted drafts**:
+  each saved order records `loadsFrom` (owner, vessel, lot, gross, release key =
+  seller|buyer|vessel|product); `orderStore.pendingReleaseKg` sums today's and yesterday's
+  `drafted` orders on that key, and `owners.resolveOrder` takes it off the release's "left"
+  (lines with the same key are summed first — Linas Agro has two TSP lines on OSLO CARRIER 2).
+  Live: OSLO CARRIER 2 "1 686 t left after 192 t of our drafts". Today's drafts were backfilled.
+  Assumption: once an order is done (dispatch email) the release list has caught up.
+- [~] **A8. Batch worker — BUILT 2026-11-10 (tested with an empty queue; not yet on real trucks).**
+  Dashboard *File all ready* / `POST /queue/file-all`: every ready non-bulk order, oldest first,
+  each once; continues past a blocked or failed order; checks the KIPIS session before each and
+  stops the whole batch once if KIPIS is logged out or closed. Summary per truck: saved (PRK
+  number), already filed, not filed (reason), failed. *Process next* uses the same per-order
+  step (`fileOrder`).
 - [~] **A9 BUILT 2026-11-10 (tested live; keep-alive effect over hours not yet seen):**
   `browser.probeSession()` — a background request with the window's own cookies to the KIPIS
   app: redirected to `/auth/realms/…` = logged out (verified: a cookie-less request lands there).

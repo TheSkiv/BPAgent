@@ -65,6 +65,7 @@ function recordSavedDraft(order, plate, result) {
   markDone(plate);
   if (!order) return;
   orderStore.attachDocument(order.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'Ruošiamas' });
+  orderStore.setLoadsFrom(order.id, result.loadsFrom);
   orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti` });
 }
 
@@ -270,25 +271,79 @@ app.post('/queue/process-next', async (req, res) => {
   if (!next) return res.json({ status: 'empty', message: 'No ready non-bulk orders in the queue.' });
 
   isRunning = true;
-  orderStore.setState(next.id, 'filing', { actor: 'kipis', detail: 'queue worker' });
-  console.log(`Queue: processing ${next.id} | ${next.plate}`);
-
   try {
-    const result = await kipisLoad.run({ plate: next.plate });
+    const r = await fileOrder(next, 'queue worker');
+    if (r.outcome === 'failed') return res.json({ status: 'error', order: next.id, plate: next.plate, message: r.message });
+    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: r.outcome === 'saved', prkNumber: r.prkNumber || null, blocked: r.outcome === 'blocked' ? r.message : null, existingPrk: r.existingPrk || null, needsLotOwners: !!r.needsLotOwners });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Files one order end to end and records the outcome on it. The caller holds isRunning.
+// outcome: 'saved' (draft saved, waiting for Pateikti) | 'existing' (already filed in KIPIS) |
+// 'blocked' (stopped before Saugoti, e.g. lot owners to confirm) | 'failed' (error) | 'dry'.
+async function fileOrder(order, actor) {
+  orderStore.setState(order.id, 'filing', { actor: 'kipis', detail: actor });
+  console.log(`Queue: processing ${order.id} | ${order.plate}`);
+  const base = { id: order.id, plate: order.plate, cargo: order.cargo };
+  try {
+    const result = await kipisLoad.run({ plate: order.plate });
     if (result.submitted) {
-      recordSavedDraft(next, next.plate, result);
-    } else if (result.existingPrk) {
-      recordExistingPrk(next, next.plate, result.existingPrk);
-    } else if (result.blocked) {
-      orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
-    } else {
-      orderStore.setState(next.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
+      recordSavedDraft(order, order.plate, result);
+      return { ...base, outcome: 'saved', prkNumber: result.prkNumber };
     }
-    res.json({ status: 'ok', order: next.id, plate: next.plate, submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotOwners: !!result.needsLotOwners, check: result.check || null, fieldCheck: result.fieldCheck || null });
+    if (result.existingPrk) {
+      recordExistingPrk(order, order.plate, result.existingPrk);
+      return { ...base, outcome: 'existing', existingPrk: result.existingPrk };
+    }
+    if (result.blocked) {
+      orderStore.setState(order.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
+      return { ...base, outcome: 'blocked', message: result.blocked, needsLotOwners: !!result.needsLotOwners };
+    }
+    orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
+    return { ...base, outcome: 'dry' };
   } catch (err) {
-    orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
-    console.error(`Queue: ${next.id} failed —`, err.message);
-    res.json({ status: 'error', order: next.id, plate: next.plate, message: err.message });
+    orderStore.setState(order.id, 'failed', { actor: 'kipis', detail: err.message });
+    console.error(`Queue: ${order.id} failed —`, err.message);
+    return { ...base, outcome: 'failed', message: err.message };
+  }
+}
+
+// ── A8: file every ready order in one go ─────────────────────────────────────
+// Oldest first, non-bulk (bulk needs a weight first). Continues past an order that fails or is
+// blocked; stops the whole batch only when KIPIS itself is gone (logged out / closed), so one
+// expired session never fails a row of good orders. Each order is tried once per batch.
+async function fileAllReady(actor) {
+  const summary = { saved: [], existing: [], blocked: [], failed: [], dry: [], stoppedBecause: null };
+  orderStore.syncFromExcel();
+  const tried = new Set();
+  for (;;) {
+    const next = orderStore.listOrders()
+      .filter(o => o.state === 'ready' && !o.bulk && !tried.has(o.id))
+      .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[0];
+    if (!next) break;
+    const notReady = await kipisNotReady();
+    if (notReady) { summary.stoppedBecause = notReady; break; }
+    tried.add(next.id);
+    const r = await fileOrder(next, actor);
+    summary[r.outcome].push(r);
+  }
+  const counts = Object.entries(summary).filter(([k, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${v.length} ${k}`).join(', ');
+  console.log(`Batch (${actor}): ${counts || 'nothing to file'}${summary.stoppedBecause ? ` — stopped: ${summary.stoppedBecause}` : ''}`);
+  return summary;
+}
+
+app.post('/queue/file-all', async (req, res) => {
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  try {
+    res.json({ status: 'ok', ...(await fileAllReady('batch: File all ready')) });
+  } catch (err) {
+    console.error('Batch failed:', err.message);
+    res.json({ status: 'error', message: err.message });
   } finally {
     isRunning = false;
   }
