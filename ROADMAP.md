@@ -105,7 +105,9 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   offline with stand-in fields. **To verify on the first live run:** that a saved transport row
   shows its plate as page text (the transport check looks for that) — if not, every save will
   be blocked with "Transportas <plate>: not on the page" and the check needs a different locator.
-- [~] **A3 + A4 BUILT 2026-11-09 (mock-tested, not yet live):** `confirmSaved()` waits up to
+- [x] **A3 + A4 DONE — live 2026-11-10:** KPG387//IA977 (Axan, lot 260801-000106-L) saved as
+  `261110-002200-PRK` (Ruošiamas); the number was read from the header and stored on the order.
+  Built 2026-11-09: `confirmSaved()` waits up to
   20 s after Saugoti for KIPIS's saved-document header
   `Prašymas krovai: <nnnnnn-nnnnnn-PRK>, Ruošiamas, …` (it replaces "Naujas dokumentas"). Found →
   the number and status go on the order (`docs.PRK.number`) and to the dashboard message. Not
@@ -114,11 +116,11 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   - 2026-11-10 live run (KPG387//IA977, Axan) stopped before Saugoti: read-back passed, but the
     AI check reported the plate empty. A saved transport row is page text, not an input, so the
     AI snapshot never contained it (the first run's pass was the model letting it slide). Fixed:
-    the snapshot now carries each transport row's text. Save confirmation still to be seen live.
-- [ ] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
+    the snapshot now carries each transport row's text. The rerun on the fix passed and saved.
+- [x] **A3. Confirm the save actually happened.** After clicking `Saugoti` the code sets
   `submitted = true` without looking. Wait for the saved-document state (PRK number in the
   header, status `Ruošiamas`, no KIPIS error message) and fail the order if absent.
-- [ ] **A4. Capture the PRK number at save time** (Phase 2, first half) into
+- [x] **A4. Capture the PRK number at save time** (Phase 2, first half) into
   `docs.PRK.number`. Needed by A3, by dedup (A5) and by the `Šalinti` sweep.
 - [~] **A5. Check KIPIS for an existing PRK before filing** (Rule 6). *First part BUILT
   2026-11-09 (replica-tested, not yet live):* the lot search sees a `Autotransportas <plate>` row
