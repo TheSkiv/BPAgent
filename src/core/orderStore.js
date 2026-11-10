@@ -9,8 +9,10 @@ const DATA_DIR = process.env.DATA_DIR || 'C:\\PortSystem\\data';
 // Lifecycle. `needs_human`, `failed` and `cancelled` are terminal-ish side states.
 // `gate_pass_ordered`: terminal@bpa.lt sent the PRK-request email to KKT dispatch for a BULK
 // order — that's the gate pass, not completion. The truck is still open until actually done.
+// `submitted`: the operator pressed Pateikti on PortSystem's draft (seen in KIPIS's PRK list,
+// ROADMAP A18) — the dispatch email still has to go out; the terminal's copy of it closes it.
 const STATES = [
-  'received', 'ready', 'filing', 'drafted', 'verified', 'gate_pass_ordered', 'done',
+  'received', 'ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'done',
   'needs_human', 'failed', 'cancelled',
 ];
 const CLOSED_STATES = ['done', 'cancelled'];

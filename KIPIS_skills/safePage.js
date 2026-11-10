@@ -33,6 +33,16 @@ function guardScript() {
     return (value + ' ' + text).replace(/\s+/g, ' ').trim();
   }
 
+  // The operator's last click / keypress in this window (not automation's: those happen while
+  // armed). Automatic jobs skip their turn while the operator is working here (ROADMAP A18).
+  const noteHuman = function () {
+    try {
+      if (window.sessionStorage.getItem('__kipisAutomation') !== '1') window.sessionStorage.setItem('__kipisHumanAt', String(Date.now()));
+    } catch { /* storage unavailable */ }
+  };
+  document.addEventListener('mousedown', noteHuman, true);
+  document.addEventListener('keydown', noteHuman, true);
+
   document.addEventListener('click', function (e) {
     const el = e.target && e.target.closest
       ? e.target.closest('input[type="submit"], input[type="button"], button, a')
@@ -92,4 +102,15 @@ async function assertNotPateikti(locator) {
   }
 }
 
-module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti, withAutomation, setAutomation };
+// Whether the operator clicked or typed in the KIPIS window within the last `ms` — an automatic
+// job then waits, rather than pull the page away mid-review. Unknown → treated as active.
+async function operatorActiveWithin(page, ms) {
+  try {
+    const at = await page.evaluate(() => Number(window.sessionStorage.getItem('__kipisHumanAt')) || 0);
+    return Date.now() - at < ms;
+  } catch {
+    return true;
+  }
+}
+
+module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti, withAutomation, setAutomation, operatorActiveWithin };

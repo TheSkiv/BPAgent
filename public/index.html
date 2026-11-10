@@ -312,8 +312,14 @@
     }
     #sweepBtn:hover:not(:disabled) { background: #2d0f0f; }
     #sweepBtn:disabled { opacity: 0.5; cursor: default; }
-    #sweepResult { font-size: 0.75rem; color: #94a3b8; }
-    #sweepResult .err { color: #fc8181; }
+    #sweepResult, #watchResult { font-size: 0.75rem; color: #94a3b8; }
+    #sweepResult .err, #watchResult .err { color: #fc8181; }
+    #watchBtn {
+      background: transparent; color: #a5b4fc; border: 1px solid #3b4177; border-radius: 6px;
+      padding: 3px 10px; font-size: 0.72rem; letter-spacing: 0; text-transform: none; cursor: pointer;
+    }
+    #watchBtn:hover:not(:disabled) { background: #1c2340; }
+    #watchBtn:disabled { opacity: 0.5; cursor: default; }
 
     #recheckBtn {
       background: #6366f1;
@@ -517,6 +523,12 @@
       </div>
       <div id="sweepResult"></div>
       <div id="pipelineAwaiting" class="pipeline-section"></div>
+      <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>Submitted — send the dispatch email</span>
+        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti). Also runs by itself after RECHECK and every 15 minutes in the shift.">Check submitted</button>
+      </div>
+      <div id="watchResult"></div>
+      <div id="pipelineSubmitted" class="pipeline-section"></div>
       <div class="pipeline-group-title">To do</div>
       <div id="pipelineQueue" class="pipeline-section"></div>
     </div>
@@ -855,6 +867,7 @@
 
     // --- Pipeline (state store): to-do queue + done ---
     const pipelineAwaitingEl = document.getElementById('pipelineAwaiting');
+    const pipelineSubmittedEl = document.getElementById('pipelineSubmitted');
     const pipelineQueueEl    = document.getElementById('pipelineQueue');
     const pipelineDoneEl     = document.getElementById('pipelineDone');
     const pipelineStatusEl   = document.getElementById('pipelineStatus');
@@ -917,17 +930,23 @@
         }
         // A saved draft (drafted, with a PRK number) waits for the operator's Pateikti; the
         // terminal's dispatch email then closes it (ROADMAP A11). A dry-run fill has no number.
+        // Submitted (A18): the operator pressed Pateikti — the dispatch email is next.
         const awaitingPateikti = o => o.state === 'drafted' && o.docs?.PRK?.number;
-        const all      = data.queue || [];
-        const awaiting = all.filter(awaitingPateikti);
-        const queue    = all.filter(o => !awaitingPateikti(o));
-        const done     = data.done  || [];
-        const dups     = duplicatePlates([...all, ...done]);
+        const isSubmitted      = o => o.state === 'submitted';
+        const all       = data.queue || [];
+        const awaiting  = all.filter(awaitingPateikti);
+        const submitted = all.filter(isSubmitted);
+        const queue     = all.filter(o => !awaitingPateikti(o) && !isSubmitted(o));
+        const done      = data.done  || [];
+        const dups      = duplicatePlates([...all, ...done]);
         pipelineQueueOrders = all;
 
         pipelineAwaitingEl.innerHTML = awaiting.length
           ? awaiting.map(o => pipeRow(o, dups, true)).join('')
           : '<div class="task-empty">No drafts waiting.</div>';
+        pipelineSubmittedEl.innerHTML = submitted.length
+          ? submitted.map(o => pipeRow(o, dups, true)).join('')
+          : '<div class="task-empty">Nothing submitted and waiting for the email.</div>';
         pipelineQueueEl.innerHTML = queue.length
           ? queue.map(o => pipeRow(o, dups, true)).join('')
           : '<div class="task-empty">Queue is empty.</div>';
@@ -935,7 +954,7 @@
           ? done.map(o => pipeRow(o, dups, false)).join('')
           : '<div class="task-empty">Nothing done yet today.</div>';
 
-        pipelineStatusEl.textContent = `${awaiting.length} waiting for Pateikti · ${queue.length} to do · ${done.length} done`;
+        pipelineStatusEl.textContent = `${awaiting.length} waiting for Pateikti · ${submitted.length} email to send · ${queue.length} to do · ${done.length} done`;
         pipelineStatusEl.style.color = '#64748b';
       } catch (err) {
         pipelineStatusEl.textContent = 'Network error: ' + err.message;
@@ -991,6 +1010,37 @@
     }
     pipelineQueueEl.addEventListener('click', onQueueClick);
     pipelineAwaitingEl.addEventListener('click', onQueueClick);
+    pipelineSubmittedEl.addEventListener('click', onQueueClick);
+
+    // A18: last check of which drafts were submitted; the button runs one now.
+    function watchText(r) {
+      if (!r || !r.at) return '';
+      const when = new Date(r.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
+      if (r.skipped || r.error) return `<span class="err">Checked ${escHtml(when)}: not done — ${escHtml(r.skipped || r.error)}</span>`;
+      const moved = [...(r.submitted || []), ...(r.done || []), ...(r.cancelled || [])];
+      return `Checked ${escHtml(when)} (${escHtml(r.reason)}): ` + (moved.length
+        ? moved.map(x => `${escHtml(x.plate)} ${escHtml(x.status)}`).join(', ')
+        : 'no change');
+    }
+    async function loadWatch() {
+      try { document.getElementById('watchResult').innerHTML = watchText(await (await fetch('/prk/watch')).json()); } catch { /* keep */ }
+    }
+    document.getElementById('watchBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('watchBtn');
+      const out = document.getElementById('watchResult');
+      btn.disabled = true;
+      out.textContent = 'Reading the PRK list in KIPIS…';
+      try {
+        out.innerHTML = watchText(await (await fetch('/prk/watch', { method: 'POST' })).json()) || 'Nothing to check — no drafts waiting.';
+      } catch (err) {
+        out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
+      } finally {
+        btn.disabled = false;
+        loadPipeline();
+      }
+    });
+    loadWatch();
+    setInterval(loadWatch, 60 * 1000);
 
     loadPipeline();
 

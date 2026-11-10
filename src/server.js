@@ -18,7 +18,8 @@ const owners      = require('./core/owners');
 const lotRegistry = require('./core/lotRegistry');
 const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
-const { withAutomation } = require('../KIPIS_skills/safePage');
+const { withAutomation, operatorActiveWithin } = require('../KIPIS_skills/safePage');
+const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
 const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
 
@@ -75,7 +76,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // A12: once a RECHECK (GET /gmail/emails) has finished, file whatever it made ready.
 app.use('/gmail/emails', (req, res, next) => {
-  res.on('finish', () => { setTimeout(() => autoFile('after RECHECK').catch(err => console.error('Auto-filing:', err.message)), 1000); });
+  res.on('finish', () => { setTimeout(() => autoRound('after RECHECK').catch(err => console.error('Auto round:', err.message)), 1000); });
   next();
 });
 app.use('/gmail', gmailRoute);
@@ -163,7 +164,8 @@ app.post('/prk/export', async (req, res) => {
     const limit = req.body?.limit || 500;
     const statuses = Array.isArray(req.body?.statuses) ? req.body.statuses : null;   // e.g. ["Ruošiamas"]
 
-    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await withAutomation(getPage(), () => readFullPrkList({ limit, statuses }));
+    const dateFrom = String(req.body?.dateFrom || ''), dateTo = String(req.body?.dateTo || '');   // submission date, YYYY-MM-DD
+    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await withAutomation(getPage(), () => readFullPrkList({ limit, statuses, dateFrom, dateTo }));
 
     orderStore.syncFromExcel();
     const checked = findDeletable(drafts, {
@@ -175,6 +177,7 @@ app.post('/prk/export', async (req, res) => {
     res.json({
       status: 'ok', headers, headRowCount, rawRowCount, limitUsed,
       total: docs.length,
+      docs: docs.map(d => ({ number: d.number, status: d.status, plate: d.plate, employee: d.employee, created: d.created })),
       drafts: drafts.map(d => ({ number: d.number, status: d.status, plate: d.plate, employee: d.employee, created: d.created })),
       deletable: checked.filter(d => d.deletable),
       blocked:   checked.filter(d => !d.deletable),
@@ -345,16 +348,29 @@ async function fileAllReady(actor) {
 // (e.g. a sender the operator confirmed). Skips quietly when there is nothing ready, when another
 // KIPIS job is running (the next tick catches up) or when KIPIS is not logged in.
 const AUTO_FILE_HOURS = [8, 18];
+const OPERATOR_QUIET_MS = 3 * 60 * 1000;   // automatic jobs wait while the operator works in KIPIS
 let lastAutoFile = null;
+let lastWatch    = null;
+
+// An automatic job may drive the KIPIS window only when nothing else does, KIPIS is logged in,
+// and the operator has not clicked or typed in that window for a few minutes (it would pull the
+// page away from a draft being checked). Returns the reason to skip, or null.
+async function autoBlocked() {
+  if (isRunning) return 'another KIPIS job is running';
+  const notReady = await kipisNotReady();
+  if (notReady) return notReady;
+  if (await operatorActiveWithin(getPage(), OPERATOR_QUIET_MS)) return 'you are working in the KIPIS window — next round';
+  return null;
+}
 
 async function autoFile(reason) {
   if (isRunning) return;
   orderStore.syncFromExcel();   // RECHECK writes new orders to today's Excel first
   const ready = orderStore.listOrders().some(o => o.state === 'ready' && !o.bulk);
-  if (!ready || isRunning) return;
-  const notReady = await kipisNotReady();
-  if (notReady) {
-    lastAutoFile = { at: new Date().toISOString(), reason, skipped: notReady };
+  if (!ready) return;
+  const blocked = await autoBlocked();
+  if (blocked) {
+    lastAutoFile = { at: new Date().toISOString(), reason, skipped: blocked };
     return;
   }
   isRunning = true;
@@ -369,11 +385,40 @@ async function autoFile(reason) {
   }
 }
 
+// A18: which of our drafts has the operator submitted? (`automatic` = respect autoBlocked)
+async function runWatch(reason, automatic) {
+  const waiting = orderStore.prkNumbersFiled({ maxAgeDays: 1 });
+  if (![...waiting.values()].some(o => o.state === 'drafted' || o.state === 'submitted')) return lastWatch;
+  const blocked = automatic ? await autoBlocked() : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
+  if (blocked) return (lastWatch = { at: new Date().toISOString(), reason, skipped: blocked });
+  isRunning = true;
+  try {
+    const page = getPage();
+    lastWatch = { at: new Date().toISOString(), reason, ...(await withAutomation(page, () => prkWatch.checkSubmitted())) };
+  } catch (err) {
+    lastWatch = { at: new Date().toISOString(), reason, error: err.message };
+    console.error('PRK watch failed:', err.message);
+  } finally {
+    isRunning = false;
+  }
+  return lastWatch;
+}
+
+// One automatic round: file what is ready, then see what the operator has submitted.
+async function autoRound(reason) {
+  await autoFile(reason);
+  await runWatch(reason, true);
+}
+
 setInterval(() => {
   const h = new Date().getHours();
   if (h < AUTO_FILE_HOURS[0] || h >= AUTO_FILE_HOURS[1]) return;
-  autoFile('shift timer').catch(err => console.error('Auto-filing:', err.message));
+  autoRound('shift timer').catch(err => console.error('Auto round:', err.message));
 }, 15 * 60 * 1000);
+
+app.get('/prk/watch', (req, res) => res.json(lastWatch || {}));
+// Dashboard "Check submitted": the operator asks, so it runs even if they just used KIPIS.
+app.post('/prk/watch', async (req, res) => res.json((await runWatch('dashboard button', false)) || {}));
 
 app.get('/queue/auto', (req, res) => res.json(lastAutoFile || {}));
 
@@ -464,7 +509,7 @@ async function runCleanup(by) {
 async function dailyCleanupTick() {
   if (new Date().getHours() < CLEANUP_FROM_HOUR) return;
   if (cleanupState().doneFor === todayString()) return;
-  if (isRunning || await kipisNotReady()) return;   // try again next hour
+  if (await autoBlocked()) return;   // busy, logged out, or the operator is working in KIPIS: next hour
   await runCleanup('daily cleanup');
 }
 setInterval(() => { dailyCleanupTick().catch(err => console.error('PRK cleanup tick:', err.message)); }, 60 * 60 * 1000);

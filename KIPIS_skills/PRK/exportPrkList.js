@@ -114,6 +114,7 @@ async function setLimitAndFilter(page, limit) {
 // The "Būsenos" filter: a "..." button opens a dialog of status checkboxes
 // (name "…:busenuTipai", e.g. Ruošiamas = value 1); "Pasirinkti" applies the choice. The whole
 // list runs past KIPIS's 500-row cap (seen 2026-11-10), so the delete sweep reads Ruošiamas only.
+// The choice stays set in KIPIS between reads, so every read sets it: [] = no status filter.
 async function setStatusFilter(page, statuses) {
   await page.locator('input[type="button"][onclick*="busenu_tipai_filter"]').first().click();
   const dialog = page.locator('#busenu_tipai_filter');
@@ -131,8 +132,15 @@ async function setStatusFilter(page, statuses) {
   await page.waitForLoadState('networkidle');
 }
 
-// Navigates to the list and applies the starting row limit (and the status filter, if given).
-async function openPrkList({ limit = 500, statuses = null } = {}) {
+// "Pateikimo data" (submission date) from–to, YYYY-MM-DD; empty = no date filter. Set on every
+// read for the same reason as the status filter.
+async function setDateFilter(page, from = '', to = '') {
+  await page.locator('[id$=":fNuo"]').fill(from);
+  await page.locator('[id$=":fIki"]').fill(to);
+}
+
+// Navigates to the list and applies the filters (status, submission date) and the row limit.
+async function openPrkList({ limit = 500, statuses = null, dateFrom = '', dateTo = '' } = {}) {
   const page = getPage();
 
   const how = await navigateToPrkList(page);
@@ -142,15 +150,16 @@ async function openPrkList({ limit = 500, statuses = null } = {}) {
   }
   console.log(`PRK list: reached via ${how}`);
 
-  if (statuses) await setStatusFilter(page, statuses);
+  await setStatusFilter(page, statuses || []);
+  await setDateFilter(page, dateFrom, dateTo);
   await setLimitAndFilter(page, limit);
   return page;
 }
 
 // Navigates, reads, and re-queries with a higher limit if the first read was truncated —
 // never silently returns an incomplete list.
-async function readFullPrkList({ limit = 500, statuses = null } = {}) {
-  const page = await openPrkList({ limit, statuses });
+async function readFullPrkList({ limit = 500, statuses = null, dateFrom = '', dateTo = '' } = {}) {
+  const page = await openPrkList({ limit, statuses, dateFrom, dateTo });
   let current = limit;
   let result  = await readPrkListFromDom(page);
 
@@ -166,7 +175,7 @@ async function readFullPrkList({ limit = 500, statuses = null } = {}) {
   }
 
   const drafts = result.docs.filter(d => d.status === DRAFT_STATUS);
-  if (statuses) {
+  if (statuses && statuses.length) {
     const other = result.docs.filter(d => !statuses.some(s => s.toLowerCase() === String(d.status).toLowerCase()));
     if (other.length) throw new Error(`PRK list: the status filter did not apply (${other.length} document(s) with other statuses, e.g. ${other[0].number} ${other[0].status})`);
   }

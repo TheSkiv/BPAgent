@@ -434,8 +434,19 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   by every step, shown in the browser: a notifications panel/list plus browser notifications
   while the page is open. No desktop-app install. Starts in PortSystem's own dashboard; moves to
   the platform front door when that exists.
-- [ ] **A18. Detect Pateikti** (step 7). Poll the PRK list (`exportPrkList.js`) for our drafts
-  changing `Ruošiamas` → `Pateiktas`; record the status on the order. Needs A4 (PRK number).
+- [x] **A18. Detect Pateikti — DONE 2026-11-10 (live).** `KIPIS_skills/PRK/prkWatch.js` reads the
+  PRK list filtered by *Pateikimo data* yesterday–today (31 documents today; drafts have no
+  submission date so they are not in it) and moves our drafted orders by status: Pateiktas /
+  Patvirtintas → new state **`submitted`** (dashboard group "Submitted — send the dispatch
+  email"), Atliktas / Užbaigtas → `done`, Anuliuotas → `cancelled`; the status cell's first line
+  only ("Anuliuotas\nKLAIDA"). Runs after each RECHECK and on the 15-minute shift timer (after
+  auto-filing), and from the dashboard's *Check submitted*. Live: MLL371, MIA722, LDC323 →
+  submitted (Patvirtintas); 11 drafts unchanged. Also: the list's status and date filters stay
+  set in KIPIS between reads, so every read now sets both (a "read all" after a Ruošiamas read
+  would have silently returned only Ruošiamas). **Operator guard:** automatic jobs (auto-filing,
+  this check, the daily cleanup) skip their turn when the operator clicked or typed in the KIPIS
+  window in the last 3 minutes (`safePage.operatorActiveWithin`; the system's own clicks don't
+  count) — they would pull the page away from a draft being checked.
 - [ ] **A19. Print + email draft to dispatch** (step 8, was Phase 3 — no longer paused):
   fetch the submitted PRK PDF, silent print, and build the dispatch email (truck details, PRK
   PDF attached, dispatch address from a routing table) as a MIME message appended to the
