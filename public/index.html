@@ -437,8 +437,10 @@
       try {
         const r = await getJson('/prk/cleanup');
         if (!r.at) return;
+        // Say why the others stayed: ours but under 2 days old, or made by other people.
+        const kept = [r.tooYoung && `${r.tooYoung} of ours under 2 days old`, r.othersKept && `${r.othersKept} by other people (never touched)`].filter(Boolean).join(', ');
         $('sweepLine').innerHTML = r.status === 'ok' || r.status === 'stopped'
-          ? `Last run ${new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' })}: ${r.deleted.length} deleted${r.failed?.length ? ` — <span class="err">stopped at ${esc(r.failed[0].plate)}</span>` : ''}`
+          ? `Last run ${new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' })}: ${r.deleted.length} deleted${kept ? ` · kept ${kept}` : ''}${r.failed?.length ? ` — <span class="err">stopped at ${esc(r.failed[0].plate)}</span>` : ''}`
           : `<span class="err">Not done — ${esc(r.message)}</span>`;
       } catch { /* keep */ }
     }
@@ -446,8 +448,13 @@
       if (!confirm('Delete PortSystem\'s unused PRK drafts now?\n\nOnly Ruošiamas drafts for orders 2 or more days old. Today\'s and yesterday\'s drafts, and drafts made by people, are never touched. This cannot be undone.')) return;
       $('sweepBtn').disabled = true;
       $('sweepLine').textContent = 'Reading KIPIS and deleting…';
-      try { await postJson('/prk/cleanup'); } catch { /* shown below */ }
-      $('sweepBtn').disabled = false; loadCleanup(); loadPipeline();
+      let r = null;
+      try { r = await postJson('/prk/cleanup'); } catch (err) { r = { status: 'error', message: err.message }; }
+      $('sweepBtn').disabled = false;
+      // "busy" / not logged in are not saved as a run — show them here, or it looks like nothing happened.
+      if (r && (r.status === 'busy' || (r.status === 'error' && !r.at))) $('sweepLine').innerHTML = `<span class="err">Not run — ${esc(r.message)}</span>`;
+      else loadCleanup();
+      loadPipeline();
     });
 
     async function loadLots() {

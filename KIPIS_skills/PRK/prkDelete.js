@@ -152,10 +152,15 @@ async function sweepDrafts(page, by = 'daily cleanup') {
       break;
     }
   }
+  // Why the rest stayed, for the dashboard: PortSystem's own drafts still under the age limit,
+  // and drafts other people made (never touched). A "0 deleted" read like a failure without it.
+  const ownAll = orderStore.prkNumbersFiled();
+  const tooYoung = drafts.filter(d => ownAll.has(d.number) && !ours.has(d.number)).length;
   return {
     deleted, failed,
     remaining: targets.length - deleted.length - failed.length,
-    othersKept: drafts.length - targets.length,   // drafts PortSystem did not file — never touched
+    tooYoung,
+    othersKept: drafts.length - targets.length - tooYoung,   // drafts PortSystem did not file — never touched
   };
 }
 
