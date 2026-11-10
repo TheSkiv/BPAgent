@@ -673,7 +673,7 @@ and at end of shift, delete the `Ruošiamas` drafts the terminal never used.*
 |---|---|
 | Button | **`Šalinti`** (delete) for `Ruošiamas` drafts. `Anuliuoti` is for submitted documents — **human-only, never automated** (RULES.md Rule 7) |
 | Scope | Only PRKs **PortSystem created** *and* whose truck was **due today** — never a human's draft, never a draft pre-made for tomorrow |
-| Autonomy | **Propose, human confirms.** The sweep lists what it would delete; the operator approves |
+| Autonomy | ~~Propose, human confirms~~ → **the operator's button press is the approval** (2026-11-10); every deletion logged |
 
 **Built and validated** (`KIPIS_skills/PRK/exportPrkList.js`, `prkLedger.js`):
 - The document-list screen is mapped (**Prašymai krovai**, reached via the left shortcut or
@@ -696,10 +696,20 @@ and at end of shift, delete the `Ruošiamas` drafts the terminal never used.*
 - **Dedup-before-filing is not wired up.** The reader currently only feeds the delete-sweep
   check; filing still relies on `doneTracker` alone, so a PRK filed manually outside the app
   would not block a duplicate auto-file.
-- **The actual `Šalinti` click is not implemented.** Mapped and documented in
-  `KIPIS_skills/PRK/steps.md` (two-step confirm; a dangerous `Pateikti`/`Šalinti` sibling-index
-  trap — verify the label before clicking, never trust the index alone) but not yet coded.
-- **No dashboard UI** to review the proposed deletion list and approve it.
+- ~~The actual `Šalinti` click~~ and ~~a dashboard UI~~ — **BUILT 2026-11-10** (operator: a
+  button; only PortSystem's drafts; keep drafts for later trucks; no second approval — the press
+  is the approval; RULES.md Rule 7 updated). `KIPIS_skills/PRK/prkDelete.js`: open by number via
+  Universali paieška (verified live, read-only), header must show that number + Ruošiamas, derive
+  the `:1:` sibling of Pateikti and click it only if labelled `Šalinti`, same in the confirm
+  dialog (reason filled), check the header no longer shows the draft. `sweepDrafts`: KIPIS PRK
+  list → Ruošiamas drafts whose number PortSystem saved on an order of today or earlier
+  (`orderStore.prkNumbersFiled`, history "PRK draft saved" — a PRK merely found in KIPIS is
+  excluded) → delete one by one, stop at the first failure; each deletion logged to
+  `data/prk_deletions.jsonl` and its order set `cancelled`. Dashboard: *Delete unused drafts*
+  (with a browser confirm). Mock-tested (deletes on the real layout; refuses swapped buttons and
+  submitted documents; Pateikti never pressed). **Not yet run live on a real draft.**
+  Matching is now by PRK number (captured at save, A4), not plate. Open: orders have no due
+  date, so "today or earlier" means the order arrived today or earlier.
 
 ## Batch pre-made PRKs for packaged cargo  *(PARTIALLY BUILT — one-at-a-time exists)*
 *Goal: every non-bulk order has a PRK pre-created in KIPIS, ready for the user to open, check,

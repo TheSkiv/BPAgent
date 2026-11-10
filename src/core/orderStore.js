@@ -125,27 +125,50 @@ function activeOrderForPlate(plate, date) {
   return open.length ? open[open.length - 1] : null;
 }
 
-function setState(id, state, { actor = 'system', detail = '' } = {}) {
+// `date` (YYYY-MM-DD) addresses an earlier day's order file; default today.
+function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   if (!STATES.includes(state)) throw new Error(`Unknown order state: ${state}`);
-  const db    = load();
+  const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
   const from = order.state;
   order.state = state;
   logHistory(order, actor, 'state', `${from} → ${state}${detail ? ' — ' + detail : ''}`);
-  save(db);
+  save(db, date);
   return order;
 }
 
 // Links a KIPIS document to the order. `number` may be null until document capture exists.
-function attachDocument(id, { type, number = null, status = 'drafted' }, { actor = 'kipis' } = {}) {
-  const db    = load();
+function attachDocument(id, { type, number = null, status = 'drafted' }, { actor = 'kipis', date } = {}) {
+  const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
   order.docs[type] = { number, status, at: new Date().toISOString() };
   logHistory(order, actor, 'document', `${type} ${number || '(number not captured)'} — ${status}`);
-  save(db);
+  save(db, date);
   return order;
+}
+
+// Every PRK PortSystem itself saved, from the order files of the last `days` days up to today:
+// number → { date, orderId, plate, state }. Only numbers whose order history says PortSystem saved
+// the draft ("PRK draft saved …<number>") — a PRK merely found on the lot (filed by a person,
+// e.g. NGU792's 261110-003439-PRK) is recorded on the order too, but is never ours.
+function prkNumbersFiled(days = 14) {
+  const out = new Map();
+  const today = todayString();
+  let files = [];
+  try { files = fs.readdirSync(DATA_DIR).filter(f => /^orders_state_\d{4}-\d{2}-\d{2}\.json$/.test(f)); } catch { return out; }
+  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  for (const f of files) {
+    const date = f.slice('orders_state_'.length, -'.json'.length);
+    if (date > today || date < cutoff) continue;
+    for (const o of load(date).orders) {
+      const n = o.docs?.PRK?.number;
+      const savedByUs = n && (o.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(n));
+      if (savedByUs) out.set(n, { date, orderId: o.id, plate: o.plate, state: o.state });
+    }
+  }
+  return out;
 }
 
 // Creates a record for every row in today's orders Excel that does not have one yet, linking
@@ -253,5 +276,5 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields,
+  nextReadyNonBulk, updateOrderFields, prkNumbersFiled,
 };

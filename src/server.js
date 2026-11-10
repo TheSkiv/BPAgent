@@ -20,6 +20,7 @@ const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 const { withAutomation } = require('../KIPIS_skills/safePage');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
+const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
 function kipisOpen() {
@@ -289,6 +290,59 @@ app.get('/kipis/fields', async (req, res) => {
     const messages = await page.locator('[class*="rror"], [class*="essage"], [class*="arning"], font[color="red"], span[style*="red"]')
       .evaluateAll(els => [...new Set(els.filter(e => e.offsetParent).map(e => e.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean))]);
     res.json({ status: 'ok', url: page.url(), title: await page.title(), fields, buttons, tabs, messages });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+// Dashboard button: delete PortSystem's unused Ruošiamas PRK drafts (orders of today or earlier).
+// The operator's press is the approval (2026-11-10); every deletion goes to data/prk_deletions.jsonl.
+app.post('/prk/sweep', async (req, res) => {
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  isRunning = true;
+  console.log('Received request: prk/sweep');
+  try {
+    const page = getPage();
+    const result = await withAutomation(page, () => prkDelete.sweepDrafts(page));
+    res.json({ status: 'ok', ...result });
+  } catch (err) {
+    console.error('prk/sweep failed:', err.message);
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Read-only: opens a KIPIS document by number (universal search) and returns its header.
+app.get('/prk/open', async (req, res) => {
+  const n = String(req.query.n || '').trim();
+  if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'n must be a PRK number' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  isRunning = true;
+  try {
+    const page = getPage();
+    const header = await withAutomation(page, () => prkDelete.openDocument(page, n));
+    const buttons = await page.locator('input[type="button"]:visible, input[type="submit"]:visible')
+      .evaluateAll(bs => bs.map(b => ({ value: b.value, name: b.name })));
+    res.json({ status: 'ok', title: await page.title(), header, buttons });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Read-only: the HTML around the first element matching ?sel= (up= ancestor levels, default 2),
+// for mapping a KIPIS screen without the operator describing it.
+app.get('/kipis/html', async (req, res) => {
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  try {
+    const up = Math.min(Number(req.query.up) || 2, 8);
+    const html = await getPage().locator(String(req.query.sel || 'body')).first()
+      .evaluate((el, n) => { let e = el; for (let i = 0; i < n && e.parentElement; i++) e = e.parentElement; return e.outerHTML; }, up);
+    res.json({ status: 'ok', html: html.slice(0, 20000) });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
   }

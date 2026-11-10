@@ -119,6 +119,12 @@ An off-by-one submits a customs document instead of deleting a draft. **Never se
 index alone.** The `_id…` numbers are JSF session-generated and change between sessions, so they
 must never be hardcoded either.
 
+**Built 2026-11-10** (`prkDelete.js`): `openDocument` opens a PRK by number through the
+**Universali paieška** dialog on every page (`input.ieskojimoMygtukas` → `[id$=":ieskomasNumeris"]`,
+Tab to post it → `[id$=":paieskosMygtukas"]` "Ieškoti") — verified live on 261110-003794-PRK
+(buttons `_id3:_id4602:0:_id4603` Pateikti / `…:1:…` Šalinti). `deleteDraft` follows the procedure
+below; `sweepDrafts` runs it for every PortSystem draft (dashboard *Delete unused drafts*).
+
 ### Safe selection procedure
 
 1. Locate the visible **`Pateikti`** button in the `Prašymas krovai` action bar and read its

@@ -299,6 +299,15 @@
     #status.success { background: #0f2820; border-color: #22543d; color: #68d391; }
     #status.error   { background: #2d0f0f; border-color: #742a2a; color: #fc8181; }
 
+    #sweepBtn {
+      background: transparent; color: #fc8181; border: 1px solid #742a2a; border-radius: 6px;
+      padding: 3px 10px; font-size: 0.72rem; letter-spacing: 0; text-transform: none; cursor: pointer;
+    }
+    #sweepBtn:hover:not(:disabled) { background: #2d0f0f; }
+    #sweepBtn:disabled { opacity: 0.5; cursor: default; }
+    #sweepResult { font-size: 0.75rem; color: #94a3b8; }
+    #sweepResult .err { color: #fc8181; }
+
     #recheckBtn {
       background: #6366f1;
       color: #fff;
@@ -493,7 +502,11 @@
         <button id="recheckBtn">RECHECK</button>
       </div>
       <div id="recheckStatus"></div>
-      <div class="pipeline-group-title">Waiting for you — check the draft in KIPIS and press Pateikti</div>
+      <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span>Waiting for you — check the draft in KIPIS and press Pateikti</span>
+        <button id="sweepBtn" title="Deletes (Šalinti) every Ruošiamas PRK draft PortSystem filed for today or earlier. Drafts made by people are never touched.">Delete unused drafts</button>
+      </div>
+      <div id="sweepResult"></div>
       <div id="pipelineAwaiting" class="pipeline-section"></div>
       <div class="pipeline-group-title">To do</div>
       <div id="pipelineQueue" class="pipeline-section"></div>
@@ -1024,6 +1037,28 @@
         pipelineStatusEl.style.color = '#fc8181';
       } finally {
         processNextBtn.disabled = false;
+        loadPipeline();
+      }
+    });
+
+    // --- Delete unused drafts: PortSystem's own Ruošiamas PRKs for today or earlier (Rule 7) ---
+    document.getElementById('sweepBtn').addEventListener('click', async () => {
+      if (!confirm('Delete (Šalinti) every Ruošiamas PRK draft PortSystem filed for today or earlier?\n\nDrafts made by people are not touched. This cannot be undone.')) return;
+      const btn = document.getElementById('sweepBtn');
+      const out = document.getElementById('sweepResult');
+      btn.disabled = true;
+      out.textContent = 'Reading the PRK list in KIPIS and deleting…';
+      try {
+        const r = await (await fetch('/prk/sweep', { method: 'POST' })).json();
+        if (r.status !== 'ok') { out.innerHTML = `<span class="err">Not done — ${escHtml(r.message)}</span>`; return; }
+        const parts = [`${r.deleted.length} deleted${r.deleted.length ? ': ' + r.deleted.map(d => `${escHtml(d.plate)} (${escHtml(d.number)})`).join(', ') : ''}`];
+        if (r.failed.length) parts.push(`<span class="err">stopped at ${escHtml(r.failed[0].number)} (${escHtml(r.failed[0].plate)}): ${escHtml(r.failed[0].error)}${r.remaining ? ` — ${r.remaining} not tried` : ''}</span>`);
+        if (r.othersKept) parts.push(`${r.othersKept} draft(s) not made by PortSystem left alone`);
+        out.innerHTML = parts.join(' · ');
+      } catch (err) {
+        out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
+      } finally {
+        btn.disabled = false;
         loadPipeline();
       }
     });

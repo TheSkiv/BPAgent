@@ -78,13 +78,22 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
 
 `Šalinti` may only be used when **all** of the following hold:
 
-1. The document is in **`Ruošiamas`** status — never one that has been submitted.
-2. **PortSystem created it** — matched back to an order in the state store. Never delete a
-   document a human made by hand.
-3. The order it belongs to was **due today** — drafts pre-made for tomorrow's trucks must
-   survive the end-of-day sweep.
-4. A **human confirmed the deletion**. The sweep proposes a list; it does not delete on its own.
-5. Every deletion is written to the audit log (document, plate, order id, status, timestamp).
+1. The document is in **`Ruošiamas`** status — never one that has been submitted. Checked in the
+   PRK list **and** on the opened document's header right before the click.
+2. **PortSystem created it** — its PRK number is on an order whose history shows PortSystem
+   saved it ("PRK draft saved"). A PRK merely found in KIPIS and recorded on an order was made by
+   a person: never delete a document a human made by hand.
+3. The order it belongs to was **due today or earlier** — drafts pre-made for later trucks must
+   survive the sweep.
+4. **A human started it.** The operator's press of *Delete unused drafts* on the dashboard is the
+   approval for that sweep (operator, 2026-11-10 — replaces "propose a list, human confirms").
+   Never run the sweep on a timer or from another automated path.
+5. Every deletion is written to the audit log `data/prk_deletions.jsonl` (document, plate, order
+   id, status before/after, timestamp); failures too.
+
+The click itself follows steps.md "Safe selection procedure": derive the `:1:` sibling of the
+visible `Pateikti` and click it only if its label is exactly `Šalinti` — same in the
+confirmation dialog.
 
 If any of the five cannot be established, do not delete — leave it and raise a human task.
 Never click `Anuliuoti` under any circumstances.
