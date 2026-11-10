@@ -63,8 +63,10 @@ The results table groups rows by shipment via **rowspan**:
   in the results, not in a filter.
 - **Cargo:** keep rows whose *Pavadinimas* is the ordered cargo (`sameCargo`: either name starts
   the other, same NPK formula, or same synonym group) — a vessel can carry two cargoes.
-- **PRK already exists (Rule 6):** a row whose *Krauti/pakrauta į* is `Autotransportas <plate>`
-  (KIPIS writes `MLL371/RZ817`) with a PRK last document → stop, report it, file nothing.
+- **Already filed (Rule 6):** a row of this cargo, on any vessel, whose *Krauti/pakrauta į* is
+  `Autotransportas <plate>` (KIPIS writes `MLL371/RZ817`) and whose last document is dated today
+  or the 2 days before — any type: `PRK`, or `VZT` / `KDA` once submitted and loaded → stop,
+  report it, file nothing. Older documents are the truck's earlier trips.
 - **Loadable = in our storage** (operator rule, 2026-11-09): *Krauti/pakrauta į* is
   `Saugojimo vieta — Vieta Ro-Ro ir generalinių krovinių terminalo sandėlis, Minijos g. 180` or
   `Saugojimo vieta — Vieta Konteinerių terminalo sandėlis, Perkėlos g. 8`. Rows loading to

@@ -107,6 +107,10 @@ function nameWords(s) {
 // A grade formula in the order must be in the other name too — the words alone ("NPK") would let
 // NPK 11-11-21 match NPK 8-12-22.
 function wordsMatch(orderCargo, otherName) {
+  // A 2-letter abbreviation carries the meaning ("Gran AS" = ammonium sulphate) but is too short
+  // to be a word here, so "Gran AS" shrank to "gran" and matched GRANULAR UREA (seen 2026-11-10).
+  // Such names match by synonym only. "po 600 kg" is filler, not an abbreviation.
+  if (/\b(?!KG\b|PO\b)[A-Z]{2}\b/.test(String(orderCargo || ''))) return false;
   const formula = extractFormula(orderCargo);
   if (formula && !String(otherName).includes(formula)) return false;
   const want = nameWords(orderCargo);

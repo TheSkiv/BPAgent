@@ -113,6 +113,18 @@ const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const SEARCH_LIMIT = 500;
 
+// KIPIS document numbers start with their date: "261110-001994-VZT" = 2026-11-10. Recent = today
+// or the two days before (a PRK pre-made the day before the truck comes — ROADMAP D4).
+const RECENT_DAYS = 2;
+function isRecentDoc(lastDoc) {
+  const m = String(lastDoc || '').match(/\b(\d{2})(\d{2})(\d{2})-\d{6}-[A-Z]{2,4}\b/);
+  if (!m) return false;
+  const docDay = new Date(2000 + Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today  = new Date(); today.setHours(0, 0, 0, 0);
+  const ageDays = (today - docDay) / 86400000;
+  return ageDays >= 0 && ageDays <= RECENT_DAYS;
+}
+
 function parseKg(raw) {
   const part = raw.includes('/') ? raw.split('/').pop() : raw;
   const digits = part.replace(/[^\d]/g, '');
@@ -237,7 +249,7 @@ async function navigateToCargo(page, data = {}) {
     const vesselRes = vesselNames.map(v => ({ vessel: v, re: new RegExp(`\\b${escapeRe(v)}\\b`, 'i') }));
     const vesselOf  = transport => (vesselRes.find(v => v.re.test(transport)) || {}).vessel || '';
     const vesselList = vesselNames.join(', ');
-    let rows = [], tableRows = null;
+    let rows = [], cargoRows = [], tableRows = null;
     const tried = [], truncatedWords = [];
     for (const keyword of cargoKeywords(cargoName)) {
       tried.push(keyword);
@@ -249,24 +261,27 @@ async function navigateToCargo(page, data = {}) {
         truncatedWords.push(keyword);
         continue;
       }
-      rows = found.rows
+      cargoRows = found.rows.filter(r => sameCargo(cargoName, r.name));
+      rows = cargoRows
         .map(r => ({ ...r, vessel: vesselOf(r.transport) }))
-        .filter(r => r.vessel && sameCargo(cargoName, r.name));
+        .filter(r => r.vessel);
       console.log(`  ${found.lotCount} lot(s), ${found.rows.length} row(s); ${rows.length} for ${vesselList} / this cargo`);
       if (rows.length) { tableRows = found.tableRows; break; }
+    }
+    // ── RULES.md Rule 6: is this truck already filed? ───────────────────────────
+    // A sub-row loading to "Autotransportas <plate>" (KIPIS writes "MLL371/RZ817") whose last
+    // document is recent — of ANY type: once the PRK is submitted and loaded it becomes a VZT or
+    // KDA (LNF355//NR385 had "261110-001994-VZT (Patvirtintas)", filed by hand, seen 2026-11-10;
+    // the old PRK-only check missed it). Older documents are the same truck's earlier trips.
+    // Checked across every vessel of this cargo: a hand-filed load may be on another lot.
+    const existing = cargoRows.find(r => /autotransportas/i.test(r.dest) && plateKey(r.dest).includes(plateKey(data.plate)) && isRecentDoc(r.lastDoc));
+    if (existing) {
+      console.log(`PRK already exists for ${data.plate}: ${existing.lastDoc} (lot ${existing.lot}) — not filing another`);
+      return { submitted: false, existingPrk: existing.lastDoc, lot: existing.lot };
     }
     if (!rows.length) {
       const cut = truncatedWords.length ? ` — too broad, over ${SEARCH_LIMIT} lots: ${truncatedWords.join(', ')}` : '';
       throw new Error(`No lot of "${cargoName}" on ${vesselList} found in KIPIS (searched Pavadinimas: ${tried.join(', ')}${cut})`);
-    }
-
-    // ── RULES.md Rule 6: is there already a PRK for this truck? ─────────────────
-    // A sub-row loading to "Autotransportas <plate>" with a PRK as its last document is a PRK
-    // someone already filed — by hand or by an earlier run. KIPIS writes "MLL371/RZ817".
-    const existing = rows.find(r => /autotransportas/i.test(r.dest) && plateKey(r.dest).includes(plateKey(data.plate)) && /PRK/i.test(r.lastDoc));
-    if (existing) {
-      console.log(`PRK already exists for ${data.plate}: ${existing.lastDoc} (lot ${existing.lot}) — not filing another`);
-      return { submitted: false, existingPrk: existing.lastDoc, lot: existing.lot };
     }
 
     // ── Pick the lot: the owner's, by loading order / already loading / oldest ───
@@ -490,4 +505,4 @@ async function confirmSaved(page, timeout = 20000) {
   return { number: m[1], status };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, getBagKg, confirmSaved };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved };

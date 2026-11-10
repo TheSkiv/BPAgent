@@ -372,6 +372,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
     no stock/release list are collapsed apart and not counted.
   - Still open: release remaining vs trucks already filed today (A7); per-buyer choice when two
     sellers release the same product (stops and asks today).
+  - 2026-11-10, later: "Buys from" seller per company (Transwina → Helm: the seller's stock-report
+    vessels with the cargo). Found and fixed: "Gran AS" matched GRANULAR UREA (the 2-letter "AS"
+    dropped out of word matching, leaving "gran") — names with a 2-letter abbreviation now match
+    by synonym only; "Gran AS" added to the ammonium sulphate group. Rule 6 widened: any recent
+    document (PRK/VZT/KDA) on the truck's row, on any vessel, counts as already filed (LNF355//
+    NR385 had a hand-filed VZT the PRK-only check missed). Axan: EASTERN VANQUISH's lot has no
+    storage left in KIPIS, while the Yara report shows 126 t and Baltic Agro's release 102 t —
+    to check with Yara / the terminal.
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the
@@ -432,6 +440,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   mail client or webmail (fits D5), and the operator presses Send there. The only write allowed
   is appending a new message to Drafts — no sending, no changes to other mail; intake stays
   read-only (`EXAMINE`). Recorded in `SECURITY.md` §5.
+- **D8. The operator may press Pateikti in the automation's browser window** — decided
+  2026-11-10. The in-page Pateikti guard now arms only while automation drives the page
+  (`withAutomation`, `safePage.js`); the machine still never presses it (RULES.md Rule 1).
+  *Direction (not in force):* move step by step to automatic submission, with the human check
+  moving to the dispatch email — the email is the gate that lets the terminal load a truck.
+  Needs an explicit change to Rule 1 by the operator before any automation targets Pateikti.
+- **D9. Transwina buys from Helm** — 2026-11-10. Companies with no release line of their own get
+  a "Buys from" seller on the Lots & owners page (`config/owners.json`).
 - *Open:* none.
 
 ---

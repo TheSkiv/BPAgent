@@ -1,7 +1,7 @@
 const fs   = require('fs');
 const path = require('path');
 const http = require('http');
-const { sameCargo } = require('./stockCache');
+const { sameCargo, matchingRows, fetchStockRows } = require('./stockCache');
 
 // Whose cargo an order loads (operator, 2026-11-10). KIPIS does not show ownership, and one
 // vessel's cargo can belong to several owners in separate lots:
@@ -101,6 +101,10 @@ const words = s => (String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toL
 // formula: when either side has one, both must.
 function releaseMatches(orderCargo, product) {
   if (sameCargo(orderCargo, product)) return true;
+  // A 2-letter abbreviation ("Gran AS") drops out of the words and leaves "gran", which would
+  // match "Granular urea" — such names match by synonym only (stockCache.wordsMatch, same rule).
+  const abbrev = s => /\b(?!KG\b|PO\b)[A-Z]{2}\b/.test(String(s || ''));
+  if (abbrev(orderCargo) || abbrev(product)) return false;
   const fa = formulaOf(orderCargo), fb = formulaOf(product);
   if ((fa || fb) && fa !== fb) return false;
   const a = words(orderCargo), b = words(product);
@@ -117,6 +121,7 @@ function buyerFor(company, releases) {
 }
 
 const isSelfLoader = company => !!(loadConfig().companies[company] || {}).selfLoader;
+const sellerFor    = company => (loadConfig().companies[company] || {}).seller || '';
 
 // Where an order loads from. Returns { owner, vessels, source, note } or { stop }.
 // ownLotsOf(company, cargo) → [{ vessel }] from the lot registry (self-loaders' own lots).
@@ -141,6 +146,20 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf) {
     }
   }
 
+  // Buys from a seller without a line of its own in the release list (operator, 2026-11-10:
+  // Transwina buys from Helm): that seller's vessels holding this cargo, from its stock report.
+  const seller = (loadConfig().companies[company] || {}).seller;
+  if (seller) {
+    const s = loadConfig().sellers.find(x => x.name === seller);
+    let rows = [];
+    try { rows = (await fetchStockRows()).filter(r => r.report === (s && s.stockReport)); } catch (err) { return { stop: `stock reports unreachable (${err.message})` }; }
+    const perVessel = new Map();
+    for (const r of matchingRows(cargo, rows)) perVessel.set(r.vessel, (perVessel.get(r.vessel) || 0) + r.netto);
+    const vessels = [...perVessel].filter(([, kg]) => kg >= grossKg * 0.9).map(([v]) => v);
+    if (vessels.length) return { owner: seller, vessels, source: 'seller', note: `${company} buys from ${seller}: ${[...perVessel].map(([v, kg]) => `${v} ${Math.round(kg / 1000)} t`).join(', ')}` };
+    if (!isSelfLoader(company)) return { stop: `${company} buys from ${seller}, but ${seller}'s stock report has no ${cargo} with a truck left` };
+  }
+
   if (isSelfLoader(company)) {
     const vessels = [...new Set(ownLotsOf(company, cargo).map(l => l.vessel))];
     if (!vessels.length) return { stop: `${company} loads its own cargo, but no lot of ${cargo} is marked as theirs — set it on the Lots page` };
@@ -149,17 +168,20 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf) {
 
   return { stop: buyer
     ? `no release for ${buyer} covers ${cargo}`
-    : `${company} matches no buyer in the Helm/Yara release lists — set who it loads for on the Lots page` };
+    : `${company} matches no buyer in the Helm/Yara release lists — set who it buys from on the Lots page` };
 }
 
-function setCompany(company, { buyer, selfLoader }) {
+function setCompany(company, { buyer, seller, selfLoader }) {
   company = String(company || '').trim();
   if (!company) throw new Error('Missing company');
   const c = loadConfig();
-  c.companies[company] = { buyer: String(buyer || '').trim(), selfLoader: !!selfLoader };
-  if (!c.companies[company].buyer && !c.companies[company].selfLoader) delete c.companies[company];
+  seller = String(seller || '').trim();
+  if (seller && !c.sellers.some(s => s.name === seller)) throw new Error(`Unknown seller: ${seller}`);
+  c.companies[company] = { buyer: String(buyer || '').trim(), seller, selfLoader: !!selfLoader };
+  const e = c.companies[company];
+  if (!e.buyer && !e.seller && !e.selfLoader) delete c.companies[company];
   saveConfig(c);
   return c.companies[company] || null;
 }
 
-module.exports = { loadConfig, fetchReleases, resolveOrder, buyerFor, isSelfLoader, setCompany, releaseMatches, sameCompany };
+module.exports = { loadConfig, fetchReleases, resolveOrder, buyerFor, sellerFor, isSelfLoader, setCompany, releaseMatches, sameCompany };

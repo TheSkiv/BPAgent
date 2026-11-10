@@ -81,10 +81,11 @@
 
   <section>
     <h2>Companies</h2>
-    <p class="hint">Who each ordering company loads for: its name in the Helm/Yara release lists (matched automatically where the names agree),
-      and whether it also loads its own cargo (like Agrokoncernas).</p>
+    <p class="hint">Whose cargo each ordering company loads: its name in the Helm/Yara release lists (matched automatically where the names agree);
+      or, with no release line of its own, the seller it buys from (like Transwina → Helm); and whether it also loads its own cargo (like Agrokoncernas).
+      A release is used first, then <i>Buys from</i>, then own cargo.</p>
     <table style="margin-top:8px">
-      <thead><tr><th>Company</th><th>Buyer in the release lists</th><th>Own cargo</th><th></th></tr></thead>
+      <thead><tr><th>Company</th><th>Buyer in the release lists</th><th>Buys from</th><th>Own cargo</th><th></th></tr></thead>
       <tbody id="companies"></tbody>
     </table>
   </section>
@@ -144,11 +145,15 @@
 
   function companyRow(c) {
     const opts = [...new Set([...data.buyers, ...(c.buyer ? [c.buyer] : [])])];
+    const unset = !c.buyer && !c.seller && !c.selfLoader ? ' unset' : '';
     return `<tr data-company="${esc(c.company)}">
       <td>${esc(c.company)}</td>
-      <td><select class="buyer${!c.buyer && !c.selfLoader ? ' unset' : ''}"><option value="">— none —</option>`
+      <td><select class="buyer${unset}"><option value="">— none —</option>`
         + opts.map(b => `<option${b === c.buyer ? ' selected' : ''}>${esc(b)}</option>`).join('')
         + `</select> ${c.auto ? '<span class="hint">auto</span>' : ''}</td>
+      <td><select class="seller${unset}"><option value="">—</option>`
+        + data.sellers.map(s => `<option${s === c.seller ? ' selected' : ''}>${esc(s)}</option>`).join('')
+        + `</select></td>
       <td><input type="checkbox" class="self"${c.selfLoader ? ' checked' : ''} /></td>
       <td><button class="save-company">Save</button> <span class="hint company-status"></span></td>
     </tr>`;
@@ -203,6 +208,7 @@
     const r = await post('/lots/company', {
       company: tr.dataset.company,
       buyer: tr.querySelector('select.buyer').value,
+      seller: tr.querySelector('select.seller').value,
       selfLoader: tr.querySelector('input.self').checked,
     });
     if (r.error) { status.textContent = r.error; status.className = 'hint company-status err'; return; }

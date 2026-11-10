@@ -4,6 +4,12 @@
 // capture-phase click listener cancels any click on a clickable element labelled "Pateikti",
 // no matter which code path issued it (page.click, locator.click, evaluate, generated
 // workflow modules). Saugoti and everything before it are untouched.
+//
+// The page cannot tell a Playwright click from the operator's (both are trusted input events),
+// so the guard is ARMED ONLY WHILE AUTOMATION DRIVES THE PAGE: withAutomation() sets a flag in
+// the tab's sessionStorage (it survives the run's same-origin navigations) and clears it after.
+// Outside a run the operator can press Pateikti in this window (operator, 2026-11-10 — the
+// always-on guard blocked the human too). If the flag cannot be read, the guard stays armed.
 
 // Runs inside the browser. Must be self-contained — it is serialised to the page.
 function guardScript() {
@@ -33,6 +39,10 @@ function guardScript() {
       : null;
     if (!el || !PATEIKTI.test(ownLabel(el))) return;
 
+    let armed = true;
+    try { armed = window.sessionStorage.getItem('__kipisAutomation') === '1'; } catch { armed = true; }
+    if (!armed) return;   // no automation running: this is the operator's click
+
     e.preventDefault();
     e.stopImmediatePropagation();
     window.__kipisPateiktiBlocked++;
@@ -45,7 +55,24 @@ async function installPateiktiGuard(page) {
   await page.addInitScript(guardScript);      // every future navigation
   try { await page.evaluate(guardScript); } catch { /* page may be blank */ }
   page.on('load', () => { page.evaluate(guardScript).catch(() => {}); });
-  console.log('[PateiktiGuard] installed — Pateikti clicks are blocked (RULES.md Rule 1).');
+  console.log('[PateiktiGuard] installed — Pateikti is blocked while automation drives the page (RULES.md Rule 1).');
+}
+
+async function setAutomation(page, on) {
+  await page.evaluate(v => {
+    try { if (v) window.sessionStorage.setItem('__kipisAutomation', '1'); else window.sessionStorage.removeItem('__kipisAutomation'); } catch { /* guard stays armed */ }
+  }, on);
+}
+
+// Runs fn with the Pateikti guard armed. Call it after any navigation to another origin (e.g.
+// the login page): sessionStorage is per origin.
+async function withAutomation(page, fn) {
+  await setAutomation(page, true);
+  try {
+    return await fn();
+  } finally {
+    await setAutomation(page, false).catch(() => {});
+  }
 }
 
 // How many Pateikti clicks the guard has blocked on the current document.
@@ -65,4 +92,4 @@ async function assertNotPateikti(locator) {
   }
 }
 
-module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti };
+module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti, withAutomation, setAutomation };

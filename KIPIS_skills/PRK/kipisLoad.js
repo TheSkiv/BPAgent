@@ -1,5 +1,6 @@
 const { getPage }         = require('../../src/core/browser');
 const { navigateToCargo, findRowByPlate } = require('./navigateToCargo');
+const { withAutomation }  = require('../safePage');
 
 const KIPIS_URL = 'https://kipis.lt';
 
@@ -22,7 +23,8 @@ async function run(data) {
   const hasSekimas = await page.getByText('Sekimas', { exact: true }).first().isVisible().catch(() => false);
   if (!hasSekimas) throw new Error('Session expired. Please reopen KIPIS.');
 
-  const result = await navigateToCargo(page, { plate });
+  // Pateikti guard armed for the whole run (armed after the home page loads: the flag is per origin).
+  const result = await withAutomation(page, () => navigateToCargo(page, { plate }));
 
   console.log('kipisLoad: workflow complete.');
   return result || { submitted: false };

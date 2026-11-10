@@ -26,6 +26,15 @@ Concretely this means:
 - Never write a selector, click, keypress, or script that targets `Pateikti`.
 - Never instruct a sub-agent or skill to "submit", "confirm", or "finalise" a KIPIS document.
 - If a flow appears to require `Pateikti`, stop and hand back to the human instead.
+- Run every KIPIS automation inside `withAutomation()` (`safePage.js`): the in-page guard that
+  cancels Pateikti clicks is armed only then. Outside a run the operator can press `Pateikti`
+  in the automation's own browser window (operator, 2026-11-10 — the always-on guard blocked
+  the human too).
+
+*Direction set by the operator 2026-11-10 (not yet in force):* move step by step towards the
+machine pressing `Pateikti`, with the human check moving to the dispatch email — the email is
+what lets the terminal load a truck. Until the operator explicitly changes this rule, Rule 1
+stands as written.
 
 ## RULE 2 — Saugoti is the automation boundary
 
@@ -55,6 +64,8 @@ be replayed and turned into a deterministic, non-AI algorithm. Steps go in the d
 
 Never double-file. Before creating a document for a truck, check whether one already exists
 (local `doneTracker` and, once available, the KIPIS document ledger). Skip rather than duplicate.
+In KIPIS's Kroviniai table a truck already filed shows as `Autotransportas <plate>` with a recent
+last document of **any** type — PRK, or VZT/KDA once it is submitted and loaded.
 
 ## RULE 7 — Deleting documents: `Šalinti` yes, `Anuliuoti` never
 

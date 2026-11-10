@@ -2,7 +2,7 @@
   "about": "Names for the same cargo, so an order in Lithuanian finds a stock row in English. Each group is one cargo; matching ignores case, spaces and punctuation, and a name matches if it appears anywhere in the order's or the stock's cargo text. Add a group or a spelling when an order fails with 'not found in either stock report'. Do not put different grades (e.g. gMOP and sMOP) in one group. 'broadWords' are brand or filler words that match too many KIPIS lots (e.g. YARA hits the 500-lot limit) — they are searched last, after the more specific words of the cargo name.",
   "broadWords": ["Yara", "Bela", "YaraBela", "NPK", "Gran"],
   "groups": [
-    ["Amonio sulfatas", "Amonio sulfato", "Ammonium sulphate", "Ammonium sulfate", "Ammoniuim sulphate"],
+    ["Amonio sulfatas", "Amonio sulfato", "Ammonium sulphate", "Ammonium sulfate", "Ammoniuim sulphate", "Gran AS"],
     ["Karbamidas", "Urea"],
     ["Trigubas superfosfatas", "TSP 46", "TSP low Cd", "Triple superphosphate"]
   ]

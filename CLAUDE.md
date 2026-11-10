@@ -61,7 +61,9 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
 
 - **Express** server on port 3001 (`src/server.js`)
 - **Playwright** (headless: false) drives KIPIS at https://kipis.lt, with a Pateikti guard
-  (`KIPIS_skills/safePage.js`) installed on every page it opens
+  (`KIPIS_skills/safePage.js`) installed on every page it opens. The guard is armed only inside
+  `withAutomation()` — wrap every KIPIS automation in it; outside a run the operator can press
+  Pateikti in that window (D8)
 - **XLSX / ExcelJS** for daily order files in `data/YYYY-MM-DD_orders.xlsx`
 - **Order state store** (`src/core/orderStore.js`) — per-order lifecycle in
   `data/orders_state_<date>.json`, keyed on plate + source email so the same plate ordered

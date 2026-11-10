@@ -18,6 +18,7 @@ const owners      = require('./core/owners');
 const lotRegistry = require('./core/lotRegistry');
 const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
+const { withAutomation } = require('../KIPIS_skills/safePage');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
 function kipisOpen() {
@@ -124,7 +125,7 @@ app.post('/prk/export', async (req, res) => {
     const { findDeletable }   = require('../KIPIS_skills/PRK/prkLedger');
     const limit = req.body?.limit || 500;
 
-    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await readFullPrkList({ limit });
+    const { docs, drafts, headers, headRowCount, rawRowCount, limitUsed } = await withAutomation(getPage(), () => readFullPrkList({ limit }));
 
     orderStore.syncFromExcel();
     const checked = findDeletable(drafts, {
@@ -263,13 +264,15 @@ app.post('/queue/process-next', async (req, res) => {
 // Sekimas ā†’ Kroviniai (unless already there), then the Pavadinimas filter. Read-only.
 async function kipisSearch(q) {
   const page = getPage();
-  if (!await page.locator('[id$=":fPavadinimas"]').isVisible()) {
-    await page.getByText('Sekimas', { exact: true }).first().click();
-    await page.waitForLoadState('networkidle');
-    await page.locator('text="Kroviniai"').click();
-    await page.waitForLoadState('networkidle');
-  }
-  return searchLots(page, q);
+  return withAutomation(page, async () => {   // Pateikti guard armed while the machine drives
+    if (!await page.locator('[id$=":fPavadinimas"]').isVisible()) {
+      await page.getByText('Sekimas', { exact: true }).first().click();
+      await page.waitForLoadState('networkidle');
+      await page.locator('text="Kroviniai"').click();
+      await page.waitForLoadState('networkidle');
+    }
+    return searchLots(page, q);
+  });
 }
 
 // Read-only look at KIPIS lots: Sekimas ā†’ Kroviniai, the Pavadinimas filter, the table rows.
@@ -336,19 +339,20 @@ app.get('/lots/data', async (req, res) => {
   }
   const companies = [...companyNames].sort().map(company => {
     const { buyer, auto } = owners.buyerFor(company, releases);
-    return { company, buyer, auto, selfLoader: owners.isSelfLoader(company) };
+    return { company, buyer, auto, seller: owners.sellerFor(company), selfLoader: owners.isSelfLoader(company) };
   });
 
   res.json({
     vessels,
     owners: [...cfg.sellers.map(s => s.name), ...selfLoaders],
+    sellers: cfg.sellers.map(s => s.name),
     companies,
     buyers: [...new Set(releases.map(r => r.buyer))].sort(),
     releases,
     warnings,
     attention: {
       lots:      vessels.filter(v => v.listed).reduce((n, v) => n + v.unconfirmed, 0),
-      companies: companies.filter(c => !c.buyer && !c.selfLoader).length,
+      companies: companies.filter(c => !c.buyer && !c.seller && !c.selfLoader).length,
     },
   });
 });
@@ -365,8 +369,8 @@ app.post('/lots/confirm', (req, res) => {
 
 app.post('/lots/company', (req, res) => {
   try {
-    const { company, buyer, selfLoader } = req.body || {};
-    res.json({ status: 'ok', setting: owners.setCompany(company, { buyer, selfLoader }) });
+    const { company, buyer, seller, selfLoader } = req.body || {};
+    res.json({ status: 'ok', setting: owners.setCompany(company, { buyer, seller, selfLoader }) });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
