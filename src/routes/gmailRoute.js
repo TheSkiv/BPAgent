@@ -14,7 +14,7 @@ function formatReceived(dateStr) {
   }
 }
 const { isAuthorized, checkConnection, fetchRecentEmails, fetchEmailsMatching, fetchAttachmentText } = require('../core/imapMail');
-const { extractAll, extractPlatePairs, extractPlates, stripHtml } = require('../core/emailExtract');
+const { extractAll, extractPlatePairs, extractPlates, stripHtml, waybillWeightKg } = require('../core/emailExtract');
 const { extractOrders } = require('../core/aiExtract');
 
 // AI email extraction is the active path; set AI_EXTRACT=false to fall back to the (paused)
@@ -212,6 +212,7 @@ async function pollAndProcessEmails({ max, query }) {
         }
       }
       if (texts.length) email.attachmentText = texts.join('\n\n---\n\n');
+      email.attachmentTexts = texts;
     }));
 
     // 3) Extract orders — AI batches (default) or the paused deterministic algorithm.
@@ -219,6 +220,23 @@ async function pollAndProcessEmails({ max, query }) {
     const extractions = AI_EXTRACT
       ? await extractOrders(keptEmails)
       : extractOrdersDeterministic(keptEmails);
+
+    // Several waybills for one truck are one load: the truck's weight is their sum. The model
+    // took one of two 12 t waybills for MLL371//RZ817 (2026-11-10). Checked here without the
+    // model: a one-truck, non-bulk order whose email has 2+ waybills, each with a readable
+    // quantity, gets their sum when the extracted weight differs from it.
+    keptEmails.forEach((email, k) => {
+      const ext = extractions[k];
+      const texts = email.attachmentTexts || [];
+      if (!ext?.relevant || ext.orders.length !== 1 || ext.orders[0].bulk || texts.length < 2) return;
+      const weights = texts.map(waybillWeightKg);
+      if (weights.some(w => !w)) return;
+      const sum = weights.reduce((a, b) => a + b, 0);
+      if (Number(ext.orders[0].weight) !== sum) {
+        console.log(`Weight: ${ext.orders[0].plates.join('/')} has ${weights.length} waybills (${weights.join(' + ')} kg) — weight ${ext.orders[0].weight || 'none'} → ${sum}`);
+        ext.orders[0].weight = sum;
+      }
+    });
 
     // 4) Persist each email's orders into today's Excel.
     for (let k = 0; k < kept.length; k++) {

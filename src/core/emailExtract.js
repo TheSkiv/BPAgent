@@ -144,6 +144,19 @@ function extractWeight(text) {
   return candidates.length ? Math.max(...candidates) : 0;
 }
 
+// The quantity on one waybill (važtaraštis) PDF, in kg. The terminal's waybills put it in the
+// "Kiekis" table as unit then amount after the product code: "(TRGATKAR501) t	12,000" — tonnes
+// with a decimal comma (12,000 t = 12 000 kg). Returns 0 unless exactly one quantity is found.
+function waybillWeightKg(text) {
+  const found = [];
+  for (const m of String(text || '').matchAll(/\)\s*(t|kg)\s+(\d{1,6}(?:[.,]\d{1,3})?)(?!\d)/gi)) {
+    const n = parseFloat(m[2].replace(',', '.'));
+    const kg = m[1].toLowerCase() === 't' ? Math.round(n * 1000) : Math.round(n);
+    if (kg >= 100 && kg <= 45000) found.push(kg);
+  }
+  return found.length === 1 ? found[0] : 0;
+}
+
 function extractAll(text, subject = '') {
   const clean = stripHtml(text);
   const plates = extractPlates(clean);
@@ -157,4 +170,4 @@ function extractAll(text, subject = '') {
   };
 }
 
-module.exports = { extractAll, extractPlatePairs, extractPlates, extractDriver, extractCargo, extractIsBulk, extractWeight, stripHtml };
+module.exports = { extractAll, extractPlatePairs, extractPlates, extractDriver, extractCargo, extractIsBulk, extractWeight, waybillWeightKg, stripHtml };

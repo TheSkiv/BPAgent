@@ -36,7 +36,7 @@ For a relevant email, extract each truck as one order:
 - plates: the truck's licence plates (tractor and trailer when both are given), UPPERCASE, no spaces, each plate a separate array element. Plates may be written separated by "/" or "\\" — split them. Never include a vehicle make/model (DAF, VOLVO, MAN, SCANIA, RENAULT, MERCEDES, etc.) or a container number as a plate.
 - driver: the driver's name, or "" if absent.
 - cargo: the goods this truck is loading, exactly as written; null if not stated.
-- weight: total gross weight in kilograms as an integer (tonnes ×1000); null if not stated. A "600 kg" or "500 kg" bag size is a packaging size, NOT the total weight.
+- weight: total gross weight in kilograms as an integer (tonnes ×1000); null if not stated. A "600 kg" or "500 kg" bag size is a packaging size, NOT the total weight. When the attachment text holds SEVERAL waybills (važtaraščiai, separated by "---") for the SAME truck, each is a separate consignment loaded onto that one truck: the weight is the SUM of their quantities (two waybills of 12,000 t each → 24000), never just one of them.
 - bulk: true ONLY if the email explicitly calls the cargo BULK. Bags, big bags (BB), and pallets are NOT bulk. Exception: MOP potash cargo (MOP, gMOP, sMOP, "Kalio chloridas") always ships bulk at this terminal — set bulk=true for it even without the word BULK appearing.
 
 Return exactly this JSON shape:

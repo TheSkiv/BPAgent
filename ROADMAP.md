@@ -312,6 +312,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   mark is saved per vessel + cargo + packaging and reused for later orders until the lot is
   empty or the operator changes it.
 
+- [~] **A28. Several waybills for one truck — their weights add up.** *BUILT 2026-11-10 (tested
+  on the real case; not yet seen on a new email).* MLL371//RZ817's email had two waybill PDFs
+  (Važtaraštis-20/-21, 12,000 t each) and the AI extraction took 12 000 kg instead of 24 000; the
+  operator amended the PRK in KIPIS. Fixed twice: the extraction prompt says several waybills for
+  the same truck are summed; and without the model, `emailExtract.waybillWeightKg` reads each
+  PDF's quantity ("(TRGATKAR501) t 12,000" → 12 000 kg) and a one-truck, non-bulk order with 2+
+  readable waybills gets their sum when the extracted weight differs (logged). MLL371's order
+  record corrected to 24 000 kg.
 - [~] **A24. Bag size is hardcoded at 600 kg — wrong for 500 kg bags.** *BUILT 2026-11-09 for
   PRK filing:* `getBagKg()` reads `(500)` / `(600)` / `po 600 kg` from the order's cargo text;
   no size written → 600 (operator: 500 kg is rare but real). The AI check gets the bag size.
