@@ -455,16 +455,23 @@ async function runDispatch(reason, automatic, { testPlate } = {}) {
   return (lastDispatch = out);
 }
 
+// IMAP Drafts are invisible to the office: every PC reads terminal@bpa.lt over POP3, which
+// downloads the inbox only (operator, 2026-11-10). Off until the delivery route is decided.
+const DISPATCH_DRAFTS_ENABLED = false;
+
 // One automatic round: file what is ready, see what the operator has submitted, draft its emails.
 async function autoRound(reason) {
   await autoFile(reason);
   await runWatch(reason, true);
-  await runDispatch(reason, true);
+  if (DISPATCH_DRAFTS_ENABLED) await runDispatch(reason, true);
 }
 
 app.get('/dispatch/drafts', (req, res) => res.json(lastDispatch || {}));
 // Dashboard "Draft emails": the operator asks, so it runs even if they just used KIPIS.
-app.post('/dispatch/drafts', async (req, res) => res.json((await runDispatch('dashboard button', false)) || {}));
+app.post('/dispatch/drafts', async (req, res) => {
+  if (!DISPATCH_DRAFTS_ENABLED) return res.json({});
+  res.json((await runDispatch('dashboard button', false)) || {});
+});
 // One clearly marked test draft for a plate (not recorded on the order).
 app.post('/dispatch/test', async (req, res) => {
   const plate = String(req.body?.plate || '').trim();
