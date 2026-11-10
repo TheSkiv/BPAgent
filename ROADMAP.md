@@ -702,7 +702,8 @@ and at end of shift, delete the `Ruošiamas` drafts the terminal never used.*
   Universali paieška (verified live, read-only), header must show that number + Ruošiamas, derive
   the `:1:` sibling of Pateikti and click it only if labelled `Šalinti`, same in the confirm
   dialog (reason filled), check the header no longer shows the draft. `sweepDrafts`: KIPIS PRK
-  list → Ruošiamas drafts whose number PortSystem saved on an order of today or earlier
+  list → Ruošiamas drafts whose number PortSystem saved on an order of today or yesterday
+  (operator, 2026-11-10: 2 days, was 14)
   (`orderStore.prkNumbersFiled`, history "PRK draft saved" — a PRK merely found in KIPIS is
   excluded) → delete one by one, stop at the first failure; each deletion logged to
   `data/prk_deletions.jsonl` and its order set `cancelled`. Dashboard: *Delete unused drafts*
@@ -714,7 +715,8 @@ and at end of shift, delete the `Ruošiamas` drafts the terminal never used.*
   searching it afterwards gives KIPIS's error page and it left the Ruošiamas list. The truck was
   re-filed as 261110-003968-PRK. The dashboard button itself has not been pressed yet.
   Matching is now by PRK number (captured at save, A4), not plate. Open: orders have no due
-  date, so "today or earlier" means the order arrived today or earlier.
+  date, so "today or yesterday" means the order arrived today or yesterday — pressing the button
+  in the morning also deletes drafts filed that morning; press it at the end of the day.
 
 ## Batch pre-made PRKs for packaged cargo  *(PARTIALLY BUILT — one-at-a-time exists)*
 *Goal: every non-bulk order has a PRK pre-created in KIPIS, ready for the user to open, check,

@@ -504,7 +504,7 @@
       <div id="recheckStatus"></div>
       <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>Waiting for you — check the draft in KIPIS and press Pateikti</span>
-        <button id="sweepBtn" title="Deletes (Šalinti) every Ruošiamas PRK draft PortSystem filed for today or earlier. Drafts made by people are never touched.">Delete unused drafts</button>
+        <button id="sweepBtn" title="Deletes (Šalinti) every Ruošiamas PRK draft PortSystem filed today or yesterday. Drafts made by people are never touched.">Delete unused drafts</button>
       </div>
       <div id="sweepResult"></div>
       <div id="pipelineAwaiting" class="pipeline-section"></div>
@@ -1041,9 +1041,9 @@
       }
     });
 
-    // --- Delete unused drafts: PortSystem's own Ruošiamas PRKs for today or earlier (Rule 7) ---
+    // --- Delete unused drafts: PortSystem's own Ruošiamas PRKs of today or yesterday (Rule 7) ---
     document.getElementById('sweepBtn').addEventListener('click', async () => {
-      if (!confirm('Delete (Šalinti) every Ruošiamas PRK draft PortSystem filed for today or earlier?\n\nDrafts made by people are not touched. This cannot be undone.')) return;
+      if (!confirm('Delete (Šalinti) every Ruošiamas PRK draft PortSystem filed today or yesterday?\n\nDrafts made by people are not touched. This cannot be undone.')) return;
       const btn = document.getElementById('sweepBtn');
       const out = document.getElementById('sweepResult');
       btn.disabled = true;

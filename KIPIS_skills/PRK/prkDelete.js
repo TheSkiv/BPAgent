@@ -4,7 +4,7 @@ const { assertNotPateikti } = require('../safePage');
 
 // Deleting PortSystem's unused PRK drafts (`Šalinti`) — RULES.md Rule 7, steps.md "Deleting a
 // saved draft". Operator, 2026-11-10: a dashboard button deletes every Ruošiamas draft PortSystem
-// filed for trucks due today or earlier; the press is the approval, every deletion is logged.
+// filed for orders of today or yesterday; the press is the approval, every deletion is logged.
 
 const DRAFT_STATUS = 'Ruošiamas';
 const REASON = 'PortSystem: nepanaudotas juodraštis (sunkvežimis neatvyko)';

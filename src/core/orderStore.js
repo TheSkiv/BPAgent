@@ -149,16 +149,20 @@ function attachDocument(id, { type, number = null, status = 'drafted' }, { actor
   return order;
 }
 
-// Every PRK PortSystem itself saved, from the order files of the last `days` days up to today:
+// Every PRK PortSystem itself saved, from the order files of the last `days` calendar days
+// including today (operator, 2026-11-10: 2 = today and yesterday — enough for "forgot to press
+// Delete unused drafts yesterday", nothing older):
 // number → { date, orderId, plate, state }. Only numbers whose order history says PortSystem saved
 // the draft ("PRK draft saved …<number>") — a PRK merely found on the lot (filed by a person,
 // e.g. NGU792's 261110-003439-PRK) is recorded on the order too, but is never ours.
-function prkNumbersFiled(days = 14) {
+function prkNumbersFiled(days = 2) {
   const out = new Map();
   const today = todayString();
   let files = [];
   try { files = fs.readdirSync(DATA_DIR).filter(f => /^orders_state_\d{4}-\d{2}-\d{2}\.json$/.test(f)); } catch { return out; }
-  const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  // Local calendar dates, like todayString() — not toISOString(), which is UTC and shifts the day.
+  const d = new Date(); d.setDate(d.getDate() - (days - 1));
+  const cutoff = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   for (const f of files) {
     const date = f.slice('orders_state_'.length, -'.json'.length);
     if (date > today || date < cutoff) continue;

@@ -296,7 +296,7 @@ app.get('/kipis/fields', async (req, res) => {
   }
 });
 
-// Dashboard button: delete PortSystem's unused Ruošiamas PRK drafts (orders of today or earlier).
+// Dashboard button: delete PortSystem's unused Ruošiamas PRK drafts (orders of today or yesterday).
 // The operator's press is the approval (2026-11-10); every deletion goes to data/prk_deletions.jsonl.
 app.post('/prk/sweep', async (req, res) => {
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
