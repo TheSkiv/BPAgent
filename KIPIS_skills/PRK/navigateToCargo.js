@@ -406,7 +406,16 @@ async function navigateToCargo(page, data = {}) {
 
     // Row text inputs: name contains "prkr_kroviniai" and ":0:", exclude checkboxes
     const rowInputs = page.locator('input[type="text"][name*="prkr_kroviniai"][name*=":0:"], input[type="number"][name*="prkr_kroviniai"][name*=":0:"]');
-    await rowInputs.first().waitFor({ state: 'visible', timeout: 10000 });
+    // KIPIS validates the first tab before switching: a required field it wants (e.g. the
+    // receiver's country, "Valstybė: Reikšmė privaloma", on Agrokoncernas's ULSAN lot,
+    // 2026-11-10) keeps the form on Informacija. Report KIPIS's own message, not a timeout.
+    try {
+      await rowInputs.first().waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      const messages = await page.locator('[class*="rror"], [class*="essage"], font[color="red"], span[style*="red"]')
+        .evaluateAll(els => [...new Set(els.filter(e => e.offsetParent).map(e => e.textContent.replace(/\s+/g, ' ').trim()).filter(t => t && !/\*$/.test(t)))]);
+      throw new Error(`KIPIS did not open the Kroviniai tab${messages.length ? ': ' + messages.join('; ') : ''} — the form is left open, not saved`);
+    }
 
     console.log('Filling Svoris bruto, kg...');
     await rowInputs.nth(0).fill(String(total));

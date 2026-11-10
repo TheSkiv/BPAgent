@@ -284,8 +284,11 @@ app.get('/kipis/fields', async (req, res) => {
     const page = getPage();
     const { fields, buttons } = await captureFormState(page);
     const tabs = await page.locator('a[onclick]').evaluateAll(as => as
-      .filter(a => a.offsetParent).map(a => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), onclick: (a.getAttribute('onclick') || '').slice(0, 120) })));
-    res.json({ status: 'ok', url: page.url(), title: await page.title(), fields, buttons, tabs });
+      .filter(a => a.offsetParent).map(a => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), onclick: a.getAttribute('onclick') || '' })));
+    // Validation and info messages (JSF renders them in red spans / message lists).
+    const messages = await page.locator('[class*="rror"], [class*="essage"], [class*="arning"], font[color="red"], span[style*="red"]')
+      .evaluateAll(els => [...new Set(els.filter(e => e.offsetParent).map(e => e.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean))]);
+    res.json({ status: 'ok', url: page.url(), title: await page.title(), fields, buttons, tabs, messages });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
   }
