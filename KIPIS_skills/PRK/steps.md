@@ -73,7 +73,8 @@ The results table groups rows by shipment via **rowspan**:
   order's packaging that holds one truck → use it, even with other lots unmarked. Otherwise every
   lot must be marked by the operator (bagged/bulk + loading order, dashboard *Lots* panel); take
   the lowest loading order of the order's packaging that still holds one truck's gross weight.
-  Any lot unmarked → stop and list the lots for marking.
+  Any lot unmarked → stop and list the lots for marking. A lot marked **Off-spec** is never
+  loaded.
 - **Cargo names in KIPIS vary** — e.g. OSLO CARRIER 2's TSP is `Trąšos - TSP low Cd ''CE
   Fertilizers''`. When a vessel's lot is not found, look with `GET /kipis/lots?q=<word>&v=<vessel>`
   (read-only) and add the spelling to a group in `config/cargo_synonyms.json`. Nothing in KIPIS shows packaging or the agreed loading

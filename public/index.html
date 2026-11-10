@@ -462,20 +462,33 @@
       min-height: 1em;
     }
 
+    /* Lots: cargo card → vessel → one line per lot */
+    .lot-cargo { border: 1px solid #3b4177; border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; }
+    .lot-cargo-head { font-size: 0.85rem; color: #e2e8f0; font-weight: 600; margin-bottom: 4px; }
+    .lot-cargo-head span, .lot-vessel-head span { font-weight: 400; color: #64748b; font-size: 0.75rem; }
+    .lot-vessel { margin-top: 6px; }
+    .lot-vessel-head { font-size: 0.8rem; color: #a5b4fc; font-weight: 600; padding: 2px 0; }
     .lot-row {
       display: flex;
-      flex-wrap: wrap;
       align-items: center;
       gap: 6px;
-      padding: 6px 0;
-      border-top: 1px solid rgba(148,163,184,0.15);
-      font-size: 0.8rem;
+      padding: 4px 0;
+      border-top: 1px solid rgba(148,163,184,0.12);
+      font-size: 0.78rem;
+      color: #cbd5e1;
     }
-    .lot-row .lot-info { flex: 1 1 220px; color: #cbd5e1; }
-    .lot-row .lot-info small { color: #64748b; display: block; }
-    .lot-row select, .lot-row input { width: auto; padding: 4px 6px; font-size: 0.8rem; }
-    .lot-row input.lot-order { width: 54px; }
-    .lot-row button { padding: 4px 10px; font-size: 0.78rem; }
+    .lot-row .lot-no { flex: 1 1 auto; font-family: ui-monospace, monospace; white-space: nowrap; }
+    .lot-row .lot-t  { width: 64px; text-align: right; white-space: nowrap; }
+    .lot-place { font-size: 0.68rem; padding: 1px 5px; border-radius: 4px; border: 1px solid #475569; color: #94a3b8; }
+    .lot-place.KKT  { border-color: #0e7490; color: #67e8f9; }
+    .lot-place.RoRo { border-color: #6d28d9; color: #c4b5fd; }
+    .lot-loading { font-size: 0.68rem; color: #fbbf24; white-space: nowrap; }
+    .lot-row select, .lot-row input { width: auto; padding: 3px 4px; font-size: 0.78rem; }
+    .lot-row select.suggested { border-color: #22543d; }
+    .lot-row input.lot-order { width: 44px; }
+    .lot-row button { padding: 3px 8px; font-size: 0.75rem; }
+    .lot-mark { white-space: nowrap; color: #68d391; }
+    .lot-mark.offspec { color: #64748b; }
     #lotAddForm { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
     #lotAddForm input, #lotAddForm select { width: auto; flex: 1 1 110px; padding: 4px 6px; font-size: 0.8rem; }
     #lotAddForm button { padding: 4px 10px; font-size: 0.78rem; }
@@ -549,7 +562,7 @@
           <input id="lotAddNumber" placeholder="Lot no. (260924-001330-L)" />
           <input id="lotAddVessel" placeholder="Vessel" />
           <input id="lotAddCargo"  placeholder="Cargo" />
-          <select id="lotAddPackaging"><option value="">Bagged / bulk…</option><option value="bagged">Bagged</option><option value="bulk">Bulk</option></select>
+          <select id="lotAddPackaging"><option value="">BB / Bulk…</option><option value="bagged">BB</option><option value="bulk">Bulk</option><option value="offspec">Off-spec (never loaded)</option></select>
           <input id="lotAddOrder" type="number" min="1" placeholder="Load order" style="flex:0 1 90px" />
           <button id="lotAddBtn">Save</button>
         </div>
@@ -1064,13 +1077,64 @@
     const lotsStatusEl  = document.getElementById('lotsStatus');
     let lotMarksByLot = {};
 
-    const placeShort = p => /ro-ro/i.test(p) ? 'Ro-Ro' : /konteineri/i.test(p) ? 'Konteinerių term.' : p;
-    const tonnes     = kg => (kg / 1000).toLocaleString('lt-LT', { maximumFractionDigits: 1 }) + ' t';
+    const tonnes = kg => kg >= 1000
+      ? (kg / 1000).toLocaleString('lt-LT', { maximumFractionDigits: 0 }) + ' t'
+      : Math.round(kg) + ' kg';
+    const PACK_LABEL = { bagged: 'BB', bulk: 'Bulk', offspec: 'Off-spec' };
+    const placeBadge = t => t ? `<span class="lot-place ${escHtml(t)}">${escHtml(t)}</span>` : '';
 
-    function packagingSelect(value) {
-      return `<select class="lot-packaging"><option value="">Bagged / bulk…</option>`
-        + `<option value="bagged"${value === 'bagged' ? ' selected' : ''}>Bagged</option>`
-        + `<option value="bulk"${value === 'bulk' ? ' selected' : ''}>Bulk</option></select>`;
+    function packagingSelect(value, suggested) {
+      const v = value || suggested || '';
+      const hint = !value && suggested ? ' suggested" title="Preselected from the stock report — check, then Save' : '';
+      return `<select class="lot-packaging${hint}"><option value="">—</option>`
+        + Object.entries(PACK_LABEL).map(([k, label]) => `<option value="${k}"${v === k ? ' selected' : ''}>${label}</option>`).join('')
+        + `</select>`;
+    }
+
+    // One card per cargo waiting, split by vessel, one line per lot:
+    // lot · KKT/RoRo · tonnes · [BB/Bulk/Off-spec] · [order] · Save. Stock facts come from the
+    // stock reports (server: lotStock.js); the select is preselected from them, never saved unasked.
+    function pendingCard(p) {
+      const vessels = (p.vessels || []).map(v => {
+        const stock = v.stock.length
+          ? v.stock.map(s => `${PACK_LABEL[s.packaging] || '?'} ${tonnes(s.weightKg)}${s.terminal ? ' ' + s.terminal : ''}`).join(', ')
+          : 'not in the stock reports';
+        return `<div class="lot-vessel">
+          <div class="lot-vessel-head">${escHtml(v.vessel)} <span>· stock: ${escHtml(stock)}</span></div>
+          ${v.lots.map(l => {
+            const m = lotMarksByLot[l.lot];
+            return `<div class="lot-row" data-lot="${escHtml(l.lot)}" data-vessel="${escHtml(v.vessel)}" data-terminal="${escHtml(l.terminal)}" data-weight="${l.weightKg}">
+              <span class="lot-no" title="${escHtml(l.name)}">${escHtml(l.lot)}</span>
+              ${placeBadge(l.terminal)}
+              <span class="lot-t">${tonnes(l.weightKg)}</span>
+              ${l.trucksLoading ? `<span class="lot-loading" title="Trucks/wagons already loading from this lot">▶ ${l.trucksLoading}</span>` : ''}
+              ${packagingSelect(m && m.packaging, l.suggested)}
+              <input class="lot-order" type="number" min="1" placeholder="#" title="Loading order (1 = first)" value="${m && m.priority ? m.priority : ''}"${(m ? m.packaging : l.suggested) === 'offspec' ? ' disabled' : ''} />
+              <button data-lot-action="save">Save</button>
+            </div>`;
+          }).join('')}
+        </div>`;
+      }).join('');
+      return `<div class="lot-cargo" data-cargo="${escHtml(p.cargo)}">
+        <div class="lot-cargo-head">${escHtml(p.cargo)} <span>· ${escHtml(p.plate)} waiting (${escHtml(PACK_LABEL[p.packaging] || p.packaging)})</span></div>
+        ${vessels}
+      </div>`;
+    }
+
+    function markedList(lots) {
+      const byVessel = {};
+      for (const l of lots) (byVessel[l.vessel || '—'] = byVessel[l.vessel || '—'] || []).push(l);
+      return Object.keys(byVessel).sort().map(vessel => `<div class="lot-vessel">
+        <div class="lot-vessel-head">${escHtml(vessel)}</div>
+        ${byVessel[vessel].sort((a, b) => a.packaging.localeCompare(b.packaging) || (a.priority || 0) - (b.priority || 0)).map(l => `
+          <div class="lot-row" data-lot="${escHtml(l.lot)}">
+            <span class="lot-no" title="${escHtml(l.cargo)}">${escHtml(l.lot)}</span>
+            ${placeBadge(l.terminal)}
+            <span class="lot-t">${l.weightKg ? tonnes(l.weightKg) : ''}</span>
+            <span class="lot-mark ${escHtml(l.packaging)}">${PACK_LABEL[l.packaging] || l.packaging}${l.priority ? ' #' + l.priority : ''}</span>
+            <button data-lot-action="remove" title="Remove this mark">✕</button>
+          </div>`).join('')}
+      </div>`).join('');
     }
 
     async function loadLots() {
@@ -1078,37 +1142,9 @@
         const data = await (await fetch('/lots')).json();
         lotMarksByLot = Object.fromEntries((data.lots || []).map(l => [l.lot, l]));
 
-        lotsPendingEl.innerHTML = (data.pending || []).map(p => {
-          // One line per lot: a lot can have several storage rows.
-          const byLot = {};
-          for (const c of p.candidates) {
-            const e = byLot[c.lot] || (byLot[c.lot] = { ...c, weightKg: 0 });
-            e.weightKg += c.weightKg;
-          }
-          return `<div class="confirm-card" data-vessel="${escHtml(p.vessel)}" data-cargo="${escHtml(p.cargo)}">
-            <div class="confirm-subject">${escHtml(p.vessel)} — ${escHtml(p.cargo)}</div>
-            <div class="confirm-meta">Waiting: ${escHtml(p.plate)} (${escHtml(p.packaging)}). Mark each lot bagged or bulk, and the order to load them in (1 = first) — across all vessels listed.</div>
-            ${Object.values(byLot).map(c => {
-              const m = lotMarksByLot[c.lot];
-              return `<div class="lot-row" data-lot="${escHtml(c.lot)}" data-vessel="${escHtml(c.vessel || '')}">
-                <div class="lot-info">${escHtml(c.lot)} — ${c.vessel ? escHtml(c.vessel) + ' · ' : ''}${escHtml(c.name)}
-                  <small>${tonnes(c.weightKg)} in ${escHtml(placeShort(c.place))}${c.trucksLoading ? ` · ${c.trucksLoading} truck/wagon load(s) on it` : ''}</small></div>
-                ${packagingSelect(m ? m.packaging : '')}
-                <input class="lot-order" type="number" min="1" placeholder="Order" value="${m ? m.priority : ''}" />
-                <button data-lot-action="save">Save</button>
-              </div>`;
-            }).join('')}
-          </div>`;
-        }).join('');
-
-        const marked = (data.lots || []).slice().sort((a, b) =>
-          (a.vessel + a.cargo).localeCompare(b.vessel + b.cargo) || a.packaging.localeCompare(b.packaging) || a.priority - b.priority);
-        lotsMarkedEl.innerHTML = marked.length ? marked.map(l => `
-          <div class="lot-row" data-lot="${escHtml(l.lot)}">
-            <div class="lot-info">${escHtml(l.lot)} — ${escHtml(l.vessel)} ${escHtml(l.cargo)}
-              <small>${l.packaging === 'bulk' ? 'Bulk' : 'Bagged'} · load order ${l.priority}</small></div>
-            <button data-lot-action="remove">Remove</button>
-          </div>`).join('')
+        lotsPendingEl.innerHTML = (data.pending || []).map(pendingCard).join('');
+        lotsMarkedEl.innerHTML = (data.lots || []).length
+          ? markedList(data.lots)
           : '<div class="task-empty">No lots marked yet.</div>';
 
         const waiting = (data.pending || []).length;
@@ -1138,17 +1174,27 @@
           await fetch('/lots/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lot }) });
         }
       } else {
-        const card = btn.closest('.confirm-card');
         await saveLotMark({
           lot,
-          vessel:    row.getAttribute('data-vessel') || card.getAttribute('data-vessel'),
-          cargo:     card.getAttribute('data-cargo'),
+          vessel:    row.getAttribute('data-vessel'),
+          cargo:     btn.closest('.lot-cargo').getAttribute('data-cargo'),
           packaging: row.querySelector('.lot-packaging').value,
           priority:  row.querySelector('.lot-order').value,
+          terminal:  row.getAttribute('data-terminal'),
+          weightKg:  row.getAttribute('data-weight'),
         });
       }
       btn.disabled = false;
       loadLots();
+    });
+
+    // Off-spec is never loaded: it takes no loading order.
+    document.querySelector('.panel-kipis').addEventListener('change', e => {
+      if (!e.target.matches('.lot-packaging')) return;
+      const order = e.target.closest('.lot-row').querySelector('.lot-order');
+      order.disabled = e.target.value === 'offspec';
+      if (order.disabled) order.value = '';
+      e.target.classList.remove('suggested');
     });
 
     document.getElementById('lotAddBtn').addEventListener('click', async () => {

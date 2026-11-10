@@ -6,7 +6,8 @@ const path = require('path');
 // phone, and stock reports and KIPIS both say BULK even for bagged cargo — no system holds this
 // (ROADMAP A22). One lot is normally cleaned out before the next one starts.
 const MARKS_PATH = path.resolve(__dirname, '../../config/lot_marks.json');
-const PACKAGING  = ['bagged', 'bulk'];
+// offspec: damaged / off-spec cargo — never loaded, so never picked for an order.
+const PACKAGING  = ['bagged', 'bulk', 'offspec'];
 
 function load() {
   try {
@@ -31,15 +32,20 @@ function listMarks() {
   return load();
 }
 
-function setMark({ lot, vessel, cargo, packaging, priority }) {
+// terminal (KKT / RoRo) and weightKg are only shown in the dashboard's marked list.
+function setMark({ lot, vessel, cargo, packaging, priority, terminal, weightKg }) {
   lot = String(lot || '').trim();
   if (!lot) throw new Error('Missing lot number');
   if (!PACKAGING.includes(packaging)) throw new Error(`Packaging must be one of: ${PACKAGING.join(', ')}`);
-  const prio = Number(priority);
-  if (!Number.isInteger(prio) || prio < 1) throw new Error('Loading order must be a whole number from 1');
+  // Off-spec is never loaded, so it has no place in the loading order.
+  const prio = packaging === 'offspec' ? null : Number(priority);
+  if (prio !== null && (!Number.isInteger(prio) || prio < 1)) throw new Error('Loading order must be a whole number from 1');
 
   const d = load();
-  const mark = { lot, vessel: String(vessel || '').trim(), cargo: String(cargo || '').trim(), packaging, priority: prio, markedAt: new Date().toISOString() };
+  const mark = {
+    lot, vessel: String(vessel || '').trim(), cargo: String(cargo || '').trim(), packaging, priority: prio,
+    terminal: String(terminal || '').trim(), weightKg: Number(weightKg) || null, markedAt: new Date().toISOString(),
+  };
   const i = d.lots.findIndex(l => l.lot === lot);
   if (i === -1) d.lots.push(mark); else d.lots[i] = mark;
   dropResolvedPending(d);

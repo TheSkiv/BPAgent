@@ -8,7 +8,8 @@ const STOCK_REPORTS = [
   { name: 'GBL',     url: 'http://192.168.1.146:3000/api/stock-report?report=stock_gbl&sheet=Sheet3' },
   { name: 'Helm AG', url: 'http://192.168.1.146:3000/api/stock-report?report=stock_helm&sheet=Sheet3' },
 ];
-const PRODUCT_COLUMNS = ['Produktas', 'Product Name'];
+const PRODUCT_COLUMNS   = ['Produktas', 'Product Name'];
+const PACKAGING_COLUMNS = ['Įpakavimas', 'Capacity'];   // "(600/601 kg) BB", "BULK", "OFF-SPEC."
 const SYNONYMS_PATH   = path.resolve(__dirname, '../../config/cargo_synonyms.json');
 const MIN_NETTO_KG = 24000;
 const TTL_MS = 5 * 60 * 1000;
@@ -55,7 +56,8 @@ function parseReport(raw, report) {
 
   const [headers, ...rest] = data;
   const col = name => headers.indexOf(name);
-  const productCol = PRODUCT_COLUMNS.map(col).find(i => i !== -1) ?? -1;
+  const productCol   = PRODUCT_COLUMNS.map(col).find(i => i !== -1) ?? -1;
+  const packagingCol = PACKAGING_COLUMNS.map(col).find(i => i !== -1) ?? -1;
 
   return rest
     .map(r => ({
@@ -64,6 +66,8 @@ function parseReport(raw, report) {
       produktas:  String(r[productCol]    || '').trim(),
       netto:      parseNetto(r[col('Netto')]),
       discharged: parseDischarged(r[col('Discharged')]),
+      packaging:  String(r[packagingCol]  || '').trim(),   // "(600/601 kg) BB", "BULK", "OFF-SPEC."
+      terminal:   String(r[col('Terminalas')] || '').trim(), // "RORO", "KKT 5 sand."
     }))
     .filter(r => r.vessel && r.vessel !== 'STOCK' && r.produktas && r.produktas !== 'STOCK');
 }

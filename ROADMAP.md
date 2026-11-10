@@ -265,7 +265,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   ADAROSE and SEA CARRIER lots unmarked; added the rule that a lot marked load order 1 for the
   order's packaging is used while it holds a truck even with other lots unmarked (nothing can
   load before it). A run that picks a lot clears that cargo's "waiting for your mark" entry.
-  Five TSP drafts filed from it. Operator, 2026-11-09: most
+  Five TSP drafts filed from it. **Panel redesigned 2026-11-10** (operator: too much text, split
+  by vessel): one card per cargo waiting → vessel (with the stock reports' rows: BB / Bulk /
+  Off-spec, tonnes, KKT / RoRo) → one line per lot: lot · KKT/RoRo · tonnes · ▶ trucks loading ·
+  [BB / Bulk / Off-spec] · [#] · Save. The select is preselected from the stock row in the same
+  terminal with the closest weight (±10 %, `src/core/lotStock.js`); the operator still saves.
+  New mark **Off-spec**: never loaded, takes no loading order. Marked lots are grouped by vessel.
+  Seen on ULSAN AS: the Helm report holds 5 842 t bulk in KKT but only 54 t in RoRo, while KIPIS
+  shows three RoRo lots (1 250 / 9 100 / 5 746 t) — those get no suggestion. Operator, 2026-11-09: most
   cargo reads `BULK` in KIPIS and the stock reports even when part of it is bagged; the bulk and
   packaged amounts are usually separate lots in KIPIS, but both may say bulk. The filler
   (step 8 of `steps.md`) picks the heaviest eligible IMP lot regardless, so a bagged order can be

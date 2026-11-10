@@ -15,6 +15,7 @@ const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
 const lotMarks = require('./core/lotMarks');
+const lotStock = require('./core/lotStock');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
@@ -290,8 +291,11 @@ app.get('/kipis/lots', async (req, res) => {
 
 // Lot marks: which KIPIS lot is bagged/bulk and the order lots are loaded in (ROADMAP A22),
 // plus lots a stopped PRK run is waiting on.
-app.get('/lots', (req, res) => {
-  res.json(lotMarks.listMarks());
+// Pending entries come grouped by vessel, with the stock reports' BB / bulk / off-spec rows and
+// a suggested packaging per lot (lotStock.js).
+app.get('/lots', async (req, res) => {
+  const { lots, pending } = lotMarks.listMarks();
+  res.json({ lots, pending: await Promise.all(pending.map(lotStock.describePending)) });
 });
 
 app.post('/lots/mark', (req, res) => {
