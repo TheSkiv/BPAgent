@@ -365,6 +365,11 @@
         const parts = [s.saved ? `${s.saved} new truck${s.saved === 1 ? '' : 's'}` : 'No new trucks'];
         if (s.prkMarked) parts.push(`${s.prkMarked} closed by the terminal's copy`);
         if (s.cargoFilled) parts.push(`${s.cargoFilled} cargo filled in`);
+        // An email with plates in it that was still not read as a truck order — say which.
+        if (s.missed) {
+          toast('warn', parts.join(' · ') + `. Check by hand — has plates but was not read as an order: ${(s.missedSubjects || []).join('; ')}`, true);
+          return;
+        }
         toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? ' — filing them now.' : '.'));
       } catch (err) { toast('err', `Network error: ${err.message}`); }
       finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); setTimeout(loadPipeline, 20000); }

@@ -491,6 +491,15 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [~] **A32. Emails the batch skips are read again alone — BUILT 2026-11-10.** UHB's three
+  "Release 291568 DAP" emails (loading table with JSB303/IA973 and NEZ584/ZB927, bulk DAP from
+  ADAROSE) were judged "not a truck order" each time they were in a batch of 10, so neither
+  truck was logged (the office emailed the terminal by hand); read alone, both trucks come out
+  every time. Now an email the batch drops whose text has plate-like numbers is extracted again
+  on its own; still nothing → the log and the Check mail message name it ("has plates but was
+  not read as an order"). The summary no longer files these under "ignored (Not Check)": it
+  counts "not truck orders" and "from Not-Check senders" separately. Tested on the 15:41 email.
+  The two trucks themselves were not recreated (already handled by hand).
 - [~] **A31. MML743//SN216: wrongly bulk, gross weight ignored, cargo renamed — FIXED 2026-11-10.**
   (1) The AI extraction (10 emails per call) marked it bulk although its email and waybill say
   "Amonio sulfatas (600) gran."; run alone it says bagged every time — the flag bled over from a

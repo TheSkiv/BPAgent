@@ -221,6 +221,34 @@ async function pollAndProcessEmails({ max, query }) {
       ? await extractOrders(keptEmails)
       : extractOrdersDeterministic(keptEmails);
 
+    // A second look, one email at a time. In a batch of 10 the model judged UHB's "Release 291568
+    // DAP" emails "not a truck order" three times (2026-11-10) — their loading table listed
+    // JSB303/IA973 and NEZ584/ZB927, which it finds every time when the email is read alone. So an
+    // email the batch dropped, but whose text has plate-like numbers, is read again on its own.
+    // Still nothing → it is logged as a possibly missed truck, never silently ignored.
+    if (AI_EXTRACT) {
+      for (let k = 0; k < keptEmails.length; k++) {
+        const ext = extractions[k];
+        if (ext && ext.relevant && ext.orders.length) continue;
+        const email = keptEmails[k];
+        const text  = `${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`;
+        const plates = extractPlates(text);
+        if (!plates.length) continue;
+        try {
+          const [alone] = await extractOrders([email]);
+          if (alone && alone.relevant && alone.orders.length) {
+            console.log(`Extraction: "${email.subject}" — skipped in the batch, read alone: ${alone.orders.map(o => o.plates.join('/')).join(', ')}`);
+            extractions[k] = alone;
+          } else {
+            console.warn(`Extraction: "${email.subject}" from ${email.from} has plate-like numbers (${plates.slice(0, 4).join(', ')}) but is not read as a truck order — check it`);
+            results[kept[k].ri].possiblyMissed = plates.slice(0, 4);
+          }
+        } catch (err) {
+          console.warn(`Extraction: re-reading "${email.subject}" failed — ${err.message}`);
+        }
+      }
+    }
+
     // Bulk only on evidence in this truck's own email. The model works on 10 emails per call and
     // marked MML743//SN216 bulk (2026-11-10) although its email and waybill say "Amonio sulfatas
     // (600) gran." — bagged; run alone it said bagged every time, so the flag bled over from a
@@ -343,7 +371,11 @@ async function pollAndProcessEmails({ max, query }) {
     const saved    = results.filter(r => r.status === 'saved').length;
     const skipped  = results.filter(r => r.status === 'skipped').length;
     const noplates = results.filter(r => r.status === 'no_plates').length;
-    const ignored  = results.filter(r => r.status === 'ignored').length;
+    // "ignored" covered two different things — say which: a sender on the Not-Check list, or an
+    // email the model did not read as a truck order (the UHB release emails hid in this count).
+    const ignored  = results.filter(r => r.status === 'ignored' && r.skipReason === 'Sender in Not Check list').length;
+    const notOrder = results.filter(r => r.status === 'ignored' && r.skipReason !== 'Sender in Not Check list').length;
+    const missed   = results.filter(r => r.possiblyMissed).length;
 
     const cargoFilled = 0; // deterministic cargo back-fill paused while AI extraction is on
 
@@ -354,9 +386,10 @@ async function pollAndProcessEmails({ max, query }) {
       console.error('PRK confirmation scan failed:', err.message);
     }
 
-    console.log(`Gmail processed: ${results.length} new emails — ${saved} saved, ${skipped} duplicate, ${noplates} no plates, ${ignored} ignored (Not Check); ${cargoFilled} cargo row(s) back-filled; ${prkMarked} plate(s) marked done from PRK confirmations`);
+    console.log(`Gmail processed: ${results.length} new emails — ${saved} saved, ${skipped} duplicate, ${noplates} no plates, ${notOrder} not truck orders${missed ? ` (${missed} with plate-like numbers — check)` : ''}, ${ignored} from Not-Check senders; ${cargoFilled} cargo row(s) back-filled; ${prkMarked} plate(s) marked done from PRK confirmations`);
 
-    return { emails: results, summary: { total: results.length, saved, skipped, noplates, cargoFilled, prkMarked } };
+    const missedSubjects = results.filter(r => r.possiblyMissed).map(r => r.subject || '(no subject)');
+    return { emails: results, summary: { total: results.length, saved, skipped, noplates, notOrder, missed, missedSubjects, cargoFilled, prkMarked } };
 }
 
 // A poll (manual click or auto-timer) already in flight — the other must wait rather than
