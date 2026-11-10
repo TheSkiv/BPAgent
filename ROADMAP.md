@@ -447,8 +447,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   this check, the daily cleanup) skip their turn when the operator clicked or typed in the KIPIS
   window in the last 3 minutes (`safePage.operatorActiveWithin`; the system's own clicks don't
   count) — they would pull the page away from a draft being checked.
-- [x] **A19. Dispatch email draft — DONE 2026-11-10 (live; first real draft not yet seen).** No
-  printing and no PDF kept on the PC (D10). For every `submitted` order without one, in the
+- [~] **A19. Dispatch email — REWORKED 2026-11-10 to send from the dashboard (D11).** The Drafts
+  version below worked but was invisible to the office (POP3). Now: a submitted truck has an
+  **Email** button → preview (`GET /dispatch/preview`: routing-table recipients RoRo/KKT + Cc,
+  subject, text, PRK PDF fetched into memory and viewable at `/dispatch/pdf`; warns if the truck
+  was already emailed today) → the operator may edit subject/text or switch terminal → **Send**
+  (`POST /dispatch/send`, `src/core/smtpSend.js`: SMTP over TLS 465 to mail.bpa.lt, same account
+  and pinned cert as IMAP, minimal client — no new dependency) → recorded on the order
+  (`dispatchSent`, never twice), logged to `data/dispatch_sent.jsonl`, PDF dropped from memory;
+  the Cc copy closes the order on the next RECHECK. SMTP login verified; first real send not yet
+  done. The automatic Drafts step is removed. *Earlier (Drafts) version, kept for the record:*
+  For every `submitted` order without one, in the
   automatic round after the Pateikti check and on *Check submitted*:
   1. **Already sent?** The office Cc's `terminal@bpa.lt`, so a hand-sent dispatch email is in the
      inbox (from terminal@bpa.lt, to a dispatch address, naming the tractor plate) → no draft,
@@ -512,6 +521,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   *Direction (not in force):* move step by step to automatic submission, with the human check
   moving to the dispatch email — the email is the gate that lets the terminal load a truck.
   Needs an explicit change to Rule 1 by the operator before any automation targets Pateikti.
+- **D11. The dispatch email is sent from the dashboard** — decided 2026-11-10, replacing D7's
+  IMAP Drafts (every office PC reads terminal@bpa.lt over POP3, which never shows server-side
+  Drafts; the office uses Outlook). The operator opens the preview (Email button on a submitted
+  truck), checks recipients, text and the PRK PDF, may edit the text or switch RoRo/KKT, and
+  presses Send; PortSystem sends it over SMTP. Fits D5 (browser) and D8 (the email is the human
+  gate). SECURITY.md §5 updated.
 - **D10. No PRK PDF copies kept on the PC** — decided 2026-11-10. The PRK lives in KIPIS and in
   the dispatch email; A19 fetches the PDF only to attach it to the email draft and keeps no file
   (A19a "save the PDF" is folded into A19b).

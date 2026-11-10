@@ -208,7 +208,7 @@ async function fetchAttachmentBytes(messageId, attachmentId) {
 }
 
 module.exports = {
-  isAuthorized, checkConnection, withClient,
+  isAuthorized, checkConnection, withClient, PINNED_CERT_FINGERPRINT256,
   fetchRecentEmails, fetchEmailsMatching,
   fetchAttachmentText, fetchAttachmentBytes,
 };

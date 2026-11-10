@@ -4,8 +4,9 @@ const XLSX = require('xlsx');
 const crypto = require('crypto');
 const { DISPATCH_RECIPIENTS, DISPATCH_CC, terminalFor } = require('./terminals');
 
-// The dispatch email for a submitted PRK (ROADMAP A19), put in terminal@bpa.lt's Drafts folder
-// for the operator to check and send — never sent by the code (SECURITY.md §5, D7). Format from
+// The dispatch email for a submitted PRK (ROADMAP A19), shown on the dashboard for the operator to
+// check and send (sent only on their Send — SECURITY.md §5; the office's POP3 clients never see
+// server-side Drafts, so appendDraft is no longer used). Format from
 // the office's own dispatch emails (2026-11-10): subject "VESSEL CARGO PLATES"; body with the
 // cargo and bag count, the vessel, the plates and the driver; the PRK PDF attached (fetched from
 // KIPIS in memory, D10).

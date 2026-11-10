@@ -312,6 +312,26 @@
     }
     #sweepBtn:hover:not(:disabled) { background: #2d0f0f; }
     #sweepBtn:disabled { opacity: 0.5; cursor: default; }
+    .pipe-email-btn {
+      background: #4f46e5; color: #fff; border: 0; border-radius: 5px; padding: 2px 9px;
+      font-size: 0.72rem; cursor: pointer; letter-spacing: 0; text-transform: none;
+    }
+    .pipe-email-btn:hover { background: #6366f1; }
+    #dispatchModal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
+    #dispatchModal.open { display: flex; }
+    #dispatchModal .box { background: #1a1d29; border: 1px solid #2d3148; border-radius: 10px; padding: 18px; width: min(680px, 94vw); max-height: 92vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 0.82rem; }
+    #dispatchModal h3 { font-size: 0.95rem; color: #a5b4fc; }
+    #dispatchModal label { color: #64748b; font-size: 0.72rem; display: block; margin-bottom: 2px; }
+    #dispatchModal input, #dispatchModal textarea, #dispatchModal select { width: 100%; background: #0f1117; color: #e2e8f0; border: 1px solid #2d3148; border-radius: 6px; padding: 6px 8px; font: inherit; }
+    #dispatchModal textarea { min-height: 170px; resize: vertical; }
+    #dispatchModal .addr { color: #cbd5e1; }
+    #dispatchModal .warn { color: #fbbf24; }
+    #dispatchModal .err { color: #fc8181; }
+    #dispatchModal .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
+    #dispatchModal .row button { border: 0; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 0.82rem; }
+    #dispatchSend { background: #16a34a; color: #fff; }
+    #dispatchSend:disabled { opacity: 0.5; cursor: default; }
+    #dispatchCancel { background: transparent; color: #94a3b8; border: 1px solid #2d3148 !important; }
     #sweepResult, #watchResult { font-size: 0.75rem; color: #94a3b8; }
     #sweepResult .err, #watchResult .err { color: #fc8181; }
     #watchBtn {
@@ -525,7 +545,7 @@
       <div id="pipelineAwaiting" class="pipeline-section"></div>
       <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>Submitted — send the dispatch email</span>
-        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti), then puts a dispatch email draft (PRK PDF attached) in terminal@bpa.lt's Drafts for each — unless it was already emailed by hand. Also runs by itself after RECHECK and every 15 minutes in the shift.">Check submitted</button>
+        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti). Also runs by itself after RECHECK and every 15 minutes in the shift. Then press Email on a truck to send its dispatch email.">Check submitted</button>
       </div>
       <div id="watchResult"></div>
       <div id="pipelineSubmitted" class="pipeline-section"></div>
@@ -889,11 +909,11 @@
             : `<span class="pipe-doc pending">PRK ${escHtml(o.docs.PRK.status || 'saved')}</span>`)
         : '';
       const dup     = dups.has(o.plate) ? '<span class="pipe-dup" title="This plate appears more than once today">×2</span>' : '';
-      // A19: the dispatch email for a submitted PRK — drafted in the mailbox's Drafts, or sent by hand.
-      const dd      = o.dispatchDraft;
-      const mail    = !dd ? '' : dd.skipped
-        ? `<span class="pipe-doc" title="${escHtml(dd.skipped)}">email sent</span>`
-        : `<span class="pipe-doc pending" title="In ${escHtml(dd.folder)} — check it and press Send${dd.missing && dd.missing.length ? '. Missing: ' + escHtml(dd.missing.join(', ')) : ''}">email draft ready (${escHtml(String(dd.terminal).toUpperCase())})</span>`;
+      // A19: the dispatch email — an Email button on a submitted PRK, "email sent" once sent here.
+      const ds      = o.dispatchSent;
+      const mail    = ds
+        ? `<span class="pipe-doc" title="Sent ${escHtml(new Date(ds.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' }))} to ${escHtml(ds.to.join(', '))}">email sent (${escHtml(String(ds.terminal).toUpperCase())})</span>`
+        : (o.state === 'submitted' ? `<button class="pipe-email-btn" data-id="${escHtml(o.id)}" title="Preview the dispatch email with the PRK PDF, then send it">Email</button>` : '');
       const bulk    = o.bulk ? '<span class="pipe-bulk">BULK</span>' : '';
       const weight  = o.weight ? `<span class="pipe-weight">${escHtml(String(o.weight))} kg</span>` : '';
       const doneBtn = clickable ? `<button class="pipe-done-btn" data-id="${escHtml(o.id)}" title="Mark done manually">Done</button>` : '';
@@ -988,7 +1008,89 @@
       if (unassigned) handleCompanyClick(unassigned);
     });
 
+    // ── A19: dispatch email preview + Send (the only way PortSystem sends mail) ──
+    const dispatchModal = document.createElement('div');
+    dispatchModal.id = 'dispatchModal';
+    dispatchModal.innerHTML = `<div class="box">
+      <h3 id="dispatchTitle">Dispatch email</h3>
+      <div id="dispatchWarn"></div>
+      <div><label>Terminal</label><select id="dispatchTerminal"><option value="roro">RoRo</option><option value="kkt">KKT</option></select></div>
+      <div><label>To</label><div class="addr" id="dispatchTo"></div></div>
+      <div><label>Cc</label><div class="addr" id="dispatchCc"></div></div>
+      <div><label>Subject</label><input id="dispatchSubject"></div>
+      <div><label>Text</label><textarea id="dispatchText"></textarea></div>
+      <div><label>Attachment</label><a id="dispatchPdf" target="_blank" rel="noopener"></a></div>
+      <div id="dispatchStatus"></div>
+      <div class="row"><button id="dispatchCancel">Close</button><button id="dispatchSend">Send</button></div>
+    </div>`;
+    document.body.appendChild(dispatchModal);
+    let dispatchCurrent = null;
+    const dq = id => document.getElementById(id);
+
+    function showRecipients() {
+      if (!dispatchCurrent) return;
+      dq('dispatchTo').textContent = dispatchCurrent.recipients[dq('dispatchTerminal').value].join(', ');
+      dq('dispatchCc').textContent = dispatchCurrent.cc.join(', ');
+    }
+    dq('dispatchTerminal').addEventListener('change', showRecipients);
+    dq('dispatchCancel').addEventListener('click', () => dispatchModal.classList.remove('open'));
+
+    async function openDispatch(id) {
+      dispatchCurrent = null;
+      dispatchModal.classList.add('open');
+      dq('dispatchTitle').textContent = 'Dispatch email';
+      dq('dispatchWarn').innerHTML = '';
+      dq('dispatchStatus').textContent = 'Fetching the PRK PDF from KIPIS…';
+      dq('dispatchSend').disabled = true;
+      ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { dq(x).textContent = ''; });
+      dq('dispatchSubject').value = ''; dq('dispatchText').value = '';
+      try {
+        const r = await (await fetch('/dispatch/preview?id=' + encodeURIComponent(id))).json();
+        if (r.status !== 'ok') { dq('dispatchStatus').innerHTML = `<span class="err">${escHtml(r.message || r.error)}</span>`; return; }
+        dispatchCurrent = r;
+        dq('dispatchTitle').textContent = `Dispatch email — ${r.plate} (${r.prk})`;
+        dq('dispatchTerminal').value = r.terminal;
+        dq('dispatchSubject').value = r.subject;
+        dq('dispatchText').value = r.text;
+        dq('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB) — open to check`;
+        dq('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
+        showRecipients();
+        const warns = [];
+        if (r.sent) warns.push(`Already sent by PortSystem at ${new Date(r.sent.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' })}.`);
+        if (r.sentByHand) warns.push('An email for this truck already went to the terminal today (copy in the inbox) — check before sending again.');
+        if (r.missing && r.missing.length) warns.push(`Missing: ${r.missing.join(', ')} — fill it in the text.`);
+        dq('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${escHtml(w)}</div>`).join('');
+        dq('dispatchStatus').textContent = '';
+        dq('dispatchSend').disabled = !!r.sent;
+      } catch (err) {
+        dq('dispatchStatus').innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
+      }
+    }
+
+    dq('dispatchSend').addEventListener('click', async () => {
+      const r = dispatchCurrent;
+      if (!r) return;
+      if (r.sentByHand && !confirm('This truck was already emailed to the terminal today. Send again?')) return;
+      dq('dispatchSend').disabled = true;
+      dq('dispatchStatus').textContent = 'Sending…';
+      try {
+        const s = await (await fetch('/dispatch/send', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: r.id, date: r.date, terminal: dq('dispatchTerminal').value, subject: dq('dispatchSubject').value, text: dq('dispatchText').value }),
+        })).json();
+        if (s.status !== 'ok') { dq('dispatchStatus').innerHTML = `<span class="err">${escHtml(s.message || s.error)}</span>`; dq('dispatchSend').disabled = false; return; }
+        dq('dispatchStatus').innerHTML = `<span style="color:#68d391">Sent to ${escHtml(s.sentTo.join(', '))}.</span>`;
+        loadPipeline();
+        setTimeout(() => dispatchModal.classList.remove('open'), 1500);
+      } catch (err) {
+        dq('dispatchStatus').innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
+        dq('dispatchSend').disabled = false;
+      }
+    });
+
     async function onQueueClick(e) {
+      const emailBtn = e.target.closest('.pipe-email-btn');
+      if (emailBtn) { e.stopPropagation(); openDispatch(emailBtn.getAttribute('data-id')); return; }
       const unassigned = e.target.closest('.pipe-company.unassigned');
       if (unassigned) { handleCompanyClick(unassigned); return; }
 
@@ -1038,16 +1140,6 @@
       out.textContent = 'Reading the PRK list in KIPIS…';
       try {
         out.innerHTML = watchText(await (await fetch('/prk/watch', { method: 'POST' })).json()) || 'Nothing to check — no drafts waiting.';
-        // Then the dispatch email drafts for what is submitted (A19).
-        const d = await (await fetch('/dispatch/drafts', { method: 'POST' })).json();
-        if (d && d.at && (d.drafted || d.skipped || d.failed)) {
-          const bits = [];
-          if (d.drafted?.length) bits.push(`email drafts made: ${d.drafted.map(x => escHtml(x.plate)).join(', ')} — check them in Drafts and press Send`);
-          if (d.alreadySent?.length) bits.push(`already emailed by hand: ${d.alreadySent.map(x => escHtml(x.plate)).join(', ')}`);
-          if (d.failed?.length) bits.push(`<span class="err">email draft failed: ${d.failed.map(x => `${escHtml(x.plate)} — ${escHtml(x.error)}`).join('; ')}</span>`);
-          if (d.skipped) bits.push(`<span class="err">email drafts not made — ${escHtml(d.skipped)}</span>`);
-          if (bits.length) out.innerHTML += ' · ' + bits.join(' · ');
-        }
       } catch (err) {
         out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
       } finally {

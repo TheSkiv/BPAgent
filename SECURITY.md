@@ -73,11 +73,16 @@ extractor or the task agent ("ignore previous instructions", fake orders, spoofe
 ## 5. Least privilege on scopes and access
 
 - Gmail stays at the narrowest scope that works (`readonly` until sending is genuinely needed).
-- **IMAP (`terminal@bpa.lt`):** intake is read-only (`EXAMINE`). The one write allowed
-  (operator decision 2026-11-09, ROADMAP D7) is **appending a new draft to the Drafts folder**
-  for the operator to send. The code must never send mail, and never flag, move, delete or
-  modify any existing message, in Drafts or elsewhere. A draft's recipient comes from the
-  routing table, never from an email's content.
+- **IMAP (`terminal@bpa.lt`):** intake is read-only (`EXAMINE`). The code must never flag,
+  move, delete or modify any existing message. (Appending drafts to the Drafts folder, D7, is
+  no longer used: the office reads this mailbox over POP3 and never sees server-side Drafts.)
+- **Sending (SMTP, operator decision 2026-11-10, ROADMAP D11):** the code sends mail **only**
+  when the operator presses **Send** on the dashboard's preview of one dispatch email
+  (`POST /dispatch/send`) — never on a timer, never from an automated path, never in bulk. The
+  recipients come only from the routing table (`src/core/terminals.js`, RoRo / KKT, Cc
+  terminal@bpa.lt), never from an email's content or a free-text field; the operator may edit
+  the subject and text. Each send is recorded on the order (never sent twice) and logged to
+  `data/dispatch_sent.jsonl`. Same account and pinned TLS certificate as IMAP.
 - KIPIS automation stops at `Saugoti`; `Pateikti` is human-only.
 - Do not broaden a scope or permission as a convenience.
 

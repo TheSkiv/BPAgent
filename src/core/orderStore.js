@@ -163,14 +163,14 @@ function setLoadsFrom(id, loadsFrom, { date } = {}) {
   return order;
 }
 
-// The dispatch email draft made for this order (A19) — { at, folder, terminal, prk, missing } or
-// { at, skipped } — so a truck never gets a second draft.
-function setDispatchDraft(id, info, { date } = {}) {
+// The dispatch email the operator sent from the dashboard (A19) — { at, terminal, to, prk,
+// subject } — so it is never sent twice.
+function setDispatchSent(id, info, { date } = {}) {
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
-  order.dispatchDraft = info;
-  logHistory(order, 'mail', 'dispatch draft', info.skipped ? `not drafted — ${info.skipped}` : `dispatch email draft in ${info.folder} (${String(info.terminal).toUpperCase()})`);
+  order.dispatchSent = info;
+  logHistory(order, 'operator', 'dispatch email', `sent to ${info.to.join(', ')} (${String(info.terminal).toUpperCase()}), PRK ${info.prk}`);
   save(db, date);
   return order;
 }
@@ -325,5 +325,5 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchDraft,
+  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchSent,
 };
