@@ -32,12 +32,17 @@
       <section class="card">
         <h3>Runs by itself</h3>
         <div class="auto-row">
+          <div class="head">Checking mail</div>
+          <div class="line" id="mailLine">New order emails are read every few minutes.</div>
+          <div id="missedBox"></div>
+        </div>
+        <div class="auto-row">
           <div class="head">Filing PRK drafts <button class="btn small" id="fileAllBtn" title="Files every ready truck now, oldest first">File all now</button></div>
-          <div class="line" id="autoFileLine">After each mail check and every 15 min, 08–18.</div>
+          <div class="line" id="autoFileLine">When new trucks arrive and every 15 min, 08–18.</div>
         </div>
         <div class="auto-row">
           <div class="head">Spotting your Pateikti <button class="btn small" id="watchBtn" title="Reads KIPIS's PRK list for drafts you have submitted">Check now</button></div>
-          <div class="line" id="watchLine">After each mail check and every 15 min.</div>
+          <div class="line" id="watchLine">Every 15 min, 08–18.</div>
         </div>
         <div class="auto-row">
           <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
@@ -372,7 +377,7 @@
         }
         toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? ' — filing them now.' : '.'));
       } catch (err) { toast('err', `Network error: ${err.message}`); }
-      finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); setTimeout(loadPipeline, 20000); }
+      finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); loadMail(); setTimeout(loadPipeline, 20000); }
     });
 
     async function checkMail() {
@@ -406,7 +411,31 @@
       finally { $('openBtn').disabled = false; loadKipisSession(); }
     });
 
-    // ── Runs by itself: auto-filing, Pateikti check, cleanup ─────────────
+    // ── Runs by itself: mail check, auto-filing, Pateikti check, cleanup ──
+    let mailEvery = null;   // minutes between automatic checks; 0 = off
+    async function loadMail() {
+      try {
+        if (mailEvery === null) mailEvery = (await getJson('/mail/auto')).minutes || 0;
+        const r = await getJson('/gmail/last');
+        const how = mailEvery ? `Every ${mailEvery} min, day and night.` : '<span class="warn">Automatic check is off — use Check mail.</span>';
+        if (!r.at) $('mailLine').innerHTML = how;
+        else if (r.error) $('mailLine').innerHTML = `<span class="warn">${hhmm(r.at)}: check failed — ${esc(r.error)}</span>`;
+        else {
+          const m = r.summary || {};
+          const got = [m.saved ? `${m.saved} new truck${m.saved === 1 ? '' : 's'}` : 'nothing new'];
+          if (m.prkMarked) got.push(`${m.prkMarked} closed by the terminal's copy`);
+          $('mailLine').innerHTML = `Last check ${hhmm(r.at)}: ${got.join(', ')}. ${how}`;
+        }
+        // Emails with plates in them that were not read as an order stay listed until looked at.
+        const missed = r.missed || [];
+        $('missedBox').innerHTML = missed.length
+          ? `<div class="line"><span class="warn">Check by hand — has plates, not read as an order:</span></div>`
+            + missed.map(x => `<div class="line">${esc(x.subject)} <span class="muted">— ${esc(x.from)} (${esc((x.plates || []).join(', '))})</span></div>`).join('')
+            + `<button class="btn small" id="missedSeenBtn">I have checked them</button>`
+          : '';
+        if (missed.length) $('missedSeenBtn').addEventListener('click', async () => { await postJson('/gmail/missed/clear'); loadMail(); });
+      } catch { /* keep */ }
+    }
     async function loadAutoFile() {
       try {
         const r = await getJson('/queue/auto');
@@ -603,9 +632,9 @@
 
     // ── Start, and keep a dashboard left open current ────────────────────
     loadPipeline(); loadConfirmations(); loadKipisSession(); checkMail();
-    loadAutoFile(); loadWatch(); loadCleanup(); loadLots();
+    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots();
     setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); }, 60 * 1000);
-    setInterval(() => { loadKipisSession(); loadAutoFile(); loadWatch(); }, 60 * 1000);
+    setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadWatch(); }, 60 * 1000);
   </script>
 </body>
 </html>

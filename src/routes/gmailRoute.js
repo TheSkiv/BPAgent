@@ -13,7 +13,7 @@ function formatReceived(dateStr) {
     return dateStr || '';
   }
 }
-const { isAuthorized, checkConnection, fetchRecentEmails, fetchEmailsMatching, fetchAttachmentText } = require('../core/imapMail');
+const { isAuthorized, checkConnection, fetchRecentEmails, unmarkSeen, fetchEmailsMatching, fetchAttachmentText } = require('../core/imapMail');
 const { extractAll, extractPlatePairs, extractPlates, stripHtml, waybillWeightKg } = require('../core/emailExtract');
 const { extractOrders } = require('../core/aiExtract');
 
@@ -217,9 +217,18 @@ async function pollAndProcessEmails({ max, query }) {
 
     // 3) Extract orders — AI batches (default) or the paused deterministic algorithm.
     const keptEmails  = kept.map(k => k.email);
-    const extractions = AI_EXTRACT
-      ? await extractOrders(keptEmails)
-      : extractOrdersDeterministic(keptEmails);
+    // The emails were marked as seen when fetched. If the extraction cannot run at all (OpenAI
+    // unreachable), hand them back — otherwise an unattended check would lose them for good.
+    let extractions;
+    try {
+      extractions = AI_EXTRACT
+        ? await extractOrders(keptEmails)
+        : extractOrdersDeterministic(keptEmails);
+    } catch (err) {
+      unmarkSeen(emails.map(e => e.id));
+      console.error(`Mail check: extraction failed, ${emails.length} email(s) left for the next check — ${err.message}`);
+      throw err;
+    }
 
     // A second look, one email at a time. In a batch of 10 the model judged UHB's "Release 291568
     // DAP" emails "not a truck order" three times (2026-11-10) — their loading table listed
@@ -396,25 +405,72 @@ async function pollAndProcessEmails({ max, query }) {
 // run concurrently and race on the same Excel/order-state files.
 let pollInProgress = false;
 
+// The last check (button or timer), for the dashboard: { at, by, summary } or { at, by, error }.
+let lastCheck = null;
+
+// Emails that had plates in them but were not read as a truck order. A seen email is never read
+// again, so a toast alone would lose them once checks run unattended — they stay listed for the
+// day (data/mail_missed_<date>.json) until the operator has looked.
+const fs   = require('fs');
+const path = require('path');
+const { todayString } = require('../core/dateManager');
+const missedPath = () => path.resolve(__dirname, `../../data/mail_missed_${todayString()}.json`);
+function loadMissed() {
+  try { return JSON.parse(fs.readFileSync(missedPath(), 'utf8')); } catch { return []; }
+}
+function rememberMissed(emails) {
+  const fresh = emails.filter(r => r.possiblyMissed);
+  if (!fresh.length) return;
+  const list = loadMissed();
+  for (const r of fresh) {
+    if (list.some(x => x.id === r.id)) continue;
+    list.push({ id: r.id, subject: r.subject || '(no subject)', from: r.from || '', plates: r.possiblyMissed, at: new Date().toISOString() });
+  }
+  fs.writeFileSync(missedPath(), JSON.stringify(list, null, 2));
+}
+
+// One mail check, whoever asked (the Check mail button or the server's timer). Returns the
+// result, or null when a check is already running. Throws what the check throws.
+async function checkMail({ max = 100, query = 'in:inbox', by = 'button' } = {}) {
+  if (pollInProgress) return null;
+  pollInProgress = true;
+  try {
+    const result = await pollAndProcessEmails({ max, query });
+    rememberMissed(result.emails);
+    lastCheck = { at: new Date().toISOString(), by, summary: result.summary };
+    return result;
+  } catch (err) {
+    lastCheck = { at: new Date().toISOString(), by, error: err.message === 'AUTH_REQUIRED' ? 'mail login failed' : err.message };
+    throw err;
+  } finally {
+    pollInProgress = false;
+  }
+}
+
 // GET /gmail/emails — fetch new emails, auto-extract and save to Excel
 router.get('/emails', async (req, res) => {
-  if (pollInProgress) {
-    return res.status(409).json({ error: 'BUSY', message: 'A Gmail check is already in progress — try again in a moment.' });
-  }
-  pollInProgress = true;
   try {
     const max   = parseInt(req.query.max) || 30;
     const query = req.query.q || 'in:inbox';
-    const result = await pollAndProcessEmails({ max, query });
+    const result = await checkMail({ max, query, by: 'button' });
+    if (!result) return res.status(409).json({ error: 'BUSY', message: 'A mail check is already in progress — try again in a moment.' });
     res.json(result);
   } catch (err) {
     if (err.message === 'AUTH_REQUIRED') {
       return res.status(401).json({ error: 'AUTH_REQUIRED', message: 'Gmail token expired — please reconnect.' });
     }
     res.status(500).json({ error: err.message });
-  } finally {
-    pollInProgress = false;
   }
 });
 
+// GET /gmail/last — the last check and today's possibly-missed emails
+router.get('/last', (req, res) => res.json({ ...(lastCheck || {}), missed: loadMissed() }));
+
+// POST /gmail/missed/clear — the operator has looked at them
+router.post('/missed/clear', (req, res) => {
+  try { fs.unlinkSync(missedPath()); } catch { /* nothing listed */ }
+  res.json({ status: 'ok' });
+});
+
 module.exports = router;
+module.exports.checkMail = checkMail;

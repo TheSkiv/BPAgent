@@ -88,6 +88,14 @@ function markSeen(ids) {
   fs.writeFileSync(seenFilePath(), JSON.stringify([...seen]));
 }
 
+// A check that failed after fetching (e.g. the AI extraction was unreachable) hands its emails
+// back, so the next check reads them again instead of losing them.
+function unmarkSeen(ids) {
+  const seen = loadSeenIds();
+  ids.forEach(id => seen.delete(String(id)));
+  fs.writeFileSync(seenFilePath(), JSON.stringify([...seen]));
+}
+
 function startOfToday() {
   const d = new Date();
   d.setHours(0, 0, 0, 0);
@@ -209,6 +217,6 @@ async function fetchAttachmentBytes(messageId, attachmentId) {
 
 module.exports = {
   isAuthorized, checkConnection, withClient, PINNED_CERT_FINGERPRINT256,
-  fetchRecentEmails, fetchEmailsMatching,
+  fetchRecentEmails, unmarkSeen, fetchEmailsMatching,
   fetchAttachmentText, fetchAttachmentBytes,
 };

@@ -630,11 +630,35 @@ async function autoRound(reason) {
   await runWatch(reason, true);
 }
 
+const inShift = () => { const h = new Date().getHours(); return h >= AUTO_FILE_HOURS[0] && h < AUTO_FILE_HOURS[1]; };
+
 setInterval(() => {
-  const h = new Date().getHours();
-  if (h < AUTO_FILE_HOURS[0] || h >= AUTO_FILE_HOURS[1]) return;
+  if (!inShift()) return;
   autoRound('shift timer').catch(err => console.error('Auto round:', err.message));
 }, 15 * 60 * 1000);
+
+// Mail is checked by the server itself (operator, 2026-11-10 — reverses D1): every
+// MAIL_CHECK_MINUTES (default 5; 0 turns it off), round the clock, because a check reads today's
+// mail only and an order that arrived after the day's last check was never read. Only emails not
+// seen before go to the AI extraction. New trucks are filed straight away during the shift;
+// outside it they wait for the 08:00 round.
+const MAIL_CHECK_MINUTES = process.env.MAIL_CHECK_MINUTES === undefined ? 5 : (parseFloat(process.env.MAIL_CHECK_MINUTES) || 0);
+async function mailTick() {
+  try {
+    const r = await gmailRoute.checkMail({ by: 'timer' });
+    if (!r) return;   // the operator's own check is running
+    const s = r.summary;
+    if (s.total) console.log(`Mail timer: ${s.total} new email(s), ${s.saved} truck(s) saved`);
+    if (inShift() && (s.saved || s.prkMarked)) await autoRound('mail timer');
+  } catch (err) {
+    console.error('Mail timer:', err.message);
+  }
+}
+if (MAIL_CHECK_MINUTES > 0) {
+  setInterval(mailTick, MAIL_CHECK_MINUTES * 60 * 1000);
+  setTimeout(mailTick, 20 * 1000);   // and once shortly after start
+}
+app.get('/mail/auto', (req, res) => res.json({ minutes: MAIL_CHECK_MINUTES }));
 
 // Read-only (A5): the PRKs KIPIS has for the last 2 days, and which of today's orders each would
 // stop from being filed again. Clears the list filters afterwards.

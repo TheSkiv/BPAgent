@@ -219,6 +219,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   — only if something is ready, nothing else is running and KIPIS is logged in (else it notes
   why and the next tick tries again). No mail polling timer. Dashboard line under RECHECK: last
   auto-filing run and its result (`GET /queue/auto`).
+  **Mail timer added 2026-11-10 (D1 reversed, see D1):** the server checks mail itself every
+  `MAIL_CHECK_MINUTES` (`.env`, default 5, 0 = off), round the clock — a check reads today's mail
+  only, so an order arriving after the day's last manual check used to be lost. `mailTick` in
+  `server.js` calls `gmailRoute.checkMail` (the same function as the Check mail button; one check
+  at a time) and, during 08:00–18:00, runs the filing round when a truck was saved. Only unseen
+  emails go to OpenAI — same data as before, sent more often. If the extraction cannot run
+  (OpenAI unreachable) the fetched emails are un-marked as seen (`imapMail.unmarkSeen`) and read
+  again at the next check. Emails with plates that were not read as an order are kept for the day
+  in `data/mail_missed_<date>.json` and listed on the dashboard ("Checking mail" row) until the
+  operator presses "I have checked them" (`GET /gmail/last`, `POST /gmail/missed/clear`).
+  Not yet seen live with a real new order arriving on the timer.
 - [x] **A13 BUILT 2026-11-10 (not yet seen on a real filing):** `data/prk_filings.jsonl`, one line
   per filing attempt (batch, Process next, RUN PRK, and orders the A5 list check skipped): time,
   actor, outcome (saved / existing / blocked / failed / dry), order id, plate, cargo, PRK number
@@ -450,6 +461,30 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
     storage left in KIPIS, while the Yara report shows 126 t and Baltic Agro's release 102 t —
     to check with Yara / the terminal.
 
+### To do — less operator interaction (audit 2026-11-10, in order)
+From a full read of the code with one goal: the operator touches the system only for Pateikti,
+Send and the KIPIS MFA code.
+- [x] **S1. Mail checked by the server** — built 2026-11-10 (A12, D1 reversed).
+- [x] **S2. "Possibly missed" emails stay on the dashboard** — built 2026-11-10 with S1.
+- [ ] **S3. Alerts (A17).** Nothing tells the operator that a draft waits for Pateikti, an email
+  waits for Send, a truck stopped, or KIPIS logged out. Browser notification + sound.
+- [ ] **S4. Fixing an order resumes it (A15).** "Fix order" saves the fields but the truck stays
+  `failed` until "Try again" (`updateOrderFields` / `POST /set-cargo` leave the state alone).
+- [ ] **S5. Retry stopped trucks in a later round** (A10 remainder) — transient failures only.
+- [ ] **S6. Show yesterday's open trucks.** `GET /pipeline` reads today's file only; a draft left
+  overnight, or an order emailed late in the evening, is not on the dashboard next morning.
+- [ ] **S7. Spot Pateikti sooner** — the watch runs every 15 min, 08–18 only.
+- [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
+- [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
+- [ ] **S10. Open KIPIS at server start**, alert on logout — only the MFA code stays human.
+- [ ] **S11. Start with Windows, restart after a crash (A14)** — needs the operator's OK.
+- [ ] **S12. Driver check-in and plate change (A16 + A20).**
+- [ ] **S13. Trust a whole company domain** instead of one address at a time — operator's
+  decision (sender addresses can be forged).
+- [ ] **S14. Clean-up:** remove the unguarded legacy `POST /run`; file from the order record
+  instead of the Excel row.
+- [ ] **S15. Browser login for staff (D5).**
+
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the
   user can take, e.g. "MLL365//RZ815: no weight in the email" with a field to fill that sends
@@ -581,6 +616,8 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 ### Decisions (the operator's call — record the answer here)
 - **D1. Mail intake stays manual (RECHECK) for now** — decided 2026-11-09. Only filing is
   automated (A12). Revisit later.
+  **Reversed 2026-11-10:** the operator asked for as little interaction as possible; the server
+  now checks mail by itself (A12). Set `MAIL_CHECK_MINUTES=0` in `.env` to go back to manual.
 - **D2. AI check unavailable + deterministic check passes → save** — decided 2026-11-09. A
   wrong `Ruošiamas` draft can be deleted afterwards, so saving is the accepted risk.
 - **D3. Keep-alive by clicking between pages is allowed** — decided 2026-11-09 (A9).
