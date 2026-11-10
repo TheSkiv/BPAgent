@@ -183,4 +183,36 @@ async function readFullPrkList({ limit = 500, statuses = null, dateFrom = '', da
   return { ...result, drafts, limitUsed: current };
 }
 
-module.exports = { readPrkListFromDom, navigateToPrkList, openPrkList, readFullPrkList };
+// The status and date filters stay set in KIPIS for the person using the same window: after a
+// sweep the operator's list showed only Ruošiamas, and their own submitted PRKs looked missing.
+// Every job that filters the list clears them when it is done (no status, no dates). Never throws.
+async function clearListFilters() {
+  const page = getPage();
+  try {
+    await navigateToPrkList(page);
+    await setStatusFilter(page, []);
+    await setDateFilter(page, '', '');
+    await page.locator('input[type="submit"][value="Filtruoti/Atnaujinti"]').click();
+    await page.waitForLoadState('networkidle');
+  } catch (err) {
+    console.warn(`PRK list: could not clear the filters — ${err.message}`);
+  }
+}
+
+// A5: every PRK in KIPIS from the last `days` days for a plate, whoever made it and whatever its
+// cargo — the lot check only sees PRKs on lots of the order's own cargo. Two short reads (the
+// Ruošiamas drafts, and documents submitted in the window) instead of the whole list, which runs
+// past KIPIS's row cap. Returns [{ number, status, plateNorm, created }].
+async function recentPrks(days = 2) {
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const from = new Date(); from.setDate(from.getDate() - days);
+  const since = iso(from), today = iso(new Date());
+  const drafts = (await readFullPrkList({ limit: 500, statuses: [DRAFT_STATUS] })).docs;
+  const submitted = (await readFullPrkList({ limit: 500, statuses: [], dateFrom: since, dateTo: today })).docs;
+  const seen = new Map();
+  for (const d of [...drafts, ...submitted]) if (d.created >= since && d.plateNorm) seen.set(d.number, d);
+  await clearListFilters();
+  return [...seen.values()].map(d => ({ number: d.number, status: d.status, plateNorm: d.plateNorm, created: d.created }));
+}
+
+module.exports = { readPrkListFromDom, navigateToPrkList, openPrkList, readFullPrkList, clearListFilters, recentPrks };

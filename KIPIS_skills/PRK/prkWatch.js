@@ -31,6 +31,7 @@ async function checkSubmitted() {
   if (!watched.length) return out;
 
   const { docs } = await readFullPrkList({ limit: 500, dateFrom: localDate(1), dateTo: localDate(0) });
+  await require('./exportPrkList').clearListFilters();   // the operator's list view, unfiltered again
   const statusOf = new Map(docs.map(d => [d.number, firstLine(d.status)]));
 
   for (const [number, o] of watched) {

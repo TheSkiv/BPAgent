@@ -36,12 +36,24 @@ function cargoMatches(instructionsCargo, ordersCargo) {
   return tokens.length > 0 && tokens.every(t => normOrders.includes(t));
 }
 
-function findRowByPlate(inputPlate) {
+// A6: the plate must match exactly (`.includes()` let a short plate match a longer one). When the
+// Excel holds several rows for that plate (a same-day second trip), the order being filed picks
+// its own row by cargo and received time; still more than one → stop, never file the first.
+function findRowByPlate(inputPlate, order = null) {
   const data = readExcel();
   const needle = normalizePlate(inputPlate);
-  const row = data.find(r => normalizePlate(r['Plate'] || r['plate'] || '').includes(needle));
-  if (!row) throw new Error(`Plate "${inputPlate}" not found in orders Excel`);
-  return row;
+  let rows = data.filter(r => normalizePlate(String(r['Plate'] || r['plate'] || '')) === needle);
+  if (!rows.length) throw new Error(`Plate "${inputPlate}" not found in orders Excel`);
+  if (rows.length > 1 && order) {
+    const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+    const received = order.email?.received || order.received || '';
+    const byCargo = rows.filter(r => same(r['Cargo'] || r['cargo'], order.cargo));
+    if (byCargo.length) rows = byCargo;
+    const byReceived = received ? rows.filter(r => same(r['Received'], received)) : [];
+    if (byReceived.length) rows = byReceived;
+  }
+  if (rows.length > 1) throw new Error(`Plate "${inputPlate}" is on ${rows.length} rows of the orders Excel (a second trip?) — cannot tell which one to file; check the orders`);
+  return rows[0];
 }
 
 const DEFAULT_INSTRUCTIONS =
@@ -95,7 +107,14 @@ function getPlates(row) {
   const plate = row['Plate'] || row['plate'];
   if (!plate) throw new Error('Field "Plate" not found in row');
   console.log('Plate from Excel:', plate);
-  return [plate];
+  return [kipisPlate(plate)];
+}
+
+// Plates go into KIPIS the way KIPIS and people write them: tractor/trailer with ONE slash
+// ("KPB950/GV865"). Typed as "KPB950//GV865" (the orders' form), a person searching KIPIS for the
+// truck did not find its draft (KPB950, 2026-11-10).
+function kipisPlate(plate) {
+  return String(plate).trim().replace(/\s*[\/\\]+\s*/g, '/');
 }
 
 // The two storage places in our terminals. A lot row whose "Krauti/pakrauta į" names one of these
@@ -236,8 +255,9 @@ async function navigateToCargo(page, data = {}) {
   let saved      = null;
   let loadsFrom  = null;
   let packagingWarning = null;
+  let saveClicked = false;
   try {
-    const row = findRowByPlate(data.plate);
+    const row = findRowByPlate(data.plate, data.order);
     console.log('Matched Excel row for plate:', row['Plate']);
 
     const cargoName   = row['Cargo'] || row['cargo'] || '';
@@ -526,6 +546,7 @@ async function navigateToCargo(page, data = {}) {
       console.log('Saving PRK draft (Saugoti)...');
       const saveBtn = page.locator('input[type="submit"][value="Saugoti"]:visible').last();
       await saveBtn.scrollIntoViewIfNeeded();
+      saveClicked = true;
       await saveBtn.click();
       await page.waitForLoadState('networkidle');
       saved = await confirmSaved(page);
@@ -546,6 +567,9 @@ async function navigateToCargo(page, data = {}) {
 
   } catch (error) {
     console.error('ERROR:', error.message);
+    // A10: a failure after Saugoti was pressed may have saved a draft — the caller must never
+    // retry it blindly (Rule 6).
+    error.saveClicked = saveClicked;
     throw error;
   }
 

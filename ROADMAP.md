@@ -133,6 +133,24 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   have filed a duplicate. Cheap first check, on the page the filler is already on: a lot sub-row
   with *Krauti/pakrauta į* = `Autotransportas <plate>` (KIPIS writes `MLL371/RZ817`, one slash)
   means a PRK exists for that truck → skip and report.
+  - **Second half BUILT 2026-11-10 (live-read, not yet seen stopping a real order):** the batch
+    (A8, so also auto-filing) reads KIPIS's PRK list once per batch — the Ruošiamas drafts plus
+    documents submitted in the last 2 days (`exportPrkList.recentPrks`) — and skips any ready
+    order whose plate is on a PRK there, whoever made it and whatever its cargo; the order gets
+    that PRK (`drafted` if Ruošiamas, else `done`). A PRK already on another order of the same
+    plate is that trip's, so a same-day second trip is not stopped by it. Live read 2026-11-10:
+    120 PRKs; every PortSystem order matched its own number and the hand-filed ones were found
+    (KPB950 included). Read-only check: `GET /prk/recent`. RUN PRK (one plate, by hand) still
+    relies on the lot check.
+  - **Single-slash plates — 2026-11-10:** plates go into KIPIS as `KPB950/GV865` (KIPIS's and
+    people's form), not the orders' `KPB950//GV865` — a person searching KIPIS for KPB950 did not
+    find its draft. **List filters cleared:** every job that filters the PRK list (cleanup,
+    Pateikti watch, the A5 read) clears the status and date filters afterwards, so the
+    operator's list in the same window is not left showing only Ruošiamas.
+- [x] **A6 DONE 2026-11-10 (tested on today's 48 orders):** exact plate match (normalised: case,
+  spaces, slashes); with several Excel rows for one plate, the order being filed picks its row by
+  cargo and received time, and still-ambiguous → the order fails with "cannot tell which one to
+  file" instead of filing the first row. The batch, Process next and RUN PRK pass the order.
 - [ ] **A6. Exact order matching.** `findRowByPlate` matches the Excel row with
   `.includes()` (a short plate can match a longer one) and reads the Excel, not the order the
   worker picked — a same-day second trip can be filed with the first trip's row. File from the
@@ -173,6 +191,13 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   (or its window closed) takes an order, fails it with "Browser not initialized" / "Target page
   … has been closed", and moves on — two good orders were marked `failed` this way. The worker
   must check the browser is open *before* taking an order and leave the order untouched if not.
+- [~] **A10 BUILT 2026-11-10 (classifier tested offline; no live failure yet):** the batch and
+  Process next retry an order once on a transient error (timeout, `net::ERR_`, "Užklausa
+  negalioja", page re-render) — only if Saugoti was never pressed (`error.saveClicked`; a draft
+  may exist, Rule 6) and KIPIS is still logged in. Every run starts at the KIPIS home page, which
+  clears the half-filled form and any dialog. Data errors (no lot, no weight, plate not in the
+  orders, Kroviniai tab refused) are not retried; they fail with the reason. RUN PRK (operator
+  present) does not retry. Still open: retrying `failed` orders in a later batch.
 - [ ] **A10. Recover from a failed run.** A failure mid-form leaves a popup or half-filled form;
   `failed` orders are never retried. Define: reset to home, retry once for transient errors
   (timeouts), leave data errors (no vessel, no IMP lot, no weight) at `needs_human` with the reason.
@@ -194,6 +219,11 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   — only if something is ready, nothing else is running and KIPIS is logged in (else it notes
   why and the next tick tries again). No mail polling timer. Dashboard line under RECHECK: last
   auto-filing run and its result (`GET /queue/auto`).
+- [x] **A13 BUILT 2026-11-10 (not yet seen on a real filing):** `data/prk_filings.jsonl`, one line
+  per filing attempt (batch, Process next, RUN PRK, and orders the A5 list check skipped): time,
+  actor, outcome (saved / existing / blocked / failed / dry), order id, plate, cargo, PRK number
+  and status, lot and owner, field read-back and AI check results, block reason, packaging
+  warning, error, retried.
 - [ ] **A13. Unified audit log** of every automated filing (order id, plate, PRK number,
   check result, timestamp) — this is a customs workflow.
 - [ ] **A14. Keep the server alive.** No process supervisor; a crash or a closed terminal stops

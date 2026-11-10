@@ -8,7 +8,7 @@ code — it is the human-readable spec of the non-AI algorithm.
 
 ## Inputs
 
-From today's orders Excel row, matched by plate (`findRowByPlate`):
+From today's orders Excel row, matched by exact plate (`findRowByPlate`; several rows for one plate → the order's cargo and received time pick one, A6):
 `Plate`, `Cargo`, `Weight`, `Bulk`, `Sender`. **Whose cargo and which vessel** (`owners.resolveOrder`):
 the sender's company → its buyer name in the Helm release'ai / Yara perdavimai lists → that
 release's seller and vessel(s); no release and the company loads its own cargo
@@ -42,7 +42,7 @@ stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `conf
 | 19 | PRK form | check | label `generuoti važtaraštį automatiškai` | ✓ | |
 | 20 | PRK form | click | role button `pridėti` (first) | — | per plate: add transport |
 | 21 | Transport | fill | role textbox `markė` | `" "` | |
-| 22 | Transport | fill | role textbox `numeris` | plate | |
+| 22 | Transport | fill | role textbox `numeris` | plate, single slash (`KPB950/GV865`) | the orders write `//`; KIPIS and people search with one slash (2026-11-10) |
 | 23 | Transport | click | role button `saugoti` | — | saves the transport row |
 | 24 | PRK form | click | `a[onclick*="prkr_kroviniai"]` | — | Kroviniai tab |
 | 25 | Kroviniai tab | fill | row input 0 (`name*="prkr_kroviniai"`, `:0:`) | weight + bags | Svoris bruto |

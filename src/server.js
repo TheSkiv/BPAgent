@@ -75,6 +75,25 @@ function recordSavedDraft(order, plate, result) {
   orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti${result.packagingWarning ? ` — ${result.packagingWarning}` : ''}` });
 }
 
+// A13: one line per filing attempt, whatever its outcome, in data/prk_filings.jsonl — this is a
+// customs workflow, and the order history alone is spread over daily files. Never throws.
+const FILING_LOG = path.join(__dirname, '../data/prk_filings.jsonl');
+function auditFiling({ order, plate, actor, outcome, result = {}, error = null, retried = false }) {
+  const entry = {
+    at: new Date().toISOString(), actor, outcome,
+    orderId: order?.id || null, plate: plate || order?.plate || null, cargo: order?.cargo || null,
+    prk: result.prkNumber || null, prkStatus: result.prkStatus || null,
+    existingPrk: result.existingPrk || null,
+    lot: result.loadsFrom?.lot || result.lot || null, owner: result.loadsFrom?.owner || null,
+    fieldCheck: result.fieldCheck ? (result.fieldCheck.ok ? 'passed' : `failed: ${result.fieldCheck.issues.map(i => i.field).join(', ')}`) : null,
+    aiCheck: result.check ? (result.check.ok === null ? `unavailable: ${result.check.summary}` : result.check.ok ? 'passed' : `failed: ${result.check.summary}`) : null,
+    blocked: result.blocked || null, packagingWarning: result.packagingWarning || null,
+    error: error ? String(error.message || error).split('\n')[0] : null, retried,
+  };
+  try { require('fs').appendFileSync(FILING_LOG, JSON.stringify(entry) + '\n'); }
+  catch (err) { console.error('Filing log write failed:', err.message); }
+}
+
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
@@ -135,7 +154,7 @@ app.post('/run-prk', async (req, res) => {
   if (tracked) orderStore.setState(tracked.id, 'filing', { actor: 'kipis', detail: 'run-prk started' });
 
   try {
-    const result = await kipisLoad.run({ plate: value });
+    const result = await kipisLoad.run({ plate: value, order: tracked });
     if (result.submitted) {
       recordSavedDraft(tracked, value, result);
       console.log(`run-prk completed: PRK ${result.prkNumber} saved — waiting for Pateikti`);
@@ -148,9 +167,12 @@ app.post('/run-prk', async (req, res) => {
       if (tracked) orderStore.setState(tracked.id, 'drafted', { actor: 'kipis', detail: 'form filled, not saved (dry run)' });
       console.log('run-prk completed: form filled (dry run) — review and submit in KIPIS, not marked done');
     }
+    auditFiling({ order: tracked, plate: value, actor: 'RUN PRK', result,
+      outcome: result.submitted ? 'saved' : result.existingPrk ? 'existing' : result.blocked ? 'blocked' : 'dry' });
     res.json({ status: 'ok', submitted: result.submitted, prkNumber: result.prkNumber || null, blocked: result.blocked || null, existingPrk: result.existingPrk || null, needsLotOwners: !!result.needsLotOwners, check: result.check || null, fieldCheck: result.fieldCheck || null });
   } catch (err) {
     console.error('run-prk failed:', err.message);
+    auditFiling({ order: tracked, plate: value, actor: 'RUN PRK', outcome: 'failed', error: err });
     if (tracked) orderStore.setState(tracked.id, 'failed', { actor: 'kipis', detail: err.message });
     res.json({ status: 'error', message: err.message });
   } finally {
@@ -301,12 +323,41 @@ app.post('/queue/process-next', async (req, res) => {
 // Files one order end to end and records the outcome on it. The caller holds isRunning.
 // outcome: 'saved' (draft saved, waiting for Pateikti) | 'existing' (already filed in KIPIS) |
 // 'blocked' (stopped before Saugoti, e.g. lot owners to confirm) | 'failed' (error) | 'dry'.
+// A10: a transient KIPIS hiccup (timeout, "Užklausa negalioja", a page re-render mid-step) gets
+// one retry — but only if Saugoti was never pressed (a draft may exist; Rule 6) and KIPIS is
+// still logged in. Each run starts from the KIPIS home page, which also clears the half-filled
+// form and any open dialog the failed one left. Data problems (no lot, no weight, plate not in
+// the orders) are not retried: they fail with the reason for the operator.
+const TRANSIENT_ERROR = /timeout|timed out|net::ERR_|Užklausa negalioja|Execution context was destroyed|frame was detached|navigation .*interrupted/i;
+function retryable(err) {
+  return !err.saveClicked && TRANSIENT_ERROR.test(err.message || '');
+}
+
 async function fileOrder(order, actor) {
+  const run = {};   // what the attempt saw, for the filing log (A13)
+  const r = await fileOrderOnce(order, actor, run);
+  auditFiling({ order, actor, outcome: r.outcome, result: run.result || {}, error: run.error || null, retried: !!run.retried });
+  return r;
+}
+
+async function fileOrderOnce(order, actor, run) {
   orderStore.setState(order.id, 'filing', { actor: 'kipis', detail: actor });
   console.log(`Queue: processing ${order.id} | ${order.plate}`);
   const base = { id: order.id, plate: order.plate, cargo: order.cargo };
   try {
-    const result = await kipisLoad.run({ plate: order.plate });
+    let result;
+    try {
+      result = await kipisLoad.run({ plate: order.plate, order });
+    } catch (err) {
+      if (!retryable(err)) throw err;
+      const notReady = await kipisNotReady();
+      if (notReady) throw err;
+      console.warn(`Queue: ${order.id} hit a transient error (${err.message.split('\n')[0]}) — retrying once from the KIPIS home page`);
+      orderStore.setState(order.id, 'filing', { actor: 'kipis', detail: `retry after: ${err.message.split('\n')[0]}` });
+      run.retried = true;
+      result = await kipisLoad.run({ plate: order.plate, order });
+    }
+    run.result = result;
     if (result.submitted) {
       recordSavedDraft(order, order.plate, result);
       return { ...base, outcome: 'saved', prkNumber: result.prkNumber };
@@ -322,6 +373,7 @@ async function fileOrder(order, actor) {
     orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
     return { ...base, outcome: 'dry' };
   } catch (err) {
+    run.error = err;
     orderStore.setState(order.id, 'failed', { actor: 'kipis', detail: err.message });
     console.error(`Queue: ${order.id} failed —`, err.message);
     return { ...base, outcome: 'failed', message: err.message };
@@ -336,6 +388,7 @@ async function fileAllReady(actor) {
   const summary = { saved: [], existing: [], blocked: [], failed: [], dry: [], stoppedBecause: null };
   orderStore.syncFromExcel();
   const tried = new Set();
+  let listed = null;   // A5: the PRKs KIPIS already has for the last 2 days, read once per batch
   for (;;) {
     const next = orderStore.listOrders()
       .filter(o => o.state === 'ready' && !o.bulk && !tried.has(o.id))
@@ -344,12 +397,42 @@ async function fileAllReady(actor) {
     const notReady = await kipisNotReady();
     if (notReady) { summary.stoppedBecause = notReady; break; }
     tried.add(next.id);
+    if (!listed) {
+      try {
+        const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
+        listed = await withAutomation(getPage(), () => recentPrks(2));
+      } catch (err) {
+        // Without the list, the lot check (Rule 6) still runs on every order; say so and go on.
+        console.warn(`Batch: could not read the KIPIS PRK list (${err.message}) — relying on the lot check`);
+        listed = [];
+      }
+    }
+    const hit = listedPrkFor(next, listed);
+    if (hit) {
+      console.log(`Batch: ${next.plate} already has ${hit.number} (${hit.status}) in KIPIS's PRK list — not filing another`);
+      recordExistingPrk(next, next.plate, `${hit.number} (${hit.status})`);
+      auditFiling({ order: next, actor, outcome: 'existing', result: { existingPrk: `${hit.number} (${hit.status}) — from the KIPIS PRK list` } });
+      summary.existing.push({ id: next.id, plate: next.plate, cargo: next.cargo, outcome: 'existing', existingPrk: `${hit.number} (${hit.status})` });
+      continue;
+    }
     const r = await fileOrder(next, actor);
     summary[r.outcome].push(r);
   }
   const counts = Object.entries(summary).filter(([k, v]) => Array.isArray(v) && v.length).map(([k, v]) => `${v.length} ${k}`).join(', ');
   console.log(`Batch (${actor}): ${counts || 'nothing to file'}${summary.stoppedBecause ? ` — stopped: ${summary.stoppedBecause}` : ''}`);
   return summary;
+}
+
+// A5: a PRK in KIPIS's list for this order's plate (the list's transport column may carry several
+// trucks, so "contains"). A PRK already recorded on another order of the same plate is that
+// trip's (a same-day second trip), not this one's.
+function listedPrkFor(order, listed) {
+  const key = orderStore.normalizePlate(order.plate);
+  if (!key) return null;
+  const otherTrips = new Set(orderStore.listOrders()
+    .filter(o => o.id !== order.id && o.plateNorm === key && o.docs?.PRK?.number)
+    .map(o => o.docs.PRK.number));
+  return listed.find(d => d.plateNorm.includes(key) && !otherTrips.has(d.number)) || null;
 }
 
 // ── A12: filing without a click ──────────────────────────────────────────────
@@ -552,6 +635,26 @@ setInterval(() => {
   if (h < AUTO_FILE_HOURS[0] || h >= AUTO_FILE_HOURS[1]) return;
   autoRound('shift timer').catch(err => console.error('Auto round:', err.message));
 }, 15 * 60 * 1000);
+
+// Read-only (A5): the PRKs KIPIS has for the last 2 days, and which of today's orders each would
+// stop from being filed again. Clears the list filters afterwards.
+app.get('/prk/recent', async (req, res) => {
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  try {
+    const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
+    const listed = await withAutomation(getPage(), () => recentPrks(2));
+    const orders = orderStore.listOrders().filter(o => !['cancelled', 'rejected'].includes(o.state))
+      .map(o => ({ id: o.id, plate: o.plate, state: o.state, own: o.docs?.PRK?.number || null, listed: listedPrkFor(o, listed)?.number || null }));
+    res.json({ status: 'ok', count: listed.length, orders });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
 
 app.get('/prk/watch', (req, res) => res.json(lastWatch || {}));
 // Dashboard "Check submitted": the operator asks, so it runs even if they just used KIPIS.

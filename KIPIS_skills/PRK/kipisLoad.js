@@ -6,10 +6,11 @@ const KIPIS_URL = 'https://kipis.lt';
 
 async function run(data) {
   const plate = data.plate || data.value;
+  const order = data.order || null;   // the order-store record being filed (A6: picks its own Excel row)
 
   // Validate plate exists in Excel before doing anything
   console.log(`kipisLoad: looking up plate "${plate}" in orders Excel...`);
-  findRowByPlate(plate); // throws if not found
+  findRowByPlate(plate, order); // throws if not found or ambiguous
 
   console.log(`kipisLoad: running PRK for plate: ${plate}`);
 
@@ -24,7 +25,7 @@ async function run(data) {
   if (!hasSekimas) throw new Error('Session expired. Please reopen KIPIS.');
 
   // Pateikti guard armed for the whole run (armed after the home page loads: the flag is per origin).
-  const result = await withAutomation(page, () => navigateToCargo(page, { plate }));
+  const result = await withAutomation(page, () => navigateToCargo(page, { plate, order }));
 
   console.log('kipisLoad: workflow complete.');
   return result || { submitted: false };

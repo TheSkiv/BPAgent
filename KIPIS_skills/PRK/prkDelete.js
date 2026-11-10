@@ -156,6 +156,7 @@ async function sweepDrafts(page, by = 'daily cleanup', { minAgeDays = CLEANUP_MI
   }
   // Why the rest stayed, for the dashboard: PortSystem's own drafts still under the age limit,
   // and drafts other people made (never touched). A "0 deleted" read like a failure without it.
+  await require('./exportPrkList').clearListFilters();   // the operator's list view, unfiltered again
   const ownAll = orderStore.prkNumbersFiled();
   const tooYoung = drafts.filter(d => ownAll.has(d.number) && !ours.has(d.number)).length;
   return {
