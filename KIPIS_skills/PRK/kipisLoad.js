@@ -19,7 +19,7 @@ async function run(data) {
   await page.waitForLoadState('networkidle');
 
   // Validate session is still active
-  const hasSekimas = await page.locator('text=Sekimas').isVisible().catch(() => false);
+  const hasSekimas = await page.getByText('Sekimas', { exact: true }).first().isVisible().catch(() => false);
   if (!hasSekimas) throw new Error('Session expired. Please reopen KIPIS.');
 
   const result = await navigateToCargo(page, { plate });

@@ -155,7 +155,9 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - [ ] **A10. Recover from a failed run.** A failure mid-form leaves a popup or half-filled form;
   `failed` orders are never retried. Define: reset to home, retry once for transient errors
   (timeouts), leave data errors (no vessel, no IMP lot, no weight) at `needs_human` with the reason.
-- [~] **A11 BUILT 2026-11-10 (syntax-checked, not yet live):** a saved draft (and an existing
+- [x] **A11 DONE — live 2026-11-10:** five TSP trucks (NDL364, MPK262, JJJ792, MTR105, MZS371)
+  saved as 261110-002385/-002395/-002400/-002407/-002410-PRK and listed under "Waiting for
+  you"; closing them via the dispatch email still to be seen live. Built: a saved draft (and an existing
   Ruošiamas PRK found on the lot) now leaves the order `drafted`, with its PRK number. The
   dashboard lists those under "Waiting for you — check the draft in KIPIS and press Pateikti";
   terminal@bpa.lt's dispatch email (sent after Pateikti) moves it to `done`, as does the Done
@@ -258,7 +260,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   "mark a lot" form for when a vessel is delivered. Rule: one lot → used; several → all must be
   marked, lowest load order of the order's packaging that still holds one truck wins; when it
   has less than a truck left the next one is used (**to confirm with the operator** — "clean out
-  one lot first" may mean the remainder should be asked about instead). Operator, 2026-11-09: most
+  one lot first" may mean the remainder should be asked about instead). **Live 2026-11-10:**
+  operator marked OSLO CARRIER 2 TSP (260417-000725-L) bagged, load order 1, leaving the
+  ADAROSE and SEA CARRIER lots unmarked; added the rule that a lot marked load order 1 for the
+  order's packaging is used while it holds a truck even with other lots unmarked (nothing can
+  load before it). A run that picks a lot clears that cargo's "waiting for your mark" entry.
+  Five TSP drafts filed from it. Operator, 2026-11-09: most
   cargo reads `BULK` in KIPIS and the stock reports even when part of it is bagged; the bulk and
   packaged amounts are usually separate lots in KIPIS, but both may say bulk. The filler
   (step 8 of `steps.md`) picks the heaviest eligible IMP lot regardless, so a bagged order can be

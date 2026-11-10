@@ -15,6 +15,7 @@ const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
 const lotMarks = require('./core/lotMarks');
+const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
 function kipisOpen() {
@@ -252,6 +253,36 @@ app.post('/queue/process-next', async (req, res) => {
     orderStore.setState(next.id, 'failed', { actor: 'kipis', detail: err.message });
     console.error(`Queue: ${next.id} failed —`, err.message);
     res.json({ status: 'error', order: next.id, plate: next.plate, message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Read-only look at KIPIS lots: Sekimas → Kroviniai, the Pavadinimas filter, the table rows.
+// Only menu navigation and the filter button — never a form action. For checking why a run did
+// not find a lot (e.g. a cargo named differently in KIPIS). ?q=keyword, &v=vessel substring.
+app.get('/kipis/lots', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  const v = String(req.query.v || '').trim().toLowerCase();
+  if (!q) return res.status(400).json({ error: 'Missing q' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+  isRunning = true;
+  try {
+    const page = getPage();
+    if (!await page.locator('[id$=":fPavadinimas"]').isVisible()) {
+      await page.getByText('Sekimas', { exact: true }).first().click();
+      await page.waitForLoadState('networkidle');
+      await page.locator('text="Kroviniai"').click();
+      await page.waitForLoadState('networkidle');
+    }
+    const { rows, lotCount, truncated } = await searchLots(page, q);
+    const shown = rows
+      .filter(r => !v || r.transport.toLowerCase().includes(v))
+      .map(({ lot, name, transport, weightKg, lastDoc, dest }) => ({ lot, name, transport, weightKg, lastDoc, dest, ourStorage: isOurStorage(dest) }));
+    res.json({ status: 'ok', q, lotCount, truncated, rows: shown });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
   } finally {
     isRunning = false;
   }

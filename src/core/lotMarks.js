@@ -64,6 +64,14 @@ function addPending({ vessel, cargo, packaging, plate, candidates }) {
   save(d);
 }
 
+// A run for this cargo picked a lot: its pending marking request is no longer blocking anything.
+function clearPending(cargo) {
+  const d = load();
+  const before = d.pending.length;
+  d.pending = d.pending.filter(p => p.cargo !== cargo);
+  if (d.pending.length !== before) save(d);
+}
+
 // candidates: one entry per storage row in our terminals — { lot, name, place, weightKg, trucksLoading }.
 // Returns { pick, note } or { stop, needsMarking }.
 function chooseLot(candidates, packaging, grossKg) {
@@ -81,6 +89,16 @@ function chooseLot(candidates, packaging, grossKg) {
     const pick = [...candidates].sort(heaviestFirst)[0];
     if (pick.weightKg < grossKg) return { stop: `the only lot, ${pick.lot}, has ${pick.weightKg} kg left; the truck needs ${grossKg} kg`, needsMarking: false };
     return { pick, note: `only lot of this cargo (${pick.lot}) — not marked, used as the only option` };
+  }
+
+  // A lot the operator marked loading order 1 for this packaging has nothing ahead of it, so the
+  // unmarked lots cannot change the pick — use it while it still holds a truck (operator,
+  // 2026-11-10: "OSLO CARRIER 2 is bagged and loads first", the other two TSP lots unmarked).
+  const firstMarked = candidates
+    .filter(c => markOf(c)?.packaging === packaging && markOf(c).priority === 1 && c.weightKg >= grossKg)
+    .sort(heaviestFirst)[0];
+  if (unmarked.length && firstMarked) {
+    return { pick: firstMarked, note: `${packaging} lot ${firstMarked.lot}, loading order 1 (other lots not marked: ${unmarked.join(', ')})` };
   }
 
   if (unmarked.length) {
@@ -102,4 +120,4 @@ function chooseLot(candidates, packaging, grossKg) {
   return { pick, note };
 }
 
-module.exports = { listMarks, setMark, removeMark, addPending, chooseLot, PACKAGING };
+module.exports = { listMarks, setMark, removeMark, addPending, clearPending, chooseLot, PACKAGING };

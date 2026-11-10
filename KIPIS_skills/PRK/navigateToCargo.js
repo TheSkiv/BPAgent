@@ -226,7 +226,9 @@ async function navigateToCargo(page, data = {}) {
   await page.waitForLoadState('networkidle');
 
   console.log('Clicking Sekimas...');
-  await page.locator('text=Sekimas').click();
+  // Exact text: a "Sekimas / Siuntos duomenys" label on some pages also matches a loose
+  // text=Sekimas (strict-mode error, seen live 2026-11-10).
+  await page.getByText('Sekimas', { exact: true }).first().click();
   await page.waitForLoadState('networkidle');
 
   console.log('Clicking Kroviniai...');
@@ -318,6 +320,8 @@ async function navigateToCargo(page, data = {}) {
       return { submitted: false, check, fieldCheck, blocked, needsLotMarking: !!choice.needsMarking };
     }
     console.log(`Lot chosen: ${choice.note}`);
+    // A lot was found, so an earlier "mark these lots" request for this cargo no longer blocks.
+    lotMarks.clearPending(cargoName);
 
     const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');
     await checkbox.first().scrollIntoViewIfNeeded();

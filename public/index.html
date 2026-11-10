@@ -650,6 +650,10 @@
           setStatus('error', `Not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`);
           loadPipeline();
           loadLots();
+        } else if (data.status === 'ok' && data.blocked && /^lot choice/.test(data.blocked)) {
+          // Stopped while choosing the lot — no KIPIS form was opened.
+          setStatus('error', `Not filed — ${data.blocked}. No form was opened in KIPIS.`);
+          loadPipeline();
         } else if (data.status === 'ok' && data.blocked) {
           setStatus('error', `Not saved — ${data.blocked}. The form is open in KIPIS: check it and press Saugoti by hand.`);
           loadPipeline();
@@ -1042,6 +1046,7 @@
         else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate ? data.plate + ': ' : ''}${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
         else if (data.existingPrk)        pipelineStatusEl.textContent = `${data.plate}: PRK already in KIPIS (${data.existingPrk}) — not filed again.`;
         else if (data.needsLotMarking)    { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. Mark the lots in the Lots panel, then run it again.`; pipelineStatusEl.style.color = '#fc8181'; loadLots(); }
+        else if (data.blocked && /^lot choice/.test(data.blocked)) { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. No form was opened in KIPIS.`; pipelineStatusEl.style.color = '#fc8181'; }
         else if (data.blocked)            { pipelineStatusEl.textContent = `${data.plate}: not saved — ${data.blocked}. Check the form in KIPIS and press Saugoti by hand.`; pipelineStatusEl.style.color = '#fc8181'; }
         else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? `PRK draft saved: ${data.prkNumber}` : 'filled (dry run)'}`;
       } catch (err) {

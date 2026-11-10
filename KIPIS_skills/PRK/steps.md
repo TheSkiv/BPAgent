@@ -69,10 +69,14 @@ The results table groups rows by shipment via **rowspan**:
   `Saugojimo vieta — Vieta Konteinerių terminalo sandėlis, Perkėlos g. 8`. Rows loading to
   *Autotransportas* / *Vagonai* are other loads — ignored. (Replaces the old rule "last document
   contains IMP, not VZT/KDA": these lots have PTA/PRK last documents and no IMP at all.)
-- **Which lot** (`lotMarks.chooseLot`): one lot → use it. Several → every lot must be marked by
-  the operator (bagged/bulk + loading order, dashboard *Lots* panel); take the lowest loading
-  order of the order's packaging that still holds one truck's gross weight. Any lot unmarked →
-  stop and list the lots for marking. Nothing in KIPIS shows packaging or the agreed loading
+- **Which lot** (`lotMarks.chooseLot`): one lot → use it. A lot marked loading order 1 for the
+  order's packaging that holds one truck → use it, even with other lots unmarked. Otherwise every
+  lot must be marked by the operator (bagged/bulk + loading order, dashboard *Lots* panel); take
+  the lowest loading order of the order's packaging that still holds one truck's gross weight.
+  Any lot unmarked → stop and list the lots for marking.
+- **Cargo names in KIPIS vary** — e.g. OSLO CARRIER 2's TSP is `Trąšos - TSP low Cd ''CE
+  Fertilizers''`. When a vessel's lot is not found, look with `GET /kipis/lots?q=<word>&v=<vessel>`
+  (read-only) and add the spelling to a group in `config/cargo_synonyms.json`. Nothing in KIPIS shows packaging or the agreed loading
   order — both say BULK, and the order is agreed with the terminal, often by phone.
 - Never set the `Buvimo vieta` filter — it over-constrains and returns zero rows.
 
