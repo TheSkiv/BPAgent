@@ -60,6 +60,7 @@ Check ONLY the fields this process fills:
 - The payer code and name match the expected ones.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
 - When the expected data has receiverCountry, the receiver's (Gavėjas) country (Valstybė) is that country. The receiver's code, name and address are left empty on purpose — never report them.
+- When the expected data has senderCountry, the sender's (Siuntėjas) country (Valstybė) is that country. The sender's code, name and address are left empty on purpose — never report them.
 
 Every other field on the form — order number (Užsakymo numeris), sender and receiver (Siuntėjas, Gavėjas), shipment number (Siuntos numeris), dates and the rest — is outside this check. Never report them, even when empty. Do NOT demand values the expected data does not contain. Ignore cosmetic differences in spacing or letter case.
 

@@ -36,6 +36,7 @@ stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `conf
 | 15 | PRK form | fill | `[id$=":moketojas:subjf-kodas"]` | `LT242134730` | payer code |
 | 16 | PRK form | fill | `[id$=":moketojas:subjf-pav"]` | `UAB "BPA"` | payer name |
 | 17 | PRK form | fill | `[id$=":prkr_info:instrukcijos"]` | instructions | see instruction rules |
+| 17b | PRK form | select | `[id$=":prkr_info:siuntejas:subjf-valst"]` | `Lietuva` | only when empty — Pateikti is refused without the sender's country (operator, 2026-11-10) |
 | 17a | PRK form | select | `[id$=":prkr_info:gavejas:subjf-valst"]` | company's *Receiver country* | only when empty and the company has the setting (Agrokoncernas → Lietuva); KIPIS will not open the Kroviniai tab without it ("Valstybė: Reikšmė privaloma"). Receiver code/name/address stay empty |
 | 18 | PRK form | check | label `krovos darbų aktą tvirtinti automatiškai` | ✓ | |
 | 19 | PRK form | check | label `generuoti važtaraštį automatiškai` | ✓ | |
@@ -49,6 +50,10 @@ stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `conf
 | 27 | — | **AI check** | `checkPrk.js` | — | verify against source data |
 | 28 | PRK form | click | `input[type=submit][value="Saugoti"]:visible` (last) | — | **STOP HERE** |
 | 29 | PRK form | wait/read | text `Prašymas krovai: <nnnnnn-nnnnnn-PRK>, Ruošiamas, …` | — | proof of save + PRK number (`confirmSaved`); missing or not Ruošiamas → order failed |
+| 30 | PRK draft | click | the lot link (*Siuntos numeris*, `a` with text e.g. `260924-001330-L`) | — | **bagged only** — opens the cargo line, "KIPIS - Krovinys", same window |
+| 31 | Cargo line | select | `[id$=":kr_informacija:pakuotesRusis"]` | option starting `43, Krepšys` | default `NE, Nesupakuota`; Pateikti is refused without it (operator) |
+| 32 | Cargo line | click | `input[type=submit][value="Saugoti"]:visible` | — | stores it in the document only: "Informacija apie krovinį išsaugota, nepamirškite išsaugoti dokumento!" — back on the PRK |
+| 33 | PRK draft | click + read | Saugoti (last visible), then `confirmSaved` | — | saves the document; then the cargo line is reopened to read `43` back, and Atgal. A failure leaves the draft saved and marks the truck "set the packaging by hand" |
 
 ## Row selection (step 8)
 

@@ -491,6 +491,14 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [~] **A29. What Pateikti needs on the PRK — BUILT 2026-11-10 (live on one draft).** Operator:
+  Pateikti is refused without (1) the sender's country — *Siuntėjas → Valstybė* = Lietuva, filled
+  when empty, like the receiver's; (2) for bagged cargo, the cargo line's *Pakuotės rūšis* =
+  "43, Krepšys": after the draft is saved, the lot link opens the cargo line, the packaging is
+  set, its Saugoti only stores it in the document, so the PRK is saved again and the cargo line
+  reopened to read it back (steps.md 30–33). A packaging failure keeps the draft and shows "set it
+  by hand". `POST /prk/amend` brings drafts filed earlier up to date (sender country + packaging);
+  live on MOB153's 261110-003789-PRK, read back from KIPIS.
 - [~] **UI redesign — BUILT 2026-11-10 (operator: too much on one page, unclear next step,
   dated/cramped, hard to find a truck).** "Truck desk": one list of trucks, each with a route
   line (Order · Draft · Pateikti · Email · Done; bulk: Order · Gate pass · Done) marking where it

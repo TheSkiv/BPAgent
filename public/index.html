@@ -137,7 +137,7 @@
         case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: 'Filing in KIPIS now…' };
         case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: 'Not filed', reason: o.note, actions: ['retry', 'open'] };
         case 'drafted':   return prk
-          ? { group: 'needs', route: BAGGED, stop: 1, label: 'Check the draft in KIPIS and press Pateikti' }
+          ? { group: 'needs', route: BAGGED, stop: 1, label: 'Check the draft in KIPIS and press Pateikti', reason: /packaging not set/.test(o.note || '') ? 'Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.' : '' }
           : { group: 'needs', route: BAGGED, stop: 1, label: 'Form filled but not saved — save it in KIPIS' };
         case 'submitted': return o.dispatchSent
           ? { group: 'waiting', route: BAGGED, stop: 3, label: `Email sent ${hhmm(o.dispatchSent.at)} — closes at the next mail check` }

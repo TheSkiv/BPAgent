@@ -113,6 +113,27 @@ const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const SEARCH_LIMIT = 500;
 
+const SENDER_COUNTRY = 'Lietuva';
+
+// Picks `country` in a KIPIS country <select> only when nothing is chosen ("--") — never over a
+// value KIPIS took from the lot. Returns the country filled, or '' when left alone.
+async function fillCountryIfEmpty(page, select, country, what) {
+  if (!country || !await select.count()) return '';
+  const current = await select.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim());
+  if (current && current !== '--') return '';
+  const value = await select.evaluate((s, name) => {
+    const n = name.toLowerCase();
+    const o = [...s.options].find(x => x.textContent.trim().toLowerCase() === n)
+           || [...s.options].find(x => x.textContent.toLowerCase().includes(n));
+    return o ? o.value : null;
+  }, country);
+  if (!value) throw new Error(`Country "${country}" is not in KIPIS's country list (${what})`);
+  console.log(`Filling ${what}: ${country}...`);
+  await select.selectOption(value);
+  await page.waitForLoadState('networkidle');
+  return country;
+}
+
 // KIPIS document numbers start with their date: "261110-001994-VZT" = 2026-11-10. Recent = today
 // or the two days before (a PRK pre-made the day before the truck comes — ROADMAP D4).
 const RECENT_DAYS = 2;
@@ -214,6 +235,7 @@ async function navigateToCargo(page, data = {}) {
   let blocked    = null;
   let saved      = null;
   let loadsFrom  = null;
+  let packagingWarning = null;
   try {
     const row = findRowByPlate(data.plate);
     console.log('Matched Excel row for plate:', row['Plate']);
@@ -359,25 +381,12 @@ async function navigateToCargo(page, data = {}) {
     // and some lots leave it empty (Agrokoncernas's own ULSAN lot, 2026-11-10). Filled from the
     // company's setting (operator: "Lietuva only"), and only when empty — never over a value
     // KIPIS took from the lot.
-    const receiverCountry = owners.receiverCountryFor(company);
-    const countrySelect   = page.locator('[id$=":prkr_info:gavejas:subjf-valst"]');
-    let countryFilled = '';
-    if (receiverCountry && await countrySelect.count()) {
-      const current = await countrySelect.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim());
-      if (!current || current === '--') {
-        const value = await countrySelect.evaluate((s, name) => {
-          const n = name.toLowerCase();
-          const o = [...s.options].find(x => x.textContent.trim().toLowerCase() === n)
-                 || [...s.options].find(x => x.textContent.toLowerCase().includes(n));
-          return o ? o.value : null;
-        }, receiverCountry);
-        if (!value) throw new Error(`Receiver country "${receiverCountry}" is not in KIPIS's country list`);
-        console.log(`Filling Gavėjas valstybė: ${receiverCountry} (${company}'s setting)...`);
-        await countrySelect.selectOption(value);
-        await page.waitForLoadState('networkidle');
-        countryFilled = receiverCountry;
-      }
-    }
+    const countrySelect = page.locator('[id$=":prkr_info:gavejas:subjf-valst"]');
+    const countryFilled = await fillCountryIfEmpty(page, countrySelect, owners.receiverCountryFor(company), `Gavėjas valstybė (${company}'s setting)`);
+    // Sender's country (Siuntėjas → Valstybė): Pateikti is refused without it (operator,
+    // 2026-11-10) — Lietuva, the same rule: only when KIPIS left it empty.
+    const senderCountrySelect = page.locator('[id$=":prkr_info:siuntejas:subjf-valst"]');
+    const senderCountryFilled = await fillCountryIfEmpty(page, senderCountrySelect, SENDER_COUNTRY, 'Siuntėjas valstybė');
 
     console.log('Checking Krovos darbų aktą tvirtinti automatiškai...');
     await page.getByLabel(/krovos darbų aktą tvirtinti automatiškai/i).check();
@@ -416,6 +425,7 @@ async function navigateToCargo(page, data = {}) {
       { field: 'Mokėtojas — pavadinimas',       locator: page.locator('[id$=":moketojas:subjf-pav"]'),        expected: PAYER_NAME },
       { field: 'Instrukcijos',                  locator: page.locator('[id$=":prkr_info:instrukcijos"]'),     expected: instructions },
       ...(countryFilled ? [{ field: 'Gavėjas — valstybė', locator: countrySelect, expected: countryFilled, kind: 'selectedText' }] : []),
+      ...(senderCountryFilled ? [{ field: 'Siuntėjas — valstybė', locator: senderCountrySelect, expected: senderCountryFilled, kind: 'selectedText' }] : []),
       { field: 'Krovos darbų aktą tvirtinti automatiškai', locator: page.locator('[id$=":prkr_info:patvirtintiKda"]'),       expected: true, kind: 'checked' },
       { field: 'Generuoti važtaraštį automatiškai',        locator: page.locator('[id$=":prkr_info:generuotiVaztarasti"]'), expected: true, kind: 'checked' },
       // A saved transport row shows its plate as text (input values do not count here).
@@ -482,6 +492,7 @@ async function navigateToCargo(page, data = {}) {
       payerCode:    PAYER_CODE,
       payerName:    PAYER_NAME,
       ...(countryFilled ? { receiverCountry: countryFilled } : {}),
+      ...(senderCountryFilled ? { senderCountry: senderCountryFilled } : {}),
     }, mainTabFields);
 
     if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);
@@ -515,6 +526,17 @@ async function navigateToCargo(page, data = {}) {
       saved = await confirmSaved(page);
       submitted = true;
       console.log(`PRK draft saved: ${saved.number} (${saved.status}). Pateikti is HUMAN-ONLY — not pressed (see RULES.md).`);
+      // BB only: the cargo line's packaging. A failure here leaves the saved draft as it is and
+      // tells the operator to set it by hand — it does not undo the filing.
+      if (packaging === 'bagged') {
+        try {
+          await setBagPackaging(page, loadsFrom.lot);
+          console.log('Pakuotės rūšis set: 43, Krepšys');
+        } catch (err) {
+          packagingWarning = `packaging not set — set Pakuotės rūšis to "43, Krepšys" by hand (${err.message})`;
+          console.warn(`PRK ${saved.number}: ${packagingWarning}`);
+        }
+      }
     }
 
   } catch (error) {
@@ -522,7 +544,81 @@ async function navigateToCargo(page, data = {}) {
     throw error;
   }
 
-  return { submitted, check, fieldCheck, blocked, prkNumber: saved?.number || null, prkStatus: saved?.status || null, loadsFrom };
+  return { submitted, check, fieldCheck, blocked, prkNumber: saved?.number || null, prkStatus: saved?.status || null, loadsFrom, packagingWarning };
+}
+
+// Bagged cargo: the PRK's cargo line must say Pakuotės rūšis "43, Krepšys" (bag), or Pateikti is
+// refused (operator, 2026-11-10). On the saved draft, the lot number (Siuntos numeris, a link —
+// e.g. 260924-001330-L) opens the cargo line ("KIPIS - Krovinys", same window); its packaging
+// select defaults to "NE, Nesupakuota". The cargo line's Saugoti only stores it in the document
+// and returns to the PRK ("Informacija apie krovinį išsaugota, nepamirškite išsaugoti
+// dokumento!"), so the PRK is saved again, then the cargo line is reopened to read the value
+// back. Amends a Ruošiamas draft only (RULES.md Rule 8); Pateikti is never touched.
+const BAG_PACKAGING = /^43\s*,\s*krep/i;
+async function openCargoLine(page, lot) {
+  const link = page.locator('a', { hasText: new RegExp(`^\\s*${escapeRe(lot)}\\s*$`) }).first();
+  if (!await link.count()) throw new Error(`the lot link ${lot} is not on the PRK page`);
+  await link.click();
+  await page.waitForLoadState('networkidle');
+  const select = page.locator('[id$=":kr_informacija:pakuotesRusis"]');
+  await select.waitFor({ state: 'visible', timeout: 15000 });
+  return select;
+}
+const selectedText = select => select.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim());
+
+// Brings one of our saved drafts up to what Pateikti needs (for drafts filed before the run did it
+// itself): the sender's country, then — bagged only — the cargo line's packaging. The page must
+// show the draft. Each change is saved and the draft confirmed (number + Ruošiamas).
+async function amendDraft(page, { lot, bagged }) {
+  const done = [];
+  const sender = page.locator('[id$=":prkr_info:siuntejas:subjf-valst"]');
+  if (await fillCountryIfEmpty(page, sender, SENDER_COUNTRY, 'Siuntėjas valstybė')) {
+    const docSave = page.locator('input[type="submit"][value="Saugoti"]:visible').last();
+    await docSave.scrollIntoViewIfNeeded();
+    await docSave.click();
+    await page.waitForLoadState('networkidle');
+    await confirmSaved(page);
+    const now = await sender.evaluate(s => (s.selectedOptions[0]?.textContent || '').trim()).catch(() => '');
+    if (now.toLowerCase() !== SENDER_COUNTRY.toLowerCase()) throw new Error(`after saving, Siuntėjas valstybė shows "${now}"`);
+    done.push('sender country');
+  }
+  if (bagged && lot) {
+    await setBagPackaging(page, lot);
+    done.push('packaging');
+  }
+  return done;
+}
+
+async function setBagPackaging(page, lot) {
+  let select = await openCargoLine(page, lot);
+  if (!BAG_PACKAGING.test(await selectedText(select))) {
+    const value = await select.evaluate((s, src) => {
+      const re = new RegExp(src, 'i');
+      const o = [...s.options].find(x => re.test(x.textContent.trim()));
+      return o ? o.value : null;
+    }, BAG_PACKAGING.source);
+    if (!value) throw new Error('KIPIS has no "43, Krepšys" packaging option');
+    console.log(`Setting Pakuotės rūšis: 43, Krepšys (lot ${lot})...`);
+    await select.selectOption(value);
+    await page.waitForLoadState('networkidle');
+    const cargoSave = page.locator('input[type="submit"][value="Saugoti"]:visible');
+    if (await cargoSave.count() !== 1) throw new Error(`expected one Saugoti on the cargo line, found ${await cargoSave.count()}`);
+    await cargoSave.click();
+    await page.waitForLoadState('networkidle');
+
+    // Back on the PRK: save the document itself, and make sure it is still our Ruošiamas draft.
+    const docSave = page.locator('input[type="submit"][value="Saugoti"]:visible').last();
+    await docSave.scrollIntoViewIfNeeded();
+    await docSave.click();
+    await page.waitForLoadState('networkidle');
+    await confirmSaved(page);
+
+    select = await openCargoLine(page, lot);
+    const after = await selectedText(select);
+    if (!BAG_PACKAGING.test(after)) throw new Error(`after saving, the packaging shows "${after || '(nothing)'}", not 43, Krepšys`);
+  }
+  const back = page.locator('input[type="submit"][value="Atgal"]:visible');
+  if (await back.count()) { await back.first().click(); await page.waitForLoadState('networkidle'); }
 }
 
 // After Saugoti, KIPIS swaps the header "Naujas dokumentas" for
@@ -547,4 +643,4 @@ async function confirmSaved(page, timeout = 20000) {
   return { number: m[1], status };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved };
+module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved, setBagPackaging, amendDraft };

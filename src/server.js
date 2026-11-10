@@ -26,6 +26,7 @@ const smtpSend = require('./core/smtpSend');
 const { DISPATCH_RECIPIENTS, DISPATCH_CC } = require('./core/terminals');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
 const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
+const { amendDraft } = require('../KIPIS_skills/PRK/navigateToCargo');
 
 // Checked before an order is taken, so a closed KIPIS window never fails a good order.
 function kipisOpen() {
@@ -71,7 +72,7 @@ function recordSavedDraft(order, plate, result) {
   if (!order) return;
   orderStore.attachDocument(order.id, { type: 'PRK', number: result.prkNumber, status: result.prkStatus || 'Ruošiamas' });
   orderStore.setLoadsFrom(order.id, result.loadsFrom);
-  orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti` });
+  orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: `PRK draft saved (Saugoti): ${result.prkNumber} — waiting for Pateikti${result.packagingWarning ? ` — ${result.packagingWarning}` : ''}` });
 }
 
 const app = express();
@@ -687,6 +688,98 @@ app.get('/prk/open', async (req, res) => {
     const buttons = await page.locator('input[type="button"]:visible, input[type="submit"]:visible')
       .evaluateAll(bs => bs.map(b => ({ value: b.value, name: b.name })));
     res.json({ status: 'ok', title: await page.title(), header, buttons });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Brings our Ruošiamas drafts filed before the run did it up to what Pateikti needs: Siuntėjas
+// valstybė = Lietuva, and (bagged) the cargo line's "43, Krepšys". Drafts only (Rule 8): each
+// opened from the Ruošiamas list. { prk } = one draft; {} = every drafted order of ours today.
+app.post('/prk/amend', async (req, res) => {
+  const one = String(req.body?.prk || '').trim();
+  const filed = orderStore.prkNumbersFiled({ maxAgeDays: 1 });
+  const targets = [...filed.entries()].filter(([n, o]) => one ? n === one : o.state === 'drafted');
+  if (one && !targets.length) return res.json({ status: 'error', message: `${one} was not filed by PortSystem` });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  const results = [];
+  try {
+    const page = getPage();
+    for (const [n, o] of targets) {
+      const order = orderStore.getOrder(o.orderId, o.date);
+      try {
+        const done = await withAutomation(page, async () => {
+          const header = await prkDelete.openFromDraftList(page, n);
+          if (!header || header.number !== n) throw new Error(`did not open from the Ruošiamas list`);
+          const lot = order?.loadsFrom?.lot || (await page.locator('a', { hasText: /^\s*\d{6}-\d{6}-L\s*$/ }).first().textContent()).trim();
+          return amendDraft(page, { lot, bagged: !order?.bulk });
+        });
+        console.log(`Draft ${n} (${o.plate}): ${done.length ? done.join(' + ') + ' set' : 'already complete'}`);
+        results.push({ prk: n, plate: o.plate, set: done });
+      } catch (err) {
+        console.error(`Draft ${n} (${o.plate}) not amended: ${err.message}`);
+        results.push({ prk: n, plate: o.plate, error: err.message });
+      }
+    }
+    res.json({ status: 'ok', results });
+  } finally {
+    isRunning = false;
+  }
+});
+
+// Read-only mapping aid: opens one of our drafts from the Ruošiamas list, clicks its Siuntos
+// numeris link (e.g. 260924-001330-L) and reports what opens — fields, select options, buttons.
+// Nothing is filled or saved.
+app.post('/kipis/explore-lot', async (req, res) => {
+  const n = String(req.body?.prk || '').trim();
+  if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'prk must be a PRK number' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  try {
+    const page = getPage();
+    const out = await withAutomation(page, async () => {
+      await prkDelete.openFromDraftList(page, n);
+      const link = page.locator('a', { hasText: /^\s*\d{6}-\d{6}-L\s*$/ }).first();
+      const lotText = (await link.textContent()).trim();
+      const popupP = page.context().waitForEvent('page', { timeout: 8000 }).catch(() => null);
+      await link.click();
+      const popup = await popupP;
+      const target = popup || page;
+      await target.waitForLoadState('networkidle').catch(() => {});
+      await target.waitForTimeout(1500);
+      // ?tryBag: pick "43, Krepšys" and press this page's Saugoti, then report where it lands
+      // (the PRK's own Saugoti is NOT pressed — nothing is kept unless it is).
+      if (req.body?.tryBag) {
+        const sel = target.locator('[id$=":kr_informacija:pakuotesRusis"]');
+        const v = await sel.evaluate(s => { const o = [...s.options].find(x => /^43\s*,\s*krep/i.test(x.textContent.trim())); return o ? o.value : null; });
+        await sel.selectOption(v);
+        await target.waitForLoadState('networkidle');
+        await target.locator('input[type="submit"][value="Saugoti"]:visible').click();
+        await target.waitForLoadState('networkidle');
+        await target.waitForTimeout(1500);
+        const msgs = await target.locator('[class*="rror"], [class*="essage"], font[color="red"], span[style*="red"]')
+          .evaluateAll(els => [...new Set(els.filter(e => e.offsetParent).map(e => e.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean))]);
+        const header = await prkDelete.readDocHeader(target);
+        const stillCargo = await sel.isVisible().catch(() => false);
+        return { lot: lotText, afterSave: { title: await target.title(), header, messages: msgs, stillOnCargoLine: stillCargo, packagingNow: stillCargo ? await sel.evaluate(s => s.selectedOptions[0]?.textContent.trim()) : null,
+          buttons: (await captureFormState(target)).buttons } };
+      }
+      const { fields, buttons } = await captureFormState(target);
+      const selects = await target.locator('select').evaluateAll(ss => ss.filter(s => s.offsetParent).map(s => ({
+        name: s.name, selected: (s.selectedOptions[0]?.textContent || '').trim(),
+        options: [...s.options].slice(0, 80).map(o => `${o.value}=${o.textContent.trim()}`),
+      })));
+      const text = (await target.evaluate(() => document.body ? document.body.innerText : '')).slice(0, 3000);
+      return { lot: lotText, newWindow: !!popup, url: target.url(), title: await target.title(), fields, buttons, selects, text };
+    });
+    res.json({ status: 'ok', ...out });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
   } finally {
