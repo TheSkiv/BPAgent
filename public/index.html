@@ -299,6 +299,8 @@
     #status.success { background: #0f2820; border-color: #22543d; color: #68d391; }
     #status.error   { background: #2d0f0f; border-color: #742a2a; color: #fc8181; }
 
+    #autoFileStatus { font-size: 0.75rem; color: #64748b; }
+    #autoFileStatus .warn { color: #fbbf24; }
     #kipisSession { font-size: 0.75rem; margin-top: -4px; }
     #kipisSession.main   { color: #68d391; }
     #kipisSession.login  { color: #fbbf24; font-weight: 600; }
@@ -508,6 +510,7 @@
         <button id="recheckBtn">RECHECK</button>
       </div>
       <div id="recheckStatus"></div>
+      <div id="autoFileStatus" title="PRK drafts are filed by themselves after each RECHECK and every 15 minutes from 08:00 to 18:00"></div>
       <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>Waiting for you — check the draft in KIPIS and press Pateikti</span>
         <button id="sweepBtn" title="Runs the daily cleanup now: deletes (Šalinti) PortSystem's Ruošiamas PRK drafts for orders 2+ days old. Today's and yesterday's drafts and drafts made by people are never touched.">Run cleanup now</button>
@@ -1047,6 +1050,24 @@
     });
 
     loadConfirmations();
+
+    // A12: filing runs by itself after RECHECK and every 15 min in the shift — show its last run.
+    async function loadAutoFile() {
+      const el = document.getElementById('autoFileStatus');
+      try {
+        const r = await (await fetch('/queue/auto')).json();
+        if (!r.at) { el.textContent = 'Auto-filing: on — after each RECHECK and every 15 min (08–18).'; return; }
+        const when = new Date(r.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
+        if (r.skipped || r.error) { el.innerHTML = `<span class="warn">Auto-filing ${escHtml(when)} (${escHtml(r.reason)}): not run — ${escHtml(r.skipped || r.error)}</span>`; return; }
+        const n = k => (r[k] || []).length;
+        const parts = [`${n('saved')} saved`, n('existing') && `${n('existing')} already filed`, n('blocked') && `${n('blocked')} not filed`, n('failed') && `${n('failed')} failed`].filter(Boolean);
+        el.innerHTML = `Auto-filing ${escHtml(when)} (${escHtml(r.reason)}): ${parts.join(', ')}`
+          + (r.stoppedBecause ? ` — <span class="warn">stopped: ${escHtml(r.stoppedBecause)}</span>` : '')
+          + ((n('blocked') || n('failed')) ? ' — <span class="warn">see the orders marked failed</span>' : '');
+      } catch { /* keep the last text */ }
+    }
+    loadAutoFile();
+    setInterval(loadAutoFile, 60 * 1000);
 
     // A8: every ready truck in one go. The summary names each truck and what happened to it.
     const fileAllBtn = document.getElementById('fileAllBtn');

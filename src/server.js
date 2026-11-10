@@ -73,6 +73,11 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
+// A12: once a RECHECK (GET /gmail/emails) has finished, file whatever it made ready.
+app.use('/gmail/emails', (req, res, next) => {
+  res.on('finish', () => { setTimeout(() => autoFile('after RECHECK').catch(err => console.error('Auto-filing:', err.message)), 1000); });
+  next();
+});
 app.use('/gmail', gmailRoute);
 
 let isRunning = false;
@@ -333,6 +338,44 @@ async function fileAllReady(actor) {
   console.log(`Batch (${actor}): ${counts || 'nothing to file'}${summary.stoppedBecause ? ` — stopped: ${summary.stoppedBecause}` : ''}`);
   return summary;
 }
+
+// ── A12: filing without a click ──────────────────────────────────────────────
+// Mail intake stays manual (RECHECK, D1); filing runs by itself: right after each RECHECK, and
+// every 15 minutes during the shift (08:00–18:00) for anything that became ready in between
+// (e.g. a sender the operator confirmed). Skips quietly when there is nothing ready, when another
+// KIPIS job is running (the next tick catches up) or when KIPIS is not logged in.
+const AUTO_FILE_HOURS = [8, 18];
+let lastAutoFile = null;
+
+async function autoFile(reason) {
+  if (isRunning) return;
+  orderStore.syncFromExcel();   // RECHECK writes new orders to today's Excel first
+  const ready = orderStore.listOrders().some(o => o.state === 'ready' && !o.bulk);
+  if (!ready || isRunning) return;
+  const notReady = await kipisNotReady();
+  if (notReady) {
+    lastAutoFile = { at: new Date().toISOString(), reason, skipped: notReady };
+    return;
+  }
+  isRunning = true;
+  try {
+    const s = await fileAllReady(`auto-filing (${reason})`);
+    lastAutoFile = { at: new Date().toISOString(), reason, ...s };
+  } catch (err) {
+    lastAutoFile = { at: new Date().toISOString(), reason, error: err.message };
+    console.error('Auto-filing failed:', err.message);
+  } finally {
+    isRunning = false;
+  }
+}
+
+setInterval(() => {
+  const h = new Date().getHours();
+  if (h < AUTO_FILE_HOURS[0] || h >= AUTO_FILE_HOURS[1]) return;
+  autoFile('shift timer').catch(err => console.error('Auto-filing:', err.message));
+}, 15 * 60 * 1000);
+
+app.get('/queue/auto', (req, res) => res.json(lastAutoFile || {}));
 
 app.post('/queue/file-all', async (req, res) => {
   if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });

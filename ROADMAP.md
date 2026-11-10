@@ -188,9 +188,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   `done`, though the operator still has to press `Pateikti`. Add a `drafted`-awaiting-review
   view so the operator gets a clear "drafts waiting for you" list. (Dry-run `drafted` orders are
   also stuck today: the worker only picks `ready`.)
-- [ ] **A12. Filing without a click.** Intake stays manual (D1): mail is fetched only on
-  RECHECK. What runs on its own is filing: after each RECHECK, and on a timer during the shift
-  (08:00–18:00), the batch worker (A8) files every eligible order. No mail polling timer.
+- [~] **A12. Filing without a click — BUILT 2026-11-10 (not yet seen live).** Intake stays manual
+  (D1): mail is fetched only on RECHECK. What runs on its own is filing: when a RECHECK
+  (`GET /gmail/emails`) finishes, and every 15 minutes 08:00–18:00, `autoFile` runs the A8 batch
+  — only if something is ready, nothing else is running and KIPIS is logged in (else it notes
+  why and the next tick tries again). No mail polling timer. Dashboard line under RECHECK: last
+  auto-filing run and its result (`GET /queue/auto`).
 - [ ] **A13. Unified audit log** of every automated filing (order id, plate, PRK number,
   check result, timestamp) — this is a customs workflow.
 - [ ] **A14. Keep the server alive.** No process supervisor; a crash or a closed terminal stops
