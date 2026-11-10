@@ -496,6 +496,9 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   *Direction (not in force):* move step by step to automatic submission, with the human check
   moving to the dispatch email — the email is the gate that lets the terminal load a truck.
   Needs an explicit change to Rule 1 by the operator before any automation targets Pateikti.
+- **D10. No PRK PDF copies kept on the PC** — decided 2026-11-10. The PRK lives in KIPIS and in
+  the dispatch email; A19 fetches the PDF only to attach it to the email draft and keeps no file
+  (A19a "save the PDF" is folded into A19b).
 - **D9. Transwina buys from Helm** — 2026-11-10. Companies with no release line of their own get
   a "Buys from" seller on the Lots & owners page (`config/owners.json`).
 - *Open:* none.
