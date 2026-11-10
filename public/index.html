@@ -126,10 +126,11 @@
     function stageOf(o) {
       const prk = o.docs?.PRK?.number;
       if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: 'Cancelled' };
+      // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
       if (o.bulk) {
         if (o.state === 'done') return { group: 'done', route: BULK, stop: 2, label: 'Done' };
-        if (o.state === 'gate_pass_ordered') return { group: 'waiting', route: BULK, stop: 1, label: 'Gate pass ordered — truck on its way' };
-        return { group: 'waiting', route: BULK, stop: 0, label: 'Bulk — the terminal orders the gate pass' };
+        if (o.state === 'gate_pass_ordered' || o.dispatchSent) return { group: 'waiting', route: BULK, stop: 1, label: `Loading ordered${o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : ''} — waiting for the loaded weight` };
+        return { group: 'needs', route: BULK, stop: 0, label: 'Order the loading by email', actions: ['email'] };
       }
       switch (o.state) {
         case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: 'Gets its PRK draft automatically', actions: ['file'] };
@@ -166,7 +167,7 @@
     function actionsHtml(o, st) {
       const b = [];
       for (const a of st.actions || []) {
-        if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">Send email</button>`);
+        if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? 'Order loading' : 'Send email'}</button>`);
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">File now</button>`);
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">Try again</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">Fix order</button>`);
@@ -526,7 +527,7 @@
       $('dispatchModal').classList.add('open');
       $('dispatchTitle').textContent = 'Dispatch email';
       $('dispatchWarn').innerHTML = '';
-      $('dispatchStatus').textContent = 'Getting the PRK PDF from KIPIS…';
+      $('dispatchStatus').textContent = 'Preparing the email…';
       $('dispatchSend').disabled = true;
       ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { $(x).textContent = ''; });
       $('dispatchSubject').value = ''; $('dispatchText').value = '';
@@ -534,12 +535,17 @@
         const r = await getJson('/dispatch/preview?id=' + encodeURIComponent(id));
         if (r.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(r.message || r.error)}</span>`; return; }
         dispatchCurrent = r;
-        $('dispatchTitle').innerHTML = `Dispatch email · <span class="mono">${esc(r.plate)}</span>`;
+        $('dispatchTitle').innerHTML = `${r.bulk ? 'Loading order' : 'Dispatch email'} · <span class="mono">${esc(r.plate)}</span>`;
         $('dispatchTerminal').value = r.terminal;
         $('dispatchSubject').value = r.subject;
         $('dispatchText').value = r.text;
-        $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
-        $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
+        if (r.pdf) {
+          $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
+          $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
+        } else {
+          $('dispatchPdf').textContent = 'None — the PRK follows the loaded weight';
+          $('dispatchPdf').removeAttribute('href');
+        }
         showRecipients();
         const warns = [];
         if (r.sent) warns.push(`Already sent from here at ${hhmm(r.sent.at)}.`);

@@ -491,6 +491,17 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [~] **A30. Bulk loading-order email — BUILT 2026-11-10 (preview tested; first send not yet).**
+  Bulk is ordered by email first; the PRK follows once the terminal reports the loaded weight.
+  A bulk truck not yet ordered is under *Needs you* with **Order loading** → the same preview and
+  Send as A19, in the format of Dalius's 15:41 email: subject "PLATES - CARGO (palaidas)"; body
+  plates + driver, company, "Laivas VESSEL", "(ORDERED / LT NAME) - palaidas", and the three
+  loading lines (40 t gross, report the exact weight for the PRK, clean cargo); no attachment.
+  Vessel from the order's release or seller (`owners.resolveOrder`); terminal by the same rule;
+  recipients from `BULK_DISPATCH_RECIPIENTS` — KKT bulk goes to vidas@, ktdispecerine@, vbs@,
+  gates@ (vbs@ instead of lina.armonaitiene@ used for bagged), Ro-Ro to dispecerine@. Sending
+  sets the order to `gate_pass_ordered` ("Loading ordered — waiting for the loaded weight").
+  Preview for LID098//ID448 matched Dalius's email and warned it was already sent.
 - [~] **A29. What Pateikti needs on the PRK — BUILT 2026-11-10 (live on one draft).** Operator:
   Pateikti is refused without (1) the sender's country — *Siuntėjas → Valstybė* = Lietuva, filled
   when empty, like the receiver's; (2) for bagged cargo, the cargo line's *Pakuotės rūšis* =

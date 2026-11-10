@@ -17,6 +17,14 @@ const DISPATCH_RECIPIENTS = {
 };
 const DISPATCH_CC = ['terminal@bpa.lt'];
 
+// Bulk loading orders (no PRK yet — it follows once the terminal reports the loaded weight) go to
+// a slightly different KKT list: vbs@ instead of lina.armonaitiene@ (the office's bulk emails of
+// 2026-11-10, 15:41 — Dalius and Gordey alike). Ro-Ro: the dispatcher only.
+const BULK_DISPATCH_RECIPIENTS = {
+  roro: [TERMINAL_EMAILS.roro],
+  kkt:  ['vidas@terminalas.lt', TERMINAL_EMAILS.kkt, 'vbs@terminalas.lt', 'gates@terminalas.lt'],
+};
+
 // Which terminal a truck loads at (operator, 2026-11-10): KKT for ULSAN's ammonium sulphate and
 // for NPK 14-14-21 on any vessel; everything else Ro-Ro. KIPIS's storage place is not reliable
 // for this (it lists the ULSAN AS lot as Ro-Ro). The rare exception is fixed by hand in the draft.
@@ -32,4 +40,4 @@ function terminalFor({ vessel, cargo }) {
   return hit ? 'kkt' : 'roro';
 }
 
-module.exports = { TERMINAL_EMAILS, DISPATCH_RECIPIENTS, DISPATCH_CC, terminalFor };
+module.exports = { TERMINAL_EMAILS, DISPATCH_RECIPIENTS, BULK_DISPATCH_RECIPIENTS, DISPATCH_CC, terminalFor };

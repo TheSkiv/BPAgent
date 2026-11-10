@@ -61,7 +61,54 @@ function composeDispatch(order, date, bagKg) {
   return { terminal, to: DISPATCH_RECIPIENTS[terminal], cc: DISPATCH_CC, subject, text, missing };
 }
 
-// RFC 5322 message: text/plain + one PDF, UTF-8 throughout, base64 bodies.
+// The bulk loading order (operator, 2026-11-10; format from Dalius's 15:41 email): bulk is
+// ordered first, and the PRK is made once the terminal reports the exact loaded weight. No
+// attachment. Subject "PLATES - CARGO (palaidas)". `vessel` comes from the order's release or
+// seller (the caller resolves it); `company` is the ordering company's name.
+const BULK_LINES = [
+  'Grūdovežį reikia pakrauti iki leistino krovumo 40 t (bendros masės)',
+  'Prašome po pakrovimo pranešti tikslų svorį – padarysime PRK.',
+  'Krovinys turi būti švarus, be priemaišų.',
+];
+function composeBulkDispatch(order, date, { vessel, company }) {
+  const { BULK_DISPATCH_RECIPIENTS } = require('./terminals');
+  const plates   = plateText(order.plate);
+  const driver   = (excelRow(date, order.plateNorm) || {}).Driver || '';
+  const ordered  = cargoName(order.cargo).toUpperCase();
+  const lt       = (cargoLtName(order.cargo) || '').toUpperCase();
+  const named    = lt && lt !== ordered ? `${ordered} / ${lt}` : ordered;
+  const terminal = terminalFor({ vessel, cargo: order.cargo });
+  const missing  = [!vessel && 'vessel', !driver && 'driver'].filter(Boolean);
+  const subject  = `${plates} - ${lt || ordered} (palaidas)`;
+  const text = [
+    'Laba diena,',
+    '',
+    `${plates}${driver ? ' ' + driver : ''}`,
+    company || '',
+    '',
+    `Laivas ${vessel || '—'}`,
+    `(${named}) - palaidas`,
+    '',
+    ...BULK_LINES,
+    '',
+    'Pagarbiai,',
+    'UAB "BPA"',
+  ].join('\r\n');
+  return { terminal, to: BULK_DISPATCH_RECIPIENTS[terminal], cc: DISPATCH_CC, subject, text, missing };
+}
+
+// The Lithuanian name of a cargo from cargo_synonyms.json's group (its first name): "Gran AS" →
+// "Amonio sulfatas". '' when the cargo is in no group.
+function cargoLtName(cargo) {
+  try {
+    const { groups } = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../config/cargo_synonyms.json'), 'utf8'));
+    const n = s => String(s || '').toLowerCase().replace(/[^a-z0-9ąčęėįšųūž]/g, '');
+    const g = (groups || []).find(gr => gr.some(name => n(cargo).includes(n(name))));
+    return g ? g[0] : '';
+  } catch { return ''; }
+}
+
+// RFC 5322 message: text/plain (+ one PDF when given), UTF-8 throughout, base64 bodies.
 function buildMime({ from, to, cc, subject, text, attachment }) {
   const b64lines = buf => buf.toString('base64').replace(/.{1,76}/g, '$&\r\n').trimEnd();
   const enc = s => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
@@ -79,7 +126,7 @@ function buildMime({ from, to, cc, subject, text, attachment }) {
   ];
   const parts = [
     [`--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(text, 'utf8'))].join('\r\n'),
-    [`--${boundary}`, `Content-Type: application/pdf; name="${attachment.filename}"`, `Content-Disposition: attachment; filename="${attachment.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(attachment.buffer)].join('\r\n'),
+    ...(attachment ? [[`--${boundary}`, `Content-Type: application/pdf; name="${attachment.filename}"`, `Content-Disposition: attachment; filename="${attachment.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(attachment.buffer)].join('\r\n')] : []),
   ];
   return Buffer.from([...headers, '', ...parts, `--${boundary}--`, ''].join('\r\n'), 'utf8');
 }
@@ -110,4 +157,4 @@ async function alreadySent(plate) {
     && key(`${e.subject} ${e.body}`).includes(tractor));
 }
 
-module.exports = { composeDispatch, buildMime, appendDraft, alreadySent, cargoName };
+module.exports = { composeDispatch, composeBulkDispatch, buildMime, appendDraft, alreadySent, cargoName };

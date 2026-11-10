@@ -23,7 +23,7 @@ const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
 const prkPdf   = require('../KIPIS_skills/PRK/prkPdf');
 const dispatchEmail = require('./core/dispatchEmail');
 const smtpSend = require('./core/smtpSend');
-const { DISPATCH_RECIPIENTS, DISPATCH_CC } = require('./core/terminals');
+const { DISPATCH_RECIPIENTS, BULK_DISPATCH_RECIPIENTS, DISPATCH_CC } = require('./core/terminals');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
 const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
 const { amendDraft } = require('../KIPIS_skills/PRK/navigateToCargo');
@@ -427,14 +427,41 @@ const DISPATCH_LOG = path.join(__dirname, '../data/dispatch_sent.jsonl');
 function dispatchOrder(id, date) {
   const order = orderStore.getOrder(String(id || ''), date || undefined);
   if (!order) return { error: 'Order not found' };
-  if (!order.docs?.PRK?.number) return { error: 'The order has no PRK number' };
+  if (!order.bulk && !order.docs?.PRK?.number) return { error: 'The order has no PRK number' };
   return { order };
+}
+
+// Bulk trucks are ordered by email before any PRK (the PRK follows the loaded weight): the
+// vessel comes from the order's release or seller, as for filing.
+async function bulkVessel(order) {
+  const company = senderCompanies.deriveCompany(order.email?.from || '');
+  const src = await owners.resolveOrder({ company, cargo: order.cargo, grossKg: Number(order.weight) || 24000 }, lotRegistry.ownLotsOf, orderStore.pendingReleaseKg);
+  return { company, vessel: src.stop ? '' : (src.vessels || [])[0] || '', vessels: src.vessels || [], why: src.stop || '' };
 }
 
 app.get('/dispatch/preview', async (req, res) => {
   const { id, date } = req.query;
   const { order, error } = dispatchOrder(id, date);
   if (error) return res.status(404).json({ error });
+  if (order.bulk) {
+    try {
+      const fileDate = date || todayString();
+      const v = await bulkVessel(order);
+      const mail = dispatchEmail.composeBulkDispatch(order, fileDate, v);
+      if (v.vessels.length > 1) mail.missing.push(`check the vessel (${v.vessels.join(', ')})`);
+      if (v.why) mail.missing.push(`vessel not found — ${v.why}`);
+      let sentByHand = false;
+      try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
+      return res.json({
+        status: 'ok', bulk: true, id: order.id, date: fileDate, plate: order.plate, prk: null,
+        terminal: mail.terminal, recipients: BULK_DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
+        subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
+        pdf: null, sentByHand, sent: order.dispatchSent || null,
+      });
+    } catch (err) {
+      return res.json({ status: 'error', message: err.message });
+    }
+  }
   const number = order.docs.PRK.number;
   try {
     if (!dispatchPdfs.has(order.id) || dispatchPdfs.get(order.id).number !== number) {
@@ -483,24 +510,30 @@ app.post('/dispatch/send', async (req, res) => {
   const { order, error } = dispatchOrder(id, date);
   if (error) return res.status(404).json({ error });
   if (order.dispatchSent) return res.json({ status: 'error', message: `Already sent by PortSystem at ${order.dispatchSent.at.slice(11, 16)} UTC.` });
-  if (!DISPATCH_RECIPIENTS[terminal]) return res.status(400).json({ error: 'terminal must be roro or kkt' });
+  const table = order.bulk ? BULK_DISPATCH_RECIPIENTS : DISPATCH_RECIPIENTS;
+  if (!table[terminal]) return res.status(400).json({ error: 'terminal must be roro or kkt' });
   if (!String(subject || '').trim() || !String(text || '').trim()) return res.status(400).json({ error: 'Subject and text are required' });
-  const pdf = dispatchPdfs.get(order.id);
-  if (!pdf || pdf.number !== order.docs.PRK.number) return res.json({ status: 'error', message: 'Open the email preview again — the PRK PDF is not loaded.' });
+  // Bagged: the PRK PDF loaded by the preview. Bulk: no attachment — the PRK comes after loading.
+  const pdf = order.bulk ? null : dispatchPdfs.get(order.id);
+  if (!order.bulk && (!pdf || pdf.number !== order.docs.PRK.number)) return res.json({ status: 'error', message: 'Open the email preview again — the PRK PDF is not loaded.' });
 
   const from = process.env.IMAP_USER;
-  const to = DISPATCH_RECIPIENTS[terminal];
+  const to = table[terminal];
   const raw = dispatchEmail.buildMime({
     from, to, cc: DISPATCH_CC, subject: String(subject).trim(),
     text: String(text).replace(/\r?\n/g, '\r\n'), attachment: pdf,
   });
   try {
     const reply = await smtpSend.sendRaw(raw, { from, recipients: [...to, ...DISPATCH_CC] });
-    const record = { at: new Date().toISOString(), terminal, to, prk: pdf.number, subject: String(subject).trim() };
+    const record = { at: new Date().toISOString(), terminal, to, prk: pdf ? pdf.number : null, bulk: !!order.bulk, subject: String(subject).trim() };
     orderStore.setDispatchSent(order.id, record, { date: date || undefined });
+    // A bulk truck is now ordered: the terminal loads it and reports the weight for the PRK.
+    if (order.bulk && !orderStore.CLOSED_STATES.includes(order.state)) {
+      orderStore.setState(order.id, 'gate_pass_ordered', { actor: 'operator', detail: 'loading ordered by email from the dashboard — PRK after the weight', date: date || undefined });
+    }
     require('fs').appendFileSync(DISPATCH_LOG, JSON.stringify({ ...record, plate: order.plate, orderId: order.id, server: reply }) + '\n');
     dispatchPdfs.delete(order.id);
-    console.log(`Dispatch email sent: ${order.plate} ${pdf.number} → ${to.join(', ')} (${reply})`);
+    console.log(`Dispatch email sent: ${order.plate} ${pdf ? pdf.number : '(bulk loading order)'} → ${to.join(', ')} (${reply})`);
     res.json({ status: 'ok', sentTo: to });
   } catch (err) {
     console.error(`Dispatch email for ${order.plate} failed:`, err.message);
