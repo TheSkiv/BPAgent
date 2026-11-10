@@ -163,6 +163,18 @@ function setLoadsFrom(id, loadsFrom, { date } = {}) {
   return order;
 }
 
+// The dispatch email draft made for this order (A19) — { at, folder, terminal, prk, missing } or
+// { at, skipped } — so a truck never gets a second draft.
+function setDispatchDraft(id, info, { date } = {}) {
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  order.dispatchDraft = info;
+  logHistory(order, 'mail', 'dispatch draft', info.skipped ? `not drafted — ${info.skipped}` : `dispatch email draft in ${info.folder} (${String(info.terminal).toUpperCase()})`);
+  save(db, date);
+  return order;
+}
+
 // Gross kg of PortSystem drafts filed against a release and not yet done — today's and
 // yesterday's orders (a PRK is for today or tomorrow). Once an order is done its truck is loaded
 // and the release list's "left" takes it off itself.
@@ -313,5 +325,5 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg,
+  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchDraft,
 };

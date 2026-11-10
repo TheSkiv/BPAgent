@@ -22,8 +22,10 @@ function guardScript() {
   if (root) root.__kipisPateiktiGuard = true;
   if (typeof window.__kipisPateiktiBlocked !== 'number') window.__kipisPateiktiBlocked = 0;
 
-  // Word-boundary match: "Pateikti" (the button) but not statuses like "PATEIKTAS".
-  const PATEIKTI = /\bpateikti\b/i;
+  // Word-boundary match: "Pateikti" (the button) but not statuses like "PATEIKTAS". "Anuliuoti"
+  // (annul a submitted document) is human-only too (RULES.md Rule 7) and sits on the submitted
+  // PRK's page next to "Spausdinti", which A19 clicks — blocked the same way.
+  const PATEIKTI = /\b(pateikti|anuliuoti)\b/i;
 
   function ownLabel(el) {
     if (!el) return '';
@@ -97,8 +99,8 @@ async function assertNotPateikti(locator) {
     const text  = el.tagName === 'INPUT' ? '' : (el.textContent || '');
     return (value + ' ' + text).replace(/\s+/g, ' ').trim();
   }).catch(() => '');
-  if (/\bpateikti\b/i.test(label)) {
-    throw new Error(`RULES.md Rule 1: refusing to click "${label}" — Pateikti is human-only.`);
+  if (/\b(pateikti|anuliuoti)\b/i.test(label)) {
+    throw new Error(`RULES.md Rules 1/7: refusing to click "${label}" — Pateikti and Anuliuoti are human-only.`);
   }
 }
 

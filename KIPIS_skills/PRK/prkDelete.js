@@ -47,11 +47,16 @@ async function openDocument(page, number) {
 // link in the "KIPIS numeris" column). Also proves, right before deleting, that KIPIS still
 // lists it as Ruošiamas.
 async function openFromDraftList(page, number) {
+  return openFromList(page, number, { statuses: [DRAFT_STATUS] }, `KIPIS's ${DRAFT_STATUS} list`);
+}
+
+// Any PRK from the list, filtered by `listOpts` (statuses / submission dates — exportPrkList).
+async function openFromList(page, number, listOpts, what = 'the PRK list') {
   const { openPrkList } = require('./exportPrkList');
-  await openPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
+  await openPrkList({ limit: 500, ...listOpts });
   const link = page.locator('a', { hasText: new RegExp(`^\\s*${number}\\s*$`) });
   const count = await link.count();
-  if (count !== 1) throw new Error(`${number}: ${count ? `${count} links` : 'not'} in KIPIS's ${DRAFT_STATUS} list — not deleted`);
+  if (count !== 1) throw new Error(`${number}: ${count ? `${count} links` : 'not'} in ${what}`);
   await link.click();
   await page.waitForLoadState('networkidle');
   return waitForHeader(page, number);
@@ -154,4 +159,4 @@ async function sweepDrafts(page, by = 'daily cleanup') {
   };
 }
 
-module.exports = { openDocument, openFromDraftList, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };
+module.exports = { openDocument, openFromDraftList, openFromList, waitForHeader, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };

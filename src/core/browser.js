@@ -45,6 +45,23 @@ let kipis_page = null;
 // Automated exports suppress this so a sweep does not pop Excel open on every download.
 let autoOpenDownloads = true;
 function setAutoOpenDownloads(value) { autoOpenDownloads = !!value; }
+
+// A download taken in memory instead of the downloads folder (D10: no PRK PDF copies on the PC).
+// While a capture runs the folder handler leaves downloads alone; Playwright's own temporary file
+// is deleted as soon as it has been read. `trigger` performs the click that starts the download.
+let captureDownloads = 0;
+async function captureDownload(page, trigger, timeout = 30000) {
+  captureDownloads++;
+  try {
+    const [download] = await Promise.all([page.waitForEvent('download', { timeout }), trigger()]);
+    const tmp = await download.path();
+    const buffer = fs.readFileSync(tmp);
+    await download.delete().catch(() => {});
+    return { filename: download.suggestedFilename(), buffer };
+  } finally {
+    captureDownloads--;
+  }
+}
 const sessionPath = path.resolve(__dirname, '../../session');
 
 function killSessionChrome() {
@@ -188,6 +205,7 @@ async function openKipis() {
 
   function attachDownloadHandler(page) {
     page.on('download', async download => {
+      if (captureDownloads > 0) return;   // an automation is taking this file in memory (captureDownload)
       try {
         const filename = download.suggestedFilename() || `kipis_${Date.now()}`;
         const savePath = path.join(DOWNLOADS_DIR, filename);
@@ -216,4 +234,4 @@ function getPage() {
   return kipis_page;
 }
 
-module.exports = { openKipis, getPage, setAutoOpenDownloads, probeSession, sessionStatus };
+module.exports = { openKipis, getPage, setAutoOpenDownloads, captureDownload, probeSession, sessionStatus };

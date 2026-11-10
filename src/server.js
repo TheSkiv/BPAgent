@@ -20,6 +20,7 @@ const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 const { withAutomation, operatorActiveWithin } = require('../KIPIS_skills/safePage');
 const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
+const prkPdf   = require('../KIPIS_skills/PRK/prkPdf');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
 const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
 
@@ -544,6 +545,26 @@ app.post('/prk/delete', async (req, res) => {
   }
 });
 
+// Read-only check of A19's PDF step: fetches a submitted PRK's PDF in memory and reports it —
+// nothing is saved (D10).
+app.get('/prk/pdf-check', async (req, res) => {
+  const n = String(req.query.n || '').trim();
+  if (!/^\d{6}-\d{6}-PRK$/.test(n)) return res.status(400).json({ error: 'n must be a PRK number' });
+  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  try {
+    const page = getPage();
+    const pdf = await withAutomation(page, () => prkPdf.fetchPrkPdf(page, n));
+    res.json({ status: 'ok', filename: pdf.filename, bytes: pdf.buffer.length, prkStatus: pdf.status });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
 // Read-only: opens a KIPIS document by number (universal search) and returns its header.
 app.get('/prk/open', async (req, res) => {
   const n = String(req.query.n || '').trim();
@@ -555,7 +576,11 @@ app.get('/prk/open', async (req, res) => {
   try {
     const page = getPage();
     // ?via=list opens it from the Ruošiamas list (the way deletion does), else universal search.
-    const open = req.query.via === 'list' ? prkDelete.openFromDraftList : prkDelete.openDocument;
+    // ?via=submitted: from the list filtered by submission date yesterday–today (a submitted PRK).
+    const day = n => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const open = req.query.via === 'list' ? prkDelete.openFromDraftList
+      : req.query.via === 'submitted' ? (p, num) => prkDelete.openFromList(p, num, { dateFrom: day(1), dateTo: day(0) }, 'the submitted PRKs of yesterday–today')
+      : prkDelete.openDocument;
     const header = await withAutomation(page, () => open(page, n));
     const buttons = await page.locator('input[type="button"]:visible, input[type="submit"]:visible')
       .evaluateAll(bs => bs.map(b => ({ value: b.value, name: b.name })));
