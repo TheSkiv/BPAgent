@@ -343,7 +343,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   lot marks decide across vessels (several unmarked lots → stop and ask, as now). To confirm
   with the operator.
 - [~] **A27. Lots are chosen by owner — replaces A22's bagged/bulk marks and A26's "every vessel".**
-  *BUILT 2026-11-10 (replica- and data-tested; owners not yet confirmed live).* Operator: a KIPIS
+  *BUILT 2026-11-10; live the same day:* owners confirmed by the operator; 3 Linasagro TSP
+  (Helm release → OSLO CARRIER 2) and 1 Agrokoncernas Urea (its Helm release → HEINZ, 500 kg
+  bags) saved as 261110-003720/-003724/-003727/-003729-PRK; NGU792 (PRK) and LNF355 (VZT) found
+  already filed and skipped. **Blocked:** Agrokoncernas's own AS lot on ULSAN — KIPIS requires
+  the receiver's country (Gavėjas → Valstybė), empty on that lot; what to fill is the operator's
+  call (Rule 4). Operator: a KIPIS
   lot is an ownership unit, not a packaging one — ULSAN's ~6 000 t lot is all Helm's, from both
   terminals (KIPIS says KKT), the other three are Agrokoncernas's; a lot holds BB and bulk
   together; KIPIS shows no owner; Agrokoncernas's own stock is on a list we do not get; off-spec
