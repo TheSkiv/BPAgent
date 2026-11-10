@@ -149,23 +149,28 @@ function attachDocument(id, { type, number = null, status = 'drafted' }, { actor
   return order;
 }
 
-// Every PRK PortSystem itself saved, from the order files of the last `days` calendar days
-// including today (operator, 2026-11-10: 2 = today and yesterday — enough for "forgot to press
-// Delete unused drafts yesterday", nothing older):
-// number → { date, orderId, plate, state }. Only numbers whose order history says PortSystem saved
-// the draft ("PRK draft saved …<number>") — a PRK merely found on the lot (filed by a person,
-// e.g. NGU792's 261110-003439-PRK) is recorded on the order too, but is never ours.
-function prkNumbersFiled(days = 2) {
+// A local calendar date `days` before today, YYYY-MM-DD (like todayString — not toISOString,
+// which is UTC and shifts the day).
+function daysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Every PRK PortSystem itself saved, from order files between `maxAgeDays` and `minAgeDays` days
+// old (0 = today): number → { date, orderId, plate, state }. Only numbers whose order history says
+// PortSystem saved the draft ("PRK draft saved …<number>") — a PRK merely found on the lot (filed
+// by a person, e.g. NGU792's 261110-003439-PRK) is recorded on the order too, but is never ours.
+// The daily cleanup asks for minAgeDays 2: a PRK is for today or tomorrow, so one whose order is
+// two days old and still a draft was not used (operator, 2026-11-10).
+function prkNumbersFiled({ minAgeDays = 0, maxAgeDays = 30 } = {}) {
   const out = new Map();
-  const today = todayString();
   let files = [];
   try { files = fs.readdirSync(DATA_DIR).filter(f => /^orders_state_\d{4}-\d{2}-\d{2}\.json$/.test(f)); } catch { return out; }
-  // Local calendar dates, like todayString() — not toISOString(), which is UTC and shifts the day.
-  const d = new Date(); d.setDate(d.getDate() - (days - 1));
-  const cutoff = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const newest = daysAgo(minAgeDays), oldest = daysAgo(maxAgeDays);
   for (const f of files) {
     const date = f.slice('orders_state_'.length, -'.json'.length);
-    if (date > today || date < cutoff) continue;
+    if (date > newest || date < oldest) continue;
     for (const o of load(date).orders) {
       const n = o.docs?.PRK?.number;
       const savedByUs = n && (o.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(n));

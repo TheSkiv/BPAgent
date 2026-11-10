@@ -123,7 +123,9 @@ must never be hardcoded either.
 **Universali paieška** dialog on every page (`input.ieskojimoMygtukas` → `[id$=":ieskomasNumeris"]`,
 Tab to post it → `[id$=":paieskosMygtukas"]` "Ieškoti") — verified live on 261110-003794-PRK
 (buttons `_id3:_id4602:0:_id4603` Pateikti / `…:1:…` Šalinti). `deleteDraft` follows the procedure
-below; `sweepDrafts` runs it for every PortSystem draft (dashboard *Delete unused drafts*).
+below; `sweepDrafts` runs it for every PortSystem draft whose order is 2+ days old — daily, by
+itself (server), or via the dashboard's *Run cleanup now*. The list is read with the *Būsenos*
+filter set to Ruošiamas (the full list is past KIPIS's 500-row cap).
 
 ### Safe selection procedure
 

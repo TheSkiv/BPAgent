@@ -3,8 +3,10 @@ const path = require('path');
 const { assertNotPateikti } = require('../safePage');
 
 // Deleting PortSystem's unused PRK drafts (`Šalinti`) — RULES.md Rule 7, steps.md "Deleting a
-// saved draft". Operator, 2026-11-10: a dashboard button deletes every Ruošiamas draft PortSystem
-// filed for orders of today or yesterday; the press is the approval, every deletion is logged.
+// saved draft". Operator, 2026-11-10: a PRK is always for today or tomorrow, so once a day the
+// server deletes every Ruošiamas draft PortSystem filed for an order 2+ days old — no button to
+// forget. Every deletion is logged.
+const CLEANUP_MIN_AGE_DAYS = 2;
 
 const DRAFT_STATUS = 'Ruošiamas';
 const REASON = 'PortSystem: nepanaudotas juodraštis (sunkvežimis neatvyko)';
@@ -95,24 +97,25 @@ async function deleteOurDraft(page, number, ours, by) {
   }
 }
 
-// The dashboard button. Reads KIPIS's PRK list (never truncated — readFullPrkList re-queries
-// past the row cap), keeps the Ruošiamas drafts PortSystem itself saved for orders of today or
-// earlier (orderStore.prkNumbersFiled — a person's draft is never on that list, and an order file
-// is never later than today), and deletes them one by one. Each deletion is logged and closes its
-// order. The first failure stops the sweep: the page may be in an unknown state.
-async function sweepDrafts(page) {
+// The daily cleanup (and its "run now" button). Reads KIPIS's PRK list filtered to Ruošiamas
+// (never truncated — readFullPrkList re-queries past the row cap), keeps the drafts PortSystem
+// itself saved for orders 2+ days old (orderStore.prkNumbersFiled — a person's draft is never on
+// that list; today's and yesterday's are not on it either), and deletes them one by one. Each
+// deletion is logged and closes its order. The first failure stops the sweep: the page may be
+// in an unknown state.
+async function sweepDrafts(page, by = 'daily cleanup') {
   const { readFullPrkList } = require('./exportPrkList');
   const orderStore = require('../../src/core/orderStore');
 
-  const ours = orderStore.prkNumbersFiled();
+  const ours = orderStore.prkNumbersFiled({ minAgeDays: CLEANUP_MIN_AGE_DAYS });
   const { drafts } = await readFullPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
   const targets = drafts.filter(d => ours.has(d.number));
-  console.log(`PRK sweep: ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} filed by PortSystem`);
+  console.log(`PRK cleanup: ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} filed by PortSystem for orders ${CLEANUP_MIN_AGE_DAYS}+ days old`);
 
   const deleted = [], failed = [];
   for (const d of targets) {
     try {
-      deleted.push(await deleteOurDraft(page, d.number, ours, 'dashboard button'));
+      deleted.push(await deleteOurDraft(page, d.number, ours, by));
     } catch (err) {
       failed.push({ number: d.number, plate: ours.get(d.number).plate, error: err.message });
       break;
@@ -125,4 +128,4 @@ async function sweepDrafts(page) {
   };
 }
 
-module.exports = { openDocument, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS };
+module.exports = { openDocument, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };

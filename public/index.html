@@ -504,7 +504,7 @@
       <div id="recheckStatus"></div>
       <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>Waiting for you — check the draft in KIPIS and press Pateikti</span>
-        <button id="sweepBtn" title="Deletes (Šalinti) every Ruošiamas PRK draft PortSystem filed today or yesterday. Drafts made by people are never touched.">Delete unused drafts</button>
+        <button id="sweepBtn" title="Runs the daily cleanup now: deletes (Šalinti) PortSystem's Ruošiamas PRK drafts for orders 2+ days old. Today's and yesterday's drafts and drafts made by people are never touched.">Run cleanup now</button>
       </div>
       <div id="sweepResult"></div>
       <div id="pipelineAwaiting" class="pipeline-section"></div>
@@ -1041,20 +1041,29 @@
       }
     });
 
-    // --- Delete unused drafts: PortSystem's own Ruošiamas PRKs of today or yesterday (Rule 7) ---
+    // --- Unused PRK drafts: deleted automatically once a day when their order is 2+ days old
+    // (Rule 7). The line shows the last run; the button runs the same cleanup now. ---
+    function cleanupText(r) {
+      const when = r.at ? new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }) : '';
+      if (r.status === 'error' || r.status === 'busy') return `<span class="err">Cleanup ${when ? when + ' ' : ''}not done — ${escHtml(r.message)}</span>`;
+      if (!r.at) return `Unused drafts are deleted automatically once a day when their order is ${r.minAgeDays || 2}+ days old — not run yet.`;
+      const parts = [`Last cleanup ${escHtml(when)}: ${r.deleted.length} deleted${r.deleted.length ? ' (' + r.deleted.map(d => `${escHtml(d.plate)} ${escHtml(d.number)}`).join(', ') + ')' : ''}`];
+      if (r.failed && r.failed.length) parts.push(`<span class="err">stopped at ${escHtml(r.failed[0].number)} (${escHtml(r.failed[0].plate)}): ${escHtml(r.failed[0].error)}${r.remaining ? ` — ${r.remaining} not tried` : ''}</span>`);
+      return parts.join(' · ');
+    }
+
+    async function loadCleanup() {
+      try { document.getElementById('sweepResult').innerHTML = cleanupText(await (await fetch('/prk/cleanup')).json()); } catch { /* keep the last text */ }
+    }
+
     document.getElementById('sweepBtn').addEventListener('click', async () => {
-      if (!confirm('Delete (Šalinti) every Ruošiamas PRK draft PortSystem filed today or yesterday?\n\nDrafts made by people are not touched. This cannot be undone.')) return;
+      if (!confirm('Run the cleanup now?\n\nDeletes (Šalinti) PortSystem\'s Ruošiamas PRK drafts for orders 2 or more days old. Today\'s and yesterday\'s drafts, and drafts made by people, are not touched. This cannot be undone.')) return;
       const btn = document.getElementById('sweepBtn');
       const out = document.getElementById('sweepResult');
       btn.disabled = true;
       out.textContent = 'Reading the PRK list in KIPIS and deleting…';
       try {
-        const r = await (await fetch('/prk/sweep', { method: 'POST' })).json();
-        if (r.status !== 'ok') { out.innerHTML = `<span class="err">Not done — ${escHtml(r.message)}</span>`; return; }
-        const parts = [`${r.deleted.length} deleted${r.deleted.length ? ': ' + r.deleted.map(d => `${escHtml(d.plate)} (${escHtml(d.number)})`).join(', ') : ''}`];
-        if (r.failed.length) parts.push(`<span class="err">stopped at ${escHtml(r.failed[0].number)} (${escHtml(r.failed[0].plate)}): ${escHtml(r.failed[0].error)}${r.remaining ? ` — ${r.remaining} not tried` : ''}</span>`);
-        if (r.othersKept) parts.push(`${r.othersKept} draft(s) not made by PortSystem left alone`);
-        out.innerHTML = parts.join(' · ');
+        out.innerHTML = cleanupText(await (await fetch('/prk/cleanup', { method: 'POST' })).json());
       } catch (err) {
         out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
       } finally {
@@ -1062,6 +1071,7 @@
         loadPipeline();
       }
     });
+    loadCleanup();
 
     // --- Lots & owners: the page is separate (lots.html); here only what needs the operator ---
     async function loadLots() {

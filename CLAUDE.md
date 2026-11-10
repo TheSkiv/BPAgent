@@ -102,6 +102,7 @@ Stop-Process -Id (Get-NetTCPConnection -LocalPort 3001).OwningProcess -Force
 | Cargo name synonyms (LT ↔ EN, for stock + KIPIS matching) | `C:\PortSystem\config\cargo_synonyms.json` |
 | Sellers (Helm, Yara: stock report + release list) and ordering companies (release buyer name, buys-from seller, own cargo, receiver country) — set on `/lots.html` | `C:\PortSystem\config\owners.json` |
 | Lot registry (owner + loading-order override per KIPIS lot) — set on `/lots.html` | `C:\PortSystem\config\lots.json` |
+| PRK draft deletions (audit log, one JSON line per `Šalinti`) / last daily cleanup | `C:\PortSystem\data\prk_deletions.jsonl` / `data\prk_cleanup.json` |
 | Daily orders | `C:\PortSystem\data\YYYY-MM-DD_orders.xlsx` |
 | Daily order state | `C:\PortSystem\data\orders_state_YYYY-MM-DD.json` |
 | Secrets / API keys | `C:\PortSystem\.env` (`KIPIS_USER`, `KIPIS_PASS`, `OPENAI_API_KEY`, `KIPIS_DRY_RUN`, `AI_EXTRACT`, `IMAP_HOST`, `IMAP_PORT`, `IMAP_USER`, `IMAP_PASSWORD`) |

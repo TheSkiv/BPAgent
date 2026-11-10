@@ -83,11 +83,12 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
 2. **PortSystem created it** — its PRK number is on an order whose history shows PortSystem
    saved it ("PRK draft saved"). A PRK merely found in KIPIS and recorded on an order was made by
    a person: never delete a document a human made by hand.
-3. The order it belongs to arrived **today or yesterday** (operator, 2026-11-10) — drafts
-   pre-made for later trucks must survive the sweep, and older drafts are left for a person.
-4. **A human started it.** The operator's press of *Delete unused drafts* on the dashboard is the
-   approval for that sweep (operator, 2026-11-10 — replaces "propose a list, human confirms").
-   Never run the sweep on a timer or from another automated path.
+3. The order it belongs to is **2 or more days old** (and at most 30). A PRK is always for today
+   or tomorrow, so a draft whose order is two days old and still Ruošiamas was not used;
+   today's and yesterday's drafts are never touched (operator, 2026-11-10).
+4. **Approved in advance by the operator** (2026-11-10): the server runs this cleanup by itself
+   once a day — no button to forget. The dashboard's *Run cleanup now* runs the same rule. Only
+   this cleanup and `POST /prk/delete` (one draft, by number) may click `Šalinti`.
 5. Every deletion is written to the audit log `data/prk_deletions.jsonl` (document, plate, order
    id, status before/after, timestamp); failures too.
 

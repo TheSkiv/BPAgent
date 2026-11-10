@@ -296,23 +296,58 @@ app.get('/kipis/fields', async (req, res) => {
   }
 });
 
-// Dashboard button: delete PortSystem's unused Ruošiamas PRK drafts (orders of today or yesterday).
-// The operator's press is the approval (2026-11-10); every deletion goes to data/prk_deletions.jsonl.
-app.post('/prk/sweep', async (req, res) => {
-  if (isRunning) return res.json({ status: 'error', message: 'Already running. Wait for the current job.' });
-  if (!kipisOpen()) return res.json({ status: 'error', message: KIPIS_CLOSED });
+// ── Daily cleanup of unused PRK drafts (RULES.md Rule 7) ─────────────────────
+// Operator, 2026-11-10: a PRK is always for today or tomorrow, so PortSystem's Ruošiamas drafts
+// for orders 2+ days old are deleted automatically — no button to forget. Once a day, the first
+// time after 06:00 that KIPIS is open and nothing else is running; a failed or skipped attempt is
+// retried the next hour. Every deletion goes to data/prk_deletions.jsonl; the last run is kept in
+// data/prk_cleanup.json for the dashboard.
+const CLEANUP_STATE_PATH = path.join(__dirname, '../data/prk_cleanup.json');
+const CLEANUP_FROM_HOUR  = 6;
+
+function cleanupState() {
+  try { return JSON.parse(require('fs').readFileSync(CLEANUP_STATE_PATH, 'utf8')); } catch { return {}; }
+}
+
+async function runCleanup(by) {
+  if (isRunning) return { status: 'busy', message: 'Another KIPIS job is running.' };
+  if (!kipisOpen()) return { status: 'error', message: KIPIS_CLOSED };
   isRunning = true;
-  console.log('Received request: prk/sweep');
+  console.log(`PRK cleanup: starting (${by})`);
+  const state = { at: new Date().toISOString(), by };
   try {
     const page = getPage();
-    const result = await withAutomation(page, () => prkDelete.sweepDrafts(page));
-    res.json({ status: 'ok', ...result });
+    Object.assign(state, { status: 'ok' }, await withAutomation(page, () => prkDelete.sweepDrafts(page, by)));
+    if (state.failed.length) state.status = 'stopped';
   } catch (err) {
-    console.error('prk/sweep failed:', err.message);
-    res.json({ status: 'error', message: err.message });
+    console.error('PRK cleanup failed:', err.message);
+    Object.assign(state, { status: 'error', message: err.message });
   } finally {
     isRunning = false;
   }
+  // A day counts as done only after a complete run; otherwise the next hour tries again.
+  if (state.status === 'ok') state.doneFor = todayString();
+  else if (cleanupState().doneFor === todayString()) state.doneFor = todayString();
+  require('fs').writeFileSync(CLEANUP_STATE_PATH, JSON.stringify(state, null, 1));
+  return state;
+}
+
+async function dailyCleanupTick() {
+  if (new Date().getHours() < CLEANUP_FROM_HOUR) return;
+  if (cleanupState().doneFor === todayString()) return;
+  if (isRunning || !kipisOpen()) return;   // try again next hour
+  await runCleanup('daily cleanup');
+}
+setInterval(() => { dailyCleanupTick().catch(err => console.error('PRK cleanup tick:', err.message)); }, 60 * 60 * 1000);
+setTimeout(() => { dailyCleanupTick().catch(err => console.error('PRK cleanup tick:', err.message)); }, 5 * 60 * 1000);
+
+app.get('/prk/cleanup', (req, res) => {
+  res.json({ ...cleanupState(), minAgeDays: prkDelete.CLEANUP_MIN_AGE_DAYS });
+});
+
+// Dashboard "run now": the same cleanup, same 2-day rule — for a day KIPIS was closed all morning.
+app.post('/prk/cleanup', async (req, res) => {
+  res.json(await runCleanup('dashboard: run now'));
 });
 
 // One of PortSystem's own Ruošiamas drafts, by number — same gates as the sweep (Rule 7).
