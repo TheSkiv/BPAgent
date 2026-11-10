@@ -491,6 +491,19 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   drafts pile up otherwise. Candidate to move up once A1–A20 are under way.
 - [ ] Phone agent for driver check-in calls (Phase 8) — only once A1–A19 run reliably.
 
+- [~] **UI redesign — BUILT 2026-11-10 (operator: too much on one page, unclear next step,
+  dated/cramped, hard to find a truck).** "Truck desk": one list of trucks, each with a route
+  line (Order · Draft · Pateikti · Email · Done; bulk: Order · Gate pass · Done) marking where it
+  stands and **one button for its next step** (Send email, Try again, Fix order, File now). Tabs
+  with counts — **Needs you** (default) · System working · Waiting · Done · All; search by plate,
+  company, cargo, PRK (`/` focuses it). Sender confirmations sit at the top of *Needs you*. The
+  automation (auto-filing, Pateikti check, draft cleanup, manual filing, Lots & owners) moved to
+  a side column; action results show as a toast. Light "harbour fog" look; status colours from
+  the maritime signal flags (yellow needs you, blue system, red failed, green done); Barlow
+  Condensed / Public Sans / IBM Plex Mono. Shared styles in `public/ui.css`; Lots & owners uses
+  them too. `/pipeline` now also returns each order's vessel and last note. Waiting for the
+  operator's verdict; then the BPA Platform (VesselCalc) in the same look.
+
 ### Decisions (the operator's call — record the answer here)
 - **D1. Mail intake stays manual (RECHECK) for now** — decided 2026-11-09. Only filing is
   automated (A12). Revisit later.

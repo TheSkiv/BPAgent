@@ -208,6 +208,10 @@ app.get('/pipeline', (req, res) => {
       state:  o.state,
       docs:   o.docs,
       dispatchSent: o.dispatchSent || null,
+      vessel: o.loadsFrom?.vessel || '',
+      // The last thing that happened to the order — the dashboard shows it as the reason a truck
+      // stopped (e.g. "not saved — lot choice — owner not confirmed …").
+      note: (o.history || []).slice(-1)[0]?.detail || '',
       sender: o.email?.from || '',
       company: senderCompanies.deriveCompany(o.email?.from || ''),
       subject: o.email?.subject || '',

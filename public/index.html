@@ -3,1375 +3,578 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Port Operations Panel</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Segoe UI', system-ui, sans-serif;
-      background: #0f1117;
-      color: #e2e8f0;
-      display: flex;
-      justify-content: center;
-      align-items: flex-start;
-      min-height: 100vh;
-      padding: 40px 20px;
-      gap: 20px;
-    }
-
-    .pipeline-section { display: flex; flex-direction: column; gap: 10px; }
-
-    .pipeline-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    .pipeline-head h2 { font-size: 0.95rem; font-weight: 600; color: #a5b4fc; }
-
-    .pipeline-group-title {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748b;
-      margin-top: 6px;
-    }
-
-    .pipe-line {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .pipe-company {
-      flex: 0 0 96px;
-      width: 96px;
-      text-align: right;
-      font-size: 0.72rem;
-      color: #64748b;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .pipe-company.unassigned {
-      cursor: pointer;
-      color: #7c8798;
-      text-decoration: underline dotted;
-      text-underline-offset: 2px;
-    }
-    .pipe-company.unassigned:hover { color: #a5b4fc; }
-
-    .pipe-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 8px;
-      padding: 8px 11px;
-      font-size: 0.82rem;
-      flex: 1;
-      min-width: 0;
-    }
-
-    .pipe-row.clickable { cursor: pointer; transition: border-color 0.15s; }
-    .pipe-row.clickable:hover { border-color: #6366f1; }
-
-    .pipe-plate { font-weight: 600; color: #e2e8f0; flex-shrink: 0; }
-    .pipe-cargo { color: #94a3b8; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pipe-weight { color: #64748b; font-size: 0.75rem; flex-shrink: 0; }
-    .pipe-doc   { color: #68d391; font-size: 0.75rem; flex-shrink: 0; }
-    .pipe-doc.pending { color: #64748b; }
-
-    .pipe-state {
-      font-size: 0.68rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      padding: 2px 7px;
-      border-radius: 999px;
-      border: 1px solid #2d3148;
-      color: #94a3b8;
-      flex-shrink: 0;
-      width: 140px;
-      text-align: center;
-      white-space: nowrap;
-    }
-    .pipe-state.done       { color: #68d391; border-color: #2f6f4e; }
-    .pipe-state.failed     { color: #fc8181; border-color: #7f3b3b; }
-    .pipe-state.needs_human{ color: #fbbf24; border-color: #7a5b16; }
-    .pipe-state.filing,
-    .pipe-state.drafted    { color: #a5b4fc; border-color: #3b4177; }
-    .pipe-state.gate_pass_ordered { color: #67e8f9; border-color: #155e63; }
-
-    .pipe-id { color: #475569; font-size: 0.68rem; flex-shrink: 0; }
-    .pipe-dup { color: #fbbf24; font-size: 0.68rem; flex-shrink: 0; }
-    .pipe-bulk { background: #450a0a; color: #fca5a5; border: 1px solid #991b1b; border-radius: 4px; font-size: 0.65rem; font-weight: 800; padding: 1px 5px; letter-spacing: 0.07em; flex-shrink: 0; }
-
-    .pipe-done-btn {
-      flex: 0 0 44px;
-      width: 44px;
-      padding: 2px 0;
-      font-size: 0.68rem;
-      font-weight: 600;
-      letter-spacing: 0.03em;
-      text-align: center;
-      border-radius: 5px;
-      border: 1px solid #2d3148;
-      background: #1a1d27;
-      color: #94a3b8;
-      cursor: pointer;
-    }
-    .pipe-done-btn:hover:not(:disabled) { color: #68d391; border-color: #68d391; }
-    .pipe-done-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    .task-empty { color: #64748b; font-size: 0.85rem; }
-
-    .confirm-card {
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-left: 3px solid #fbbf24;
-      border-radius: 8px;
-      padding: 10px 12px;
-      display: flex;
-      flex-direction: column;
-      gap: 7px;
-      font-size: 0.82rem;
-    }
-
-    .confirm-subject { color: #e2e8f0; font-weight: 600; }
-    .confirm-meta    { color: #64748b; font-size: 0.73rem; }
-    .confirm-detail  { color: #94a3b8; font-size: 0.78rem; }
-
-    .confirm-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-    .confirm-actions button { padding: 4px 10px; font-size: 0.74rem; border-radius: 6px; cursor: pointer; border: 1px solid #2d3148; background: #1a1d27; color: #94a3b8; }
-    .confirm-actions .btn-always:hover { color: #68d391; border-color: #68d391; }
-    .confirm-actions .btn-once:hover   { color: #a5b4fc; border-color: #a5b4fc; }
-    .confirm-actions .btn-cancel:hover { color: #fbbf24; border-color: #fbbf24; }
-    .confirm-actions .btn-never:hover  { color: #fc8181; border-color: #fc8181; }
-
-    .panel {
-      background: #1a1d27;
-      border: 1px solid #2d3148;
-      border-radius: 12px;
-      padding: 40px;
-      width: 100%;
-      display: flex;
-      flex-direction: column;
-      gap: 20px;
-    }
-
-    .panel-plates {
-      flex: 1 1 auto;
-      max-width: 780px;
-      min-width: 0;
-    }
-
-    .panel-kipis {
-      flex: 0 0 360px;
-      width: 360px;
-      max-width: 360px;
-      position: sticky;
-      top: 40px;
-    }
-
-    /* Compact row layout for the Done list in the narrow sidebar — the full pipe-row (id,
-       company column, weight, doc) doesn't fit 360px; keep just plate, cargo, BULK, state. */
-    .panel-kipis .pipe-company,
-    .panel-kipis .pipe-id,
-    .panel-kipis .pipe-weight,
-    .panel-kipis .pipe-doc,
-    .panel-kipis .pipe-dup { display: none; }
-    .panel-kipis .pipe-row { padding: 6px 9px; gap: 6px; }
-    .panel-kipis .pipe-plate { font-size: 0.82rem; }
-    .panel-kipis .pipe-cargo { font-size: 0.72rem; }
-    .panel-kipis .pipe-state {
-      width: auto;
-      min-width: 0;
-      white-space: nowrap;
-      font-size: 0.6rem;
-      padding: 2px 6px;
-    }
-
-    .panel-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-
-    h1 {
-      font-size: 1.4rem;
-      font-weight: 600;
-      color: #a5b4fc;
-      letter-spacing: 0.02em;
-    }
-
-    .gmail-badge {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 0.75rem;
-      color: #475569;
-    }
-
-    .gmail-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-
-    .gmail-dot.ok  { background: #48bb78; }
-    .gmail-dot.off { background: #fc8181; }
-
-    label {
-      font-size: 0.78rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: #64748b;
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    input {
-      width: 100%;
-      padding: 12px 14px;
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 8px;
-      color: #e2e8f0;
-      font-size: 1rem;
-      outline: none;
-      transition: border-color 0.2s;
-    }
-
-    input:focus { border-color: #6366f1; }
-    input:disabled { opacity: 0.4; cursor: not-allowed; background: #14161f; }
-
-    .buttons {
-      display: flex;
-      gap: 12px;
-    }
-
-    button {
-      flex: 1;
-      padding: 14px;
-      border: none;
-      border-radius: 8px;
-      font-size: 1rem;
-      font-weight: 600;
-      cursor: pointer;
-      letter-spacing: 0.03em;
-      transition: background 0.2s, opacity 0.2s;
-    }
-
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-
-    #openBtn {
-      background: #334155;
-      color: #94a3b8;
-      flex: 0 0 auto;
-      padding: 14px 20px;
-    }
-
-    #openBtn:hover:not(:disabled) { background: #3f4f66; }
-
-    #runBtn {
-      background: #6366f1;
-      color: #fff;
-      font-size: 1.05rem;
-    }
-
-    #runBtn:hover:not(:disabled) { background: #4f46e5; }
-
-    #status {
-      padding: 14px 16px;
-      border-radius: 8px;
-      font-size: 0.95rem;
-      font-weight: 500;
-      border: 1px solid transparent;
-    }
-
-    #status.idle    { background: #1e2130; border-color: #2d3148; color: #64748b; }
-    #status.running { background: #1c2340; border-color: #3b4fd8; color: #a5b4fc; }
-    #status.success { background: #0f2820; border-color: #22543d; color: #68d391; }
-    #status.error   { background: #2d0f0f; border-color: #742a2a; color: #fc8181; }
-
-    #autoFileStatus { font-size: 0.75rem; color: #64748b; }
-    #autoFileStatus .warn { color: #fbbf24; }
-    #kipisSession { font-size: 0.75rem; margin-top: -4px; }
-    #kipisSession.main   { color: #68d391; }
-    #kipisSession.login  { color: #fbbf24; font-weight: 600; }
-    #kipisSession.closed, #kipisSession.error { color: #64748b; }
-
-    #sweepBtn {
-      background: transparent; color: #fc8181; border: 1px solid #742a2a; border-radius: 6px;
-      padding: 3px 10px; font-size: 0.72rem; letter-spacing: 0; text-transform: none; cursor: pointer;
-    }
-    #sweepBtn:hover:not(:disabled) { background: #2d0f0f; }
-    #sweepBtn:disabled { opacity: 0.5; cursor: default; }
-    .pipe-email-btn {
-      background: #4f46e5; color: #fff; border: 0; border-radius: 5px; padding: 2px 9px;
-      font-size: 0.72rem; cursor: pointer; letter-spacing: 0; text-transform: none;
-    }
-    .pipe-email-btn:hover { background: #6366f1; }
-    #dispatchModal { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; z-index: 50; }
-    #dispatchModal.open { display: flex; }
-    #dispatchModal .box { background: #1a1d29; border: 1px solid #2d3148; border-radius: 10px; padding: 18px; width: min(680px, 94vw); max-height: 92vh; overflow: auto; display: flex; flex-direction: column; gap: 10px; font-size: 0.82rem; }
-    #dispatchModal h3 { font-size: 0.95rem; color: #a5b4fc; }
-    #dispatchModal label { color: #64748b; font-size: 0.72rem; display: block; margin-bottom: 2px; }
-    #dispatchModal input, #dispatchModal textarea, #dispatchModal select { width: 100%; background: #0f1117; color: #e2e8f0; border: 1px solid #2d3148; border-radius: 6px; padding: 6px 8px; font: inherit; }
-    #dispatchModal textarea { min-height: 170px; resize: vertical; }
-    #dispatchModal .addr { color: #cbd5e1; }
-    #dispatchModal .warn { color: #fbbf24; }
-    #dispatchModal .err { color: #fc8181; }
-    #dispatchModal .row { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
-    #dispatchModal .row button { border: 0; border-radius: 6px; padding: 7px 16px; cursor: pointer; font-size: 0.82rem; }
-    #dispatchSend { background: #16a34a; color: #fff; }
-    #dispatchSend:disabled { opacity: 0.5; cursor: default; }
-    #dispatchCancel { background: transparent; color: #94a3b8; border: 1px solid #2d3148 !important; }
-    #sweepResult, #watchResult { font-size: 0.75rem; color: #94a3b8; }
-    #sweepResult .err, #watchResult .err { color: #fc8181; }
-    #watchBtn {
-      background: transparent; color: #a5b4fc; border: 1px solid #3b4177; border-radius: 6px;
-      padding: 3px 10px; font-size: 0.72rem; letter-spacing: 0; text-transform: none; cursor: pointer;
-    }
-    #watchBtn:hover:not(:disabled) { background: #1c2340; }
-    #watchBtn:disabled { opacity: 0.5; cursor: default; }
-
-    #recheckBtn {
-      background: #6366f1;
-      color: #fff;
-      font-size: 1.05rem;
-      flex: 0 0 auto;
-    }
-
-    #recheckBtn:hover:not(:disabled) { background: #4f46e5; }
-
-    #recheckStatus {
-      font-size: 0.78rem;
-      color: #64748b;
-      min-height: 1em;
-    }
-
-    #gmailError {
-      padding: 10px 14px;
-      background: #2d0f0f;
-      border: 1px solid #742a2a;
-      border-radius: 8px;
-      color: #fc8181;
-      font-size: 0.85rem;
-    }
-
-    .bulk-badge {
-      background: #450a0a;
-      color: #fca5a5;
-      border: 1px solid #991b1b;
-      border-radius: 4px;
-      font-size: 0.65rem;
-      font-weight: 800;
-      padding: 1px 5px;
-      letter-spacing: 0.07em;
-      flex-shrink: 0;
-    }
-
-    /* Email / edit popup modal */
-    #emailModal {
-      display: none;
-      position: fixed;
-      inset: 0;
-      background: rgba(0,0,0,0.72);
-      z-index: 1000;
-      align-items: center;
-      justify-content: center;
-    }
-
-    #emailModal.open { display: flex; }
-
-    .modal-box {
-      background: #1a1d27;
-      border: 1px solid #2d3148;
-      border-radius: 12px;
-      width: 620px;
-      max-width: 92vw;
-      max-height: 84vh;
-      display: flex;
-      flex-direction: column;
-      padding: 24px;
-      gap: 14px;
-    }
-
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .modal-plate {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #c7d2fe;
-    }
-
-    .modal-close {
-      background: none;
-      border: none;
-      color: #64748b;
-      font-size: 1.4rem;
-      cursor: pointer;
-      line-height: 1;
-      padding: 0 4px;
-      flex: 0 0 auto;
-    }
-
-    .modal-close:hover { color: #94a3b8; }
-
-    .modal-subject {
-      font-size: 0.88rem;
-      font-weight: 600;
-      color: #c7d2fe;
-    }
-
-    .modal-from {
-      font-size: 0.8rem;
-      color: #64748b;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .modal-body-text {
-      flex: 1;
-      overflow-y: auto;
-      background: #0f1117;
-      border: 1px solid #2d3148;
-      border-radius: 8px;
-      padding: 12px;
-      font-size: 0.8rem;
-      color: #94a3b8;
-      white-space: pre-wrap;
-      word-break: break-word;
-      max-height: 280px;
-      min-height: 80px;
-    }
-
-    .modal-attachments {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .modal-att-link {
-      display: inline-block;
-      padding: 5px 12px;
-      background: #1e2130;
-      border: 1px solid #2d3148;
-      border-radius: 6px;
-      color: #a5b4fc;
-      font-size: 0.78rem;
-      text-decoration: none;
-      transition: background 0.15s;
-    }
-
-    .modal-att-link:hover { background: #2d3148; }
-
-    .modal-row {
-      display: flex;
-      gap: 8px;
-    }
-
-    .modal-row input {
-      flex: 1;
-    }
-
-    #modalWeightInput { max-width: 140px; flex: 0 0 auto; }
-
-    #modalSaveBtn {
-      flex: 0 0 auto;
-      padding: 12px 20px;
-      background: #6366f1;
-      color: #fff;
-      font-size: 0.9rem;
-    }
-
-    #modalSaveBtn:hover:not(:disabled) { background: #4f46e5; }
-
-    #modalStatus {
-      font-size: 0.8rem;
-      color: #64748b;
-      min-height: 1em;
-    }
-
-    #lotsLink { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 10px 12px;
-      border: 1px solid #2d3148; border-radius: 8px; font-size: 0.85rem; color: #a5b4fc; text-decoration: none; }
-    #lotsLink:hover { border-color: #4f46e5; }
-    #lotsLink.todo { border-color: #92400e; }
-    #lotsAttention { font-size: 0.75rem; color: #64748b; }
-    #lotsLink.todo #lotsAttention { color: #fbbf24; }
-  </style>
+  <title>Truck desk · PortSystem</title>
+  <link rel="stylesheet" href="/ui.css" />
 </head>
 <body>
-  <!-- Left: orders (awaiting confirmation + pipeline) -->
-  <div class="panel panel-plates">
-    <div class="panel-header">
-      <h1>Port Operations Panel</h1>
-    </div>
+  <header class="topbar">
+    <div class="brand">Truck desk <small>BPA · PortSystem</small></div>
+    <nav><a href="/" class="on">Trucks</a><a href="/lots.html">Lots &amp; owners</a></nav>
+    <label class="search" aria-label="Find a truck">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <input id="search" type="search" placeholder="Find a truck — plate, company, cargo, PRK" autocomplete="off" />
+    </label>
+    <div class="spacer"></div>
+    <span class="light" id="kipisLight" title="Checked in the background every few minutes">KIPIS …</span>
+    <span class="light" id="mailLight">Mail …</span>
+    <button class="btn" id="openBtn">Open KIPIS</button>
+    <button class="btn primary" id="recheckBtn" title="Fetches new order emails; new trucks are then filed automatically">Check mail</button>
+  </header>
 
-    <div class="pipeline-section">
-      <div class="pipeline-head">
-        <h2>Awaiting confirmation</h2>
-        <span id="confirmStatus" style="font-size:0.75rem;color:#64748b"></span>
-      </div>
-      <div id="confirmList" class="pipeline-section"></div>
-    </div>
+  <div class="frame">
+    <main>
+      <div class="tabs" role="tablist" id="tabs"></div>
+      <div id="confirmations"></div>
+      <div class="trucks" id="trucks"><div class="empty">Loading trucks…</div></div>
+    </main>
 
-    <div class="pipeline-section">
-      <div class="pipeline-head">
-        <h2>Pipeline</h2>
-        <span id="pipelineStatus" style="font-size:0.75rem;color:#64748b"></span>
-        <button id="fileAllBtn" title="Files a PRK draft for every ready (non-bulk) truck, oldest first. Continues past a truck that fails; stops if KIPIS logs out.">File all ready</button>
-        <button id="processNextBtn">Process next PRK</button>
-        <button id="recheckBtn">RECHECK</button>
+    <aside class="side">
+      <section class="card">
+        <h3>Runs by itself</h3>
+        <div class="auto-row">
+          <div class="head">Filing PRK drafts <button class="btn small" id="fileAllBtn" title="Files every ready truck now, oldest first">File all now</button></div>
+          <div class="line" id="autoFileLine">After each mail check and every 15 min, 08–18.</div>
+        </div>
+        <div class="auto-row">
+          <div class="head">Spotting your Pateikti <button class="btn small" id="watchBtn" title="Reads KIPIS's PRK list for drafts you have submitted">Check now</button></div>
+          <div class="line" id="watchLine">After each mail check and every 15 min.</div>
+        </div>
+        <div class="auto-row">
+          <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes PortSystem's Ruošiamas drafts for orders 2+ days old">Run now</button></div>
+          <div class="line" id="sweepLine">Once a day, drafts 2+ days old.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <a class="lots-link" id="lotsLink" href="/lots.html">Lots &amp; owners <span class="count" id="lotsAttention">→</span></a>
+      </section>
+
+      <section class="card">
+        <h3>One truck by hand</h3>
+        <div class="manual">
+          <input id="plateInput" type="text" placeholder="Plate, e.g. ABC123//XY456" />
+          <button class="btn" id="runBtn">File</button>
+        </div>
+        <div class="line muted" style="font-size:12px;margin-top:6px">Files the PRK draft for this plate now. <button class="btn quiet small" id="processNextBtn">Or the next one in line</button></div>
+      </section>
+
+      <section class="card" id="mailError" style="display:none"></section>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <!-- The order: its source email, cargo and weight -->
+  <div class="dialog-back" id="orderDialog">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="orderTitle">
+      <h2 id="orderTitle"><span class="mono" id="modalPlate"></span></h2>
+      <div><label>Email</label><div id="modalSubject" style="font-weight:600"></div><div class="muted" id="modalFrom" style="font-size:12px"></div></div>
+      <div class="mailbody" id="modalBodyText"></div>
+      <div id="modalAttachments" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      <div class="grid2">
+        <div><label for="modalCargoInput">Cargo</label><input id="modalCargoInput" /></div>
+        <div><label for="modalWeightInput">Weight, kg</label><input id="modalWeightInput" inputmode="numeric" /></div>
+        <div><label for="modalGrossWeightInput">Gross weight, kg</label><input id="modalGrossWeightInput" inputmode="numeric" /></div>
+        <div><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink);font-weight:500"><input type="checkbox" id="modalBulkCheck" style="width:auto" /> Bulk cargo</label></div>
       </div>
-      <div id="recheckStatus"></div>
-      <div id="autoFileStatus" title="PRK drafts are filed by themselves after each RECHECK and every 15 minutes from 08:00 to 18:00"></div>
-      <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <span>Waiting for you — check the draft in KIPIS and press Pateikti</span>
-        <button id="sweepBtn" title="Runs the daily cleanup now: deletes (Šalinti) PortSystem's Ruošiamas PRK drafts for orders 2+ days old. Today's and yesterday's drafts and drafts made by people are never touched.">Run cleanup now</button>
-      </div>
-      <div id="sweepResult"></div>
-      <div id="pipelineAwaiting" class="pipeline-section"></div>
-      <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <span>Submitted — send the dispatch email</span>
-        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti). Also runs by itself after RECHECK and every 15 minutes in the shift. Then press Email on a truck to send its dispatch email.">Check submitted</button>
-      </div>
-      <div id="watchResult"></div>
-      <div id="pipelineSubmitted" class="pipeline-section"></div>
-      <div class="pipeline-group-title">To do</div>
-      <div id="pipelineQueue" class="pipeline-section"></div>
+      <div id="modalStatus" style="font-size:13px"></div>
+      <div class="row"><button class="btn quiet" id="modalClose">Close</button><button class="btn primary" id="modalSaveBtn">Save changes</button></div>
     </div>
   </div>
 
-  <!-- Right: KIPIS controls -->
-  <div class="panel panel-kipis">
-    <div class="panel-header">
-      <div class="gmail-badge">
-        <div class="gmail-dot off" id="gmailDot"></div>
-        <span id="gmailStatusText">Checking...</span>
+  <!-- The dispatch email: checked here, sent only by the operator's Send -->
+  <div class="dialog-back" id="dispatchModal">
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dispatchTitle">
+      <h2 id="dispatchTitle">Dispatch email</h2>
+      <div id="dispatchWarn"></div>
+      <div class="grid2">
+        <div><label for="dispatchTerminal">Terminal</label><select id="dispatchTerminal"><option value="roro">RoRo</option><option value="kkt">KKT</option></select></div>
+        <div><label>Attachment</label><a id="dispatchPdf" target="_blank" rel="noopener"></a></div>
       </div>
-    </div>
-
-    <div id="gmailError" style="display:none"></div>
-
-    <div>
-      <label for="plateInput">Truck Plate</label>
-      <input id="plateInput" type="text" placeholder="Paste truck plate" />
-    </div>
-
-    <div class="buttons">
-      <button id="openBtn">OPEN KIPIS</button>
-      <button id="runBtn">RUN PRK</button>
-    </div>
-    <div id="kipisSession" class="closed" title="Checked in the background every few minutes; also keeps the KIPIS session from timing out">KIPIS: …</div>
-
-    <div id="status" class="idle">Idle</div>
-
-    <!-- Lot owners and companies live on their own page (lots.html) -->
-    <a id="lotsLink" href="/lots.html">Lots &amp; owners → <span id="lotsAttention"></span></a>
-
-    <div class="pipeline-section">
-      <div class="pipeline-group-title">Done</div>
-      <div id="pipelineDone" class="pipeline-section"></div>
-    </div>
-  </div>
-
-  <!-- Order edit popup: view source email, set cargo/weight/BULK -->
-  <div id="emailModal">
-    <div class="modal-box">
-      <div class="modal-header">
-        <span class="modal-plate" id="modalPlate"></span>
-        <button class="modal-close" id="modalClose">&#x2715;</button>
-      </div>
-      <div class="modal-subject" id="modalSubject"></div>
-      <div class="modal-from" id="modalFrom"></div>
-      <div class="modal-body-text" id="modalBodyText"></div>
-      <div class="modal-attachments" id="modalAttachments"></div>
-      <div class="modal-row">
-        <input id="modalCargoInput" type="text" placeholder="Cargo name" />
-      </div>
-      <div class="modal-row">
-        <input id="modalWeightInput" type="text" placeholder="Weight (kg)" />
-        <button id="modalSaveBtn">Save</button>
-      </div>
-      <div class="modal-row">
-        <input id="modalGrossWeightInput" type="text" placeholder="Gross weight (kg)" />
-      </div>
-      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none">
-        <input type="checkbox" id="modalBulkCheck" style="width:auto;cursor:pointer" />
-        <span style="font-size:0.82rem;color:#94a3b8">BULK cargo</span>
-        <span class="bulk-badge" id="modalBulkBadge" style="display:none">BULK</span>
-      </label>
-      <div id="modalStatus"></div>
+      <div><label>To</label><div class="addr" id="dispatchTo"></div></div>
+      <div><label>Cc</label><div class="addr" id="dispatchCc"></div></div>
+      <div><label for="dispatchSubject">Subject</label><input id="dispatchSubject" /></div>
+      <div><label for="dispatchText">Text</label><textarea id="dispatchText"></textarea></div>
+      <div id="dispatchStatus" style="font-size:13px"></div>
+      <div class="row"><button class="btn quiet" id="dispatchCancel">Close</button><button class="btn go" id="dispatchSend">Send email</button></div>
     </div>
   </div>
 
   <script>
-    function escHtml(str) {
-      return String(str)
-        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-        .replace(/"/g,'&quot;');
+    const $ = id => document.getElementById(id);
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const hhmm = iso => new Date(iso).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
+    const getJson = async url => (await fetch(url)).json();
+    const postJson = async (url, body) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) })).json();
+
+    // ── Toast: the result of the last action ────────────────────────────
+    let toastTimer = null;
+    function toast(kind, text, sticky) {
+      const t = $('toast');
+      t.className = `toast show ${kind || ''}`;
+      t.innerHTML = `${esc(text)}<button aria-label="Close">✕</button>`;
+      t.querySelector('button').onclick = () => t.classList.remove('show');
+      clearTimeout(toastTimer);
+      if (!sticky) toastTimer = setTimeout(() => t.classList.remove('show'), kind === 'err' ? 15000 : 7000);
     }
 
-    const openBtn    = document.getElementById('openBtn');
-    const runBtn     = document.getElementById('runBtn');
-    const plateInput = document.getElementById('plateInput');
-    const status     = document.getElementById('status');
+    // ── Where each truck stands, and what it needs next ─────────────────
+    const BAGGED = ['Order', 'Draft', 'Pateikti', 'Email', 'Done'];
+    const BULK   = ['Order', 'Gate pass', 'Done'];
 
-    function setStatus(state, message) {
-      status.className = state;
-      status.textContent = message;
-    }
-
-    function setBusy(busy) {
-      openBtn.disabled = busy;
-      runBtn.disabled  = busy;
-    }
-
-    openBtn.addEventListener('click', async () => {
-      setBusy(true);
-      setStatus('running', 'Opening KIPIS...');
-      try {
-        const res  = await fetch('/open-kipis', { method: 'POST' });
-        const data = await res.json();
-        if (data.status === 'ok') {
-          setStatus('success', 'KIPIS opened. Log in if prompted.');
-        } else {
-          setStatus('error', `Error: ${data.message}`);
-        }
-      } catch (err) {
-        setStatus('error', `Network error: ${err.message}`);
-      } finally {
-        setBusy(false);
-        loadKipisSession();
+    // group: needs (yours) · failed (yours, red) · system (it is on it) · waiting · done · cancelled
+    function stageOf(o) {
+      const prk = o.docs?.PRK?.number;
+      if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: 'Cancelled' };
+      if (o.bulk) {
+        if (o.state === 'done') return { group: 'done', route: BULK, stop: 2, label: 'Done' };
+        if (o.state === 'gate_pass_ordered') return { group: 'waiting', route: BULK, stop: 1, label: 'Gate pass ordered — truck on its way' };
+        return { group: 'waiting', route: BULK, stop: 0, label: 'Bulk — the terminal orders the gate pass' };
       }
-    });
-
-    // KIPIS session (ROADMAP A9): logged in / login needed / closed, from a background check.
-    const SESSION_TEXT = {
-      main:   'KIPIS: logged in',
-      login:  'KIPIS: logged out — press OPEN KIPIS and enter the MFA code',
-      closed: 'KIPIS: not open',
-      error:  'KIPIS: not answering',
-    };
-    async function loadKipisSession() {
-      const el = document.getElementById('kipisSession');
-      try {
-        const s = await (await fetch('/kipis/status')).json();
-        el.className = s.state || 'closed';
-        const since = s.since ? ` (since ${new Date(s.since).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' })})` : '';
-        el.textContent = (SESSION_TEXT[s.state] || `KIPIS: ${s.state}`) + (s.state === 'main' ? '' : since);
-      } catch {
-        el.className = 'error';
-        el.textContent = 'KIPIS: status unknown';
-      }
-    }
-    loadKipisSession();
-    setInterval(loadKipisSession, 60 * 1000);
-
-    async function runPrk(value) {
-      if (!value) { setStatus('error', 'Please enter a truck plate.'); return; }
-      setBusy(true);
-      setStatus('running', `Running PRK for: ${value}...`);
-      try {
-        const res  = await fetch('/run-prk', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value }),
-        });
-        const data = await res.json();
-        if (data.status === 'ok' && data.existingPrk) {
-          setStatus('success', `PRK already in KIPIS (${data.existingPrk}) — not filed again.`);
-          loadPipeline();
-        } else if (data.status === 'ok' && data.needsLotOwners) {
-          setStatus('error', `Not filed — ${data.blocked}. Open Lots & owners, then run it again.`);
-          loadPipeline();
-          loadLots();
-        } else if (data.status === 'ok' && data.blocked && /^lot choice/.test(data.blocked)) {
-          // Stopped while choosing the lot — no KIPIS form was opened.
-          setStatus('error', `Not filed — ${data.blocked}. No form was opened in KIPIS.`);
-          loadPipeline();
-        } else if (data.status === 'ok' && data.blocked) {
-          setStatus('error', `Not saved — ${data.blocked}. The form is open in KIPIS: check it and press Saugoti by hand.`);
-          loadPipeline();
-        } else if (data.status === 'ok') {
-          setStatus('success', data.submitted ? `PRK draft saved: ${data.prkNumber} — check it and press Pateikti in KIPIS.` : 'Form filled (dry run) — not saved.');
-          loadPipeline();
-        } else {
-          setStatus('error', `Error: ${data.message}`);
-          loadPipeline();
-        }
-      } catch (err) {
-        setStatus('error', `Network error: ${err.message}`);
-      } finally {
-        setBusy(false);
+      switch (o.state) {
+        case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: 'Gets its PRK draft automatically', actions: ['file'] };
+        case 'received':  return { group: 'waiting', route: BAGGED, stop: 0, label: 'New order' };
+        case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: 'Filing in KIPIS now…' };
+        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: 'Not filed', reason: o.note, actions: ['retry', 'open'] };
+        case 'drafted':   return prk
+          ? { group: 'needs', route: BAGGED, stop: 1, label: 'Check the draft in KIPIS and press Pateikti' }
+          : { group: 'needs', route: BAGGED, stop: 1, label: 'Form filled but not saved — save it in KIPIS' };
+        case 'submitted': return o.dispatchSent
+          ? { group: 'waiting', route: BAGGED, stop: 3, label: `Email sent ${hhmm(o.dispatchSent.at)} — closes at the next mail check` }
+          : { group: 'needs', route: BAGGED, stop: 3, label: 'Send the dispatch email', actions: ['email'] };
+        case 'done':      return { group: 'done', route: BAGGED, stop: 4, label: 'Done' };
+        default:          return { group: 'waiting', route: BAGGED, stop: 0, label: o.state.replace(/_/g, ' ') };
       }
     }
 
-    runBtn.addEventListener('click', () => runPrk(plateInput.value.trim()));
+    const TABS = [
+      { key: 'needs',   label: 'Needs you',      groups: ['needs', 'failed'], cls: 'needs' },
+      { key: 'system',  label: 'System working', groups: ['system'] },
+      { key: 'waiting', label: 'Waiting',        groups: ['waiting'] },
+      { key: 'done',    label: 'Done',           groups: ['done'] },
+      { key: 'all',     label: 'All',            groups: ['needs', 'failed', 'system', 'waiting', 'done', 'cancelled'] },
+    ];
+    let activeTab = null;        // chosen on first load: Needs you when anything is there
+    let orders = [];             // every order today (open + closed), with its stage
+    let pending = [];            // emails waiting for the sender's confirmation
 
-    // --- Order edit modal (view source email, set cargo/weight/BULK) ---
-    const emailModal       = document.getElementById('emailModal');
-    const modalPlate       = document.getElementById('modalPlate');
-    const modalSubject     = document.getElementById('modalSubject');
-    const modalFrom        = document.getElementById('modalFrom');
-    const modalBodyText    = document.getElementById('modalBodyText');
-    const modalAttachments = document.getElementById('modalAttachments');
-    const modalCargoInput  = document.getElementById('modalCargoInput');
-    const modalWeightInput = document.getElementById('modalWeightInput');
-    const modalGrossWeightInput = document.getElementById('modalGrossWeightInput');
-    const modalSaveBtn     = document.getElementById('modalSaveBtn');
-    const modalStatus      = document.getElementById('modalStatus');
-    let   modalCurrentId    = '';
-    let   modalCurrentPlate = '';
-
-    document.getElementById('modalClose').addEventListener('click', closeEmailModal);
-    emailModal.addEventListener('click', e => { if (e.target === emailModal) closeEmailModal(); });
-
-    function closeEmailModal() {
-      emailModal.classList.remove('open');
-      modalCurrentId = '';
-      modalCurrentPlate = '';
+    function routeHtml(st) {
+      return `<div class="route" aria-label="${esc(st.route[Math.max(st.stop, 0)] || '')}">${st.route.map((name, i) =>
+        `<span class="stop ${i < st.stop ? 'past' : i === st.stop ? 'here' : ''}">${esc(name)}</span>`).join('')}</div>`;
     }
 
-    // Default big-bag tare: gross = net + (net / bag size), i.e. ~1kg of bag material per bag.
-    const BIG_BAG_WEIGHT_KG = 600;
-    function computeGrossWeight(weight) {
-      const net = Number(weight);
-      if (!net) return '';
-      return String(Math.round(net + net / BIG_BAG_WEIGHT_KG));
+    function actionsHtml(o, st) {
+      const b = [];
+      for (const a of st.actions || []) {
+        if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">Send email</button>`);
+        if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">File now</button>`);
+        if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">Try again</button>`);
+        if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">Fix order</button>`);
+      }
+      if (!['done', 'cancelled'].includes(st.group)) b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="Close this truck by hand">Mark done</button>`);
+      return b.join('');
     }
 
-    const modalBulkCheck = document.getElementById('modalBulkCheck');
-    const modalBulkBadge = document.getElementById('modalBulkBadge');
-    modalBulkCheck.addEventListener('change', () => {
-      modalBulkBadge.style.display = modalBulkCheck.checked ? 'inline-block' : 'none';
-      modalGrossWeightInput.disabled = modalBulkCheck.checked;
-      if (!modalBulkCheck.checked && !modalGrossWeightInput.value) {
-        modalGrossWeightInput.value = computeGrossWeight(modalWeightInput.value);
-      }
-    });
-
-    async function openEmailModal(order) {
-      modalCurrentId      = order.id;
-      modalCurrentPlate   = order.plate;
-      modalPlate.textContent = order.plate;
-      modalSubject.textContent = order.subject || '';
-      modalFrom.textContent  = '';
-      modalBodyText.textContent = 'Loading…';
-      modalAttachments.innerHTML = '';
-      modalCargoInput.value  = order.cargo || '';
-      modalWeightInput.value = order.weight || '';
-      modalGrossWeightInput.value = order.grossWeight || computeGrossWeight(order.weight);
-      modalGrossWeightInput.disabled = !!order.bulk;
-      modalStatus.textContent = '';
-      modalBulkCheck.checked = !!order.bulk;
-      modalBulkBadge.style.display = order.bulk ? 'inline-block' : 'none';
-      emailModal.classList.add('open');
-
-      try {
-        const res  = await fetch('/order-email?plate=' + encodeURIComponent(order.plate));
-        if (res.status === 404) {
-          modalBodyText.textContent = '(No cached email data for this plate)';
-          return;
-        }
-        const data = await res.json();
-        if (data.error) { modalBodyText.textContent = `Error: ${data.error}`; return; }
-
-        modalSubject.textContent  = data.subject || order.subject || '';
-        modalFrom.textContent     = data.from || '';
-        modalBodyText.textContent = (data.body || '').trim() || '(empty body)';
-
-        modalAttachments.innerHTML = '';
-        for (const att of (data.attachments || [])) {
-          const a = document.createElement('a');
-          a.className = 'modal-att-link';
-          a.textContent = att.filename || 'attachment';
-          a.href = `/download-attachment?messageId=${encodeURIComponent(data.messageId)}&attachmentId=${encodeURIComponent(att.attachmentId)}&filename=${encodeURIComponent(att.filename || 'attachment')}`;
-          a.target = '_blank';
-          a.rel = 'noopener';
-          modalAttachments.appendChild(a);
-        }
-      } catch (err) {
-        modalBodyText.textContent = `Network error: ${err.message}`;
-      }
-    }
-
-    modalSaveBtn.addEventListener('click', async () => {
-      const cargo       = modalCargoInput.value.trim();
-      const weight      = modalWeightInput.value.trim();
-      const grossWeight = modalGrossWeightInput.value.trim();
-      modalSaveBtn.disabled = true;
-      modalStatus.textContent = 'Saving…';
-      modalStatus.style.color = '#a5b4fc';
-      try {
-        const res  = await fetch('/set-cargo', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id: modalCurrentId, plate: modalCurrentPlate,
-            cargo: cargo || undefined, weight: weight || undefined,
-            grossWeight: grossWeight || undefined,
-            bulk: modalBulkCheck.checked,
-          }),
-        });
-        const data = await res.json();
-        if (data.status === 'ok') {
-          const label = [data.cargo, data.vessel].filter(Boolean).join(' · ');
-          modalStatus.textContent = label ? `Saved: ${label}` : 'Saved.';
-          modalStatus.style.color = '#68d391';
-          loadPipeline();
-          setTimeout(closeEmailModal, 1200);
-        } else {
-          modalStatus.textContent = data.error || 'Not saved (order not found).';
-          modalStatus.style.color = '#fbbf24';
-        }
-      } catch (err) {
-        modalStatus.textContent = `Network error: ${err.message}`;
-        modalStatus.style.color = '#fc8181';
-      } finally {
-        modalSaveBtn.disabled = false;
-      }
-    });
-
-    // --- Recheck emails ---
-    const recheckBtn    = document.getElementById('recheckBtn');
-    const recheckStatus = document.getElementById('recheckStatus');
-
-    recheckBtn.addEventListener('click', async () => {
-      recheckBtn.disabled = true;
-      recheckStatus.textContent = 'Checking emails...';
-      recheckStatus.style.color = '#a5b4fc';
-      try {
-        const res  = await fetch('/gmail/emails?max=100&q=' + encodeURIComponent('in:inbox'));
-        const data = await res.json();
-        if (data.error === 'AUTH_REQUIRED') {
-          recheckStatus.textContent = 'Mail credentials not configured — check .env.';
-          recheckStatus.style.color = '#fbbf24';
-          setGmailStatus(false);
-          return;
-        }
-        if (data.error) {
-          recheckStatus.textContent = `Error: ${data.error}`;
-          recheckStatus.style.color = '#fc8181';
-          return;
-        }
-        const { summary } = data;
-        const parts = [];
-        if (summary.total > 0) parts.push(`${summary.total} emails — ${summary.saved} new, ${summary.skipped} dup, ${summary.noplates} no plates`);
-        else parts.push('No new emails.');
-        if (summary.cargoFilled > 0) parts.push(`${summary.cargoFilled} cargo filled`);
-        if (summary.prkMarked > 0) parts.push(`${summary.prkMarked} marked done (PRK)`);
-        recheckStatus.textContent = parts.join(' · ');
-        recheckStatus.style.color = (summary.saved > 0 || summary.cargoFilled > 0 || summary.prkMarked > 0) ? '#68d391' : '#64748b';
-        loadPipeline();
-        loadConfirmations();
-      } catch (err) {
-        recheckStatus.textContent = `Network error: ${err.message}`;
-        recheckStatus.style.color = '#fc8181';
-      } finally {
-        recheckBtn.disabled = false;
-      }
-    });
-
-    // --- Pipeline (state store): to-do queue + done ---
-    const pipelineAwaitingEl = document.getElementById('pipelineAwaiting');
-    const pipelineSubmittedEl = document.getElementById('pipelineSubmitted');
-    const pipelineQueueEl    = document.getElementById('pipelineQueue');
-    const pipelineDoneEl     = document.getElementById('pipelineDone');
-    const pipelineStatusEl   = document.getElementById('pipelineStatus');
-    let   pipelineQueueOrders = [];
-
-    // Company label comes from the server (derives it, or a prior manual assignment). When
-    // it can't be established, fall back to showing the raw email — clickable, so the operator
-    // can assign a company name for that sender once and have it stick.
-    function emailFromSender(sender) {
-      const str = String(sender || '');
-      const m   = str.match(/<([^>]+)>/);
-      return m ? m[1] : str;
-    }
-
-    function pipeRow(o, dups, clickable) {
-      const doc = o.docs && o.docs.PRK
-        ? (o.docs.PRK.number
-            ? `<span class="pipe-doc">PRK ${escHtml(o.docs.PRK.number)}</span>`
-            : `<span class="pipe-doc pending">PRK ${escHtml(o.docs.PRK.status || 'saved')}</span>`)
-        : '';
-      const dup     = dups.has(o.plate) ? '<span class="pipe-dup" title="This plate appears more than once today">×2</span>' : '';
-      // A19: the dispatch email — an Email button on a submitted PRK, "email sent" once sent here.
-      const ds      = o.dispatchSent;
-      const mail    = ds
-        ? `<span class="pipe-doc" title="Sent ${escHtml(new Date(ds.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' }))} to ${escHtml(ds.to.join(', '))}">email sent (${escHtml(String(ds.terminal).toUpperCase())})</span>`
-        : (o.state === 'submitted' ? `<button class="pipe-email-btn" data-id="${escHtml(o.id)}" title="Preview the dispatch email with the PRK PDF, then send it">Email</button>` : '');
-      const bulk    = o.bulk ? '<span class="pipe-bulk">BULK</span>' : '';
-      const weight  = o.weight ? `<span class="pipe-weight">${escHtml(String(o.weight))} kg</span>` : '';
-      const doneBtn = clickable ? `<button class="pipe-done-btn" data-id="${escHtml(o.id)}" title="Mark done manually">Done</button>` : '';
-      const company = o.company || '';
-      const companyLabel = company
-        ? `<span class="pipe-company" title="${escHtml(o.sender || '')}">${escHtml(company)}</span>`
-        : `<span class="pipe-company unassigned" data-sender="${escHtml(o.sender || '')}" title="${escHtml(o.sender || '')} — click to name this company">${escHtml(emailFromSender(o.sender))}</span>`;
-      return `<div class="pipe-line">
-        ${companyLabel}
-        <div class="pipe-row${clickable ? ' clickable' : ''}" data-id="${escHtml(o.id)}" title="${escHtml(o.subject || '')}">
-          <span class="pipe-id">${escHtml(o.id)}</span>
-          <span class="pipe-plate">${escHtml(o.plate)}</span>
-          ${dup}
-          ${bulk}
-          <span class="pipe-cargo">${escHtml(o.cargo || '—')}</span>
-          ${weight}
-          ${doc}
-          ${mail}
-          <span class="pipe-state ${escHtml(o.state)}">${escHtml(o.state.replace(/_/g, ' '))}</span>
-          ${doneBtn}
+    function truckHtml(o) {
+      const st = o.stage;
+      const cls = st.group === 'cancelled' ? 'done' : st.group;
+      const company = o.company
+        ? esc(o.company)
+        : `<span class="unassigned" data-sender="${esc(o.sender)}" title="Click to name this company">${esc((o.sender.match(/<([^>]+)>/) || [, o.sender])[1])}</span>`;
+      const chips = [o.bulk && '<span class="chip bulk">BULK</span>', o.dup && '<span class="chip dup" title="This plate has more than one order today">×2</span>'].filter(Boolean).join('');
+      return `<article class="truck ${cls}">
+        <div>
+          <div class="plate" data-act="open" data-id="${esc(o.id)}" title="Open the order and its email">${esc(o.plate)}</div>
+          <div class="who">${company}</div>
         </div>
-      </div>`;
+        <div>
+          <div class="what">${chips}${esc(o.cargo || 'Cargo not known')}${o.weight ? ` · ${Number(o.weight).toLocaleString('lt-LT')} kg` : ''}</div>
+          <div class="what sub">${[o.vessel && `from ${esc(o.vessel)}`, o.docs?.PRK?.number && `<span class="mono">${esc(o.docs.PRK.number)}</span>`].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+          ${routeHtml(st)}
+        </div>
+        <div class="next">
+          <div class="label">${esc(st.label)}</div>
+          ${st.reason ? `<div class="reason">${esc(st.reason)}</div>` : ''}
+          <div class="actions">${actionsHtml(o, st)}</div>
+        </div>
+      </article>`;
     }
 
-    function duplicatePlates(all) {
-      const seen = new Map();
-      // A cancelled order is a voided duplicate, not a real second visit — don't count it.
-      all.filter(o => o.state !== 'cancelled').forEach(o => seen.set(o.plate, (seen.get(o.plate) || 0) + 1));
-      return new Set([...seen.entries()].filter(([, n]) => n > 1).map(([p]) => p));
+    function matches(o, q) {
+      if (!q) return true;
+      const hay = [o.plate, o.company, o.sender, o.cargo, o.vessel, o.docs?.PRK?.number, o.id].join(' ').toLowerCase().replace(/[\s/]+/g, '');
+      return hay.includes(q.toLowerCase().replace(/[\s/]+/g, ''));
     }
+
+    function render() {
+      const q = $('search').value.trim();
+      const shown = orders.filter(o => matches(o, q));
+      const count = t => shown.filter(o => t.groups.includes(o.stage.group)).length + (t.key === 'needs' || t.key === 'all' ? pending.length : 0);
+      if (!activeTab) activeTab = count(TABS[0]) ? 'needs' : 'all';
+      $('tabs').innerHTML = TABS.map(t => `<button class="tab ${t.cls || ''}" role="tab" aria-selected="${t.key === activeTab}" data-tab="${t.key}"><b>${count(t)}</b>${t.label}</button>`).join('');
+
+      const tab = TABS.find(t => t.key === activeTab);
+      const showConfirm = (activeTab === 'needs' || activeTab === 'all') && !q;
+      $('confirmations').innerHTML = showConfirm ? pending.map(p => `
+        <div class="card confirm">
+          <div class="subject">${esc(p.subject || '(no subject)')}</div>
+          <div class="meta">New sender: ${esc(p.sender)} · ${esc(p.received || '')}</div>
+          <div><span class="mono">${esc(p.plates.join(', '))}</span>${p.cargo ? ' — ' + esc(p.cargo) : ''}${p.bulk ? ' <span class="chip bulk">BULK</span>' : ''}</div>
+          <div class="actions">
+            <button class="btn primary small" data-decide="always" data-sender="${esc(p.sender)}" title="Trust this sender from now on; their orders get filed automatically">Trust this sender</button>
+            <button class="btn small" data-decide="once" data-msg="${esc(p.messageId)}">Accept this email only</button>
+            <button class="btn quiet small" data-decide="cancel_once" data-msg="${esc(p.messageId)}">Ignore this email</button>
+            <button class="btn danger small" data-decide="never" data-sender="${esc(p.sender)}">Block sender</button>
+          </div>
+        </div>`).join('') : '';
+
+      const order = { failed: 0, needs: 1, system: 2, waiting: 3, done: 4, cancelled: 5 };
+      const list = shown.filter(o => tab.groups.includes(o.stage.group))
+        .sort((a, b) => order[a.stage.group] - order[b.stage.group] || (a.id < b.id ? -1 : 1));
+      $('trucks').innerHTML = list.length ? list.map(truckHtml).join('')
+        : (showConfirm && pending.length) ? ''
+        : `<div class="card empty">${q ? `<strong>No truck matches “${esc(q)}”.</strong>Try the plate without slashes, or the company name.`
+            : activeTab === 'needs' ? '<strong>Nothing needs you right now.</strong>New orders come in with Check mail and are filed automatically.'
+            : '<strong>No trucks here.</strong>'}</div>`;
+    }
+
+    $('tabs').addEventListener('click', e => {
+      const t = e.target.closest('[data-tab]');
+      if (t) { activeTab = t.getAttribute('data-tab'); render(); }
+    });
+    $('search').addEventListener('input', () => {
+      if ($('search').value.trim()) activeTab = 'all';
+      render();
+    });
 
     async function loadPipeline() {
       try {
-        const res  = await fetch('/pipeline');
-        const data = await res.json();
-        if (data.error) {
-          pipelineStatusEl.textContent = 'Error: ' + data.error;
-          pipelineStatusEl.style.color = '#fc8181';
-          return;
-        }
-        // A saved draft (drafted, with a PRK number) waits for the operator's Pateikti; the
-        // terminal's dispatch email then closes it (ROADMAP A11). A dry-run fill has no number.
-        // Submitted (A18): the operator pressed Pateikti — the dispatch email is next.
-        const awaitingPateikti = o => o.state === 'drafted' && o.docs?.PRK?.number;
-        const isSubmitted      = o => o.state === 'submitted';
-        const all       = data.queue || [];
-        const awaiting  = all.filter(awaitingPateikti);
-        const submitted = all.filter(isSubmitted);
-        const queue     = all.filter(o => !awaitingPateikti(o) && !isSubmitted(o));
-        const done      = data.done  || [];
-        const dups      = duplicatePlates([...all, ...done]);
-        pipelineQueueOrders = all;
-
-        pipelineAwaitingEl.innerHTML = awaiting.length
-          ? awaiting.map(o => pipeRow(o, dups, true)).join('')
-          : '<div class="task-empty">No drafts waiting.</div>';
-        pipelineSubmittedEl.innerHTML = submitted.length
-          ? submitted.map(o => pipeRow(o, dups, true)).join('')
-          : '<div class="task-empty">Nothing submitted and waiting for the email.</div>';
-        pipelineQueueEl.innerHTML = queue.length
-          ? queue.map(o => pipeRow(o, dups, true)).join('')
-          : '<div class="task-empty">Queue is empty.</div>';
-        pipelineDoneEl.innerHTML = done.length
-          ? done.map(o => pipeRow(o, dups, false)).join('')
-          : '<div class="task-empty">Nothing done yet today.</div>';
-
-        pipelineStatusEl.textContent = `${awaiting.length} waiting for Pateikti · ${submitted.length} email to send · ${queue.length} to do · ${done.length} done`;
-        pipelineStatusEl.style.color = '#64748b';
+        const data = await getJson('/pipeline');
+        if (data.error) throw new Error(data.error);
+        const all = [...(data.queue || []), ...(data.done || [])].filter(o => o.state !== 'needs_human');
+        const seen = new Map();
+        all.filter(o => o.state !== 'cancelled').forEach(o => seen.set(o.plate, (seen.get(o.plate) || 0) + 1));
+        orders = all.map(o => ({ ...o, dup: seen.get(o.plate) > 1, stage: stageOf(o) }));
+        render();
       } catch (err) {
-        pipelineStatusEl.textContent = 'Network error: ' + err.message;
-        pipelineStatusEl.style.color = '#fc8181';
+        $('trucks').innerHTML = `<div class="card empty"><strong>Could not load the trucks.</strong>${esc(err.message)}</div>`;
       }
     }
 
-    async function handleCompanyClick(el) {
-      const sender = el.getAttribute('data-sender');
-      if (!sender) return;
-      const company = prompt('Company name for this sender:\n' + sender);
-      if (!company || !company.trim()) return;
-      try {
-        await fetch('/sender-company', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ sender, company: company.trim() }),
-        });
-        loadPipeline();
-      } catch (err) {}
+    async function loadConfirmations() {
+      try { pending = (await getJson('/confirmations')).pending || []; render(); } catch { /* keep */ }
     }
 
-    pipelineDoneEl.addEventListener('click', e => {
-      const unassigned = e.target.closest('.pipe-company.unassigned');
-      if (unassigned) handleCompanyClick(unassigned);
+    // ── Row actions ──────────────────────────────────────────────────────
+    $('trucks').addEventListener('click', async e => {
+      const el = e.target.closest('[data-act], .unassigned');
+      if (!el) return;
+      if (el.classList.contains('unassigned')) return nameCompany(el.getAttribute('data-sender'));
+      const act = el.getAttribute('data-act');
+      const order = orders.find(o => o.id === el.getAttribute('data-id'));
+      if (act === 'open' && order) return openOrder(order);
+      if (act === 'email') return openDispatch(el.getAttribute('data-id'));
+      if (act === 'file') return runPrk(el.getAttribute('data-plate'), el);
+      if (act === 'done') {
+        if (!confirm(`Close ${order ? order.plate : 'this truck'} by hand?`)) return;
+        el.disabled = true;
+        await postJson('/order/mark-done', { id: el.getAttribute('data-id') });
+        loadPipeline();
+      }
     });
 
-    // ── A19: dispatch email preview + Send (the only way PortSystem sends mail) ──
-    const dispatchModal = document.createElement('div');
-    dispatchModal.id = 'dispatchModal';
-    dispatchModal.innerHTML = `<div class="box">
-      <h3 id="dispatchTitle">Dispatch email</h3>
-      <div id="dispatchWarn"></div>
-      <div><label>Terminal</label><select id="dispatchTerminal"><option value="roro">RoRo</option><option value="kkt">KKT</option></select></div>
-      <div><label>To</label><div class="addr" id="dispatchTo"></div></div>
-      <div><label>Cc</label><div class="addr" id="dispatchCc"></div></div>
-      <div><label>Subject</label><input id="dispatchSubject"></div>
-      <div><label>Text</label><textarea id="dispatchText"></textarea></div>
-      <div><label>Attachment</label><a id="dispatchPdf" target="_blank" rel="noopener"></a></div>
-      <div id="dispatchStatus"></div>
-      <div class="row"><button id="dispatchCancel">Close</button><button id="dispatchSend">Send</button></div>
-    </div>`;
-    document.body.appendChild(dispatchModal);
-    let dispatchCurrent = null;
-    const dq = id => document.getElementById(id);
+    $('confirmations').addEventListener('click', async e => {
+      const btn = e.target.closest('[data-decide]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-decide');
+      if (action === 'never' && !confirm('Block this sender for good? Their waiting orders are cancelled.')) return;
+      btn.disabled = true;
+      await postJson('/confirmations/decide', { action, sender: btn.getAttribute('data-sender'), messageId: btn.getAttribute('data-msg') });
+      loadConfirmations(); loadPipeline();
+    });
 
+    async function nameCompany(sender) {
+      const company = prompt('Company name for this sender:\n' + sender);
+      if (!company || !company.trim()) return;
+      await postJson('/sender-company', { sender, company: company.trim() });
+      loadPipeline();
+    }
+
+    // ── Filing ───────────────────────────────────────────────────────────
+    async function runPrk(plate, btn) {
+      if (!plate) return toast('err', 'Type a truck plate first.');
+      if (btn) btn.disabled = true;
+      toast('', `Filing the PRK for ${plate} — about a minute…`, true);
+      try {
+        const d = await postJson('/run-prk', { value: plate });
+        if (d.status !== 'ok') toast('err', `${plate}: ${d.message}`);
+        else if (d.existingPrk) toast('ok', `${plate} already has a PRK in KIPIS (${d.existingPrk}) — nothing filed.`);
+        else if (d.needsLotOwners) { toast('warn', `${plate} not filed: ${d.blocked}. Confirm the lot owners, then try again.`); loadLots(); }
+        else if (d.blocked) toast('warn', `${plate} not filed: ${d.blocked}`);
+        else toast('ok', d.submitted ? `${plate}: PRK draft ${d.prkNumber} saved — check it in KIPIS and press Pateikti.` : `${plate}: form filled (test mode) — not saved.`);
+      } catch (err) {
+        toast('err', `Network error: ${err.message}`);
+      } finally {
+        if (btn) btn.disabled = false;
+        loadPipeline(); loadKipisSession();
+      }
+    }
+    $('runBtn').addEventListener('click', () => runPrk($('plateInput').value.trim(), $('runBtn')));
+
+    $('processNextBtn').addEventListener('click', async () => {
+      $('processNextBtn').disabled = true;
+      toast('', 'Filing the next truck in line…', true);
+      try {
+        const d = await postJson('/queue/process-next');
+        if (d.status === 'empty') toast('', 'No truck is waiting to be filed.');
+        else if (d.status === 'error') toast('err', `${d.plate ? d.plate + ': ' : ''}${d.message}`);
+        else if (d.existingPrk) toast('ok', `${d.plate} already has a PRK (${d.existingPrk}).`);
+        else if (d.blocked) toast('warn', `${d.plate} not filed: ${d.blocked}`);
+        else toast('ok', `${d.plate}: PRK draft ${d.prkNumber} saved.`);
+      } catch (err) { toast('err', `Network error: ${err.message}`); }
+      finally { $('processNextBtn').disabled = false; loadPipeline(); }
+    });
+
+    $('fileAllBtn').addEventListener('click', async () => {
+      $('fileAllBtn').disabled = true;
+      toast('', 'Filing every ready truck — about a minute per truck…', true);
+      try {
+        const r = await postJson('/queue/file-all');
+        if (r.status !== 'ok') return toast('err', r.message);
+        const parts = [
+          r.saved.length && `${r.saved.length} saved (${r.saved.map(x => x.plate).join(', ')})`,
+          r.existing.length && `${r.existing.length} already filed`,
+          r.blocked.length && `${r.blocked.length} not filed`,
+          r.failed.length && `${r.failed.length} failed`,
+        ].filter(Boolean);
+        if (r.stoppedBecause) parts.push(`stopped: ${r.stoppedBecause}`);
+        toast(r.blocked.length || r.failed.length || r.stoppedBecause ? 'warn' : 'ok', parts.length ? parts.join(' · ') : 'No ready trucks to file.');
+      } catch (err) { toast('err', `Network error: ${err.message}`); }
+      finally { $('fileAllBtn').disabled = false; loadPipeline(); loadAutoFile(); loadKipisSession(); }
+    });
+
+    // ── Mail ─────────────────────────────────────────────────────────────
+    $('recheckBtn').addEventListener('click', async () => {
+      $('recheckBtn').disabled = true;
+      toast('', 'Checking mail…', true);
+      try {
+        const d = await getJson('/gmail/emails?max=100&q=' + encodeURIComponent('in:inbox'));
+        if (d.error) return toast('err', d.error === 'AUTH_REQUIRED' ? 'Mail is not set up — check the mail settings in .env.' : d.error);
+        const s = d.summary;
+        const parts = [s.saved ? `${s.saved} new truck${s.saved === 1 ? '' : 's'}` : 'No new trucks'];
+        if (s.prkMarked) parts.push(`${s.prkMarked} closed by the terminal's copy`);
+        if (s.cargoFilled) parts.push(`${s.cargoFilled} cargo filled in`);
+        toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? ' — filing them now.' : '.'));
+      } catch (err) { toast('err', `Network error: ${err.message}`); }
+      finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); setTimeout(loadPipeline, 20000); }
+    });
+
+    async function checkMail() {
+      try {
+        const { authorized } = await getJson('/gmail/status');
+        $('mailLight').className = 'light ' + (authorized ? 'ok' : 'bad');
+        $('mailLight').textContent = authorized ? 'Mail' : 'Mail down';
+        $('recheckBtn').disabled = !authorized;
+        $('mailError').style.display = authorized ? 'none' : '';
+        $('mailError').innerHTML = authorized ? '' : '<h3>Mail not connected</h3><div class="muted" style="font-size:13px">The mailbox did not answer. Check the network and the mail settings in .env.</div>';
+      } catch { $('mailLight').textContent = 'Mail ?'; }
+    }
+
+    // ── KIPIS ────────────────────────────────────────────────────────────
+    async function loadKipisSession() {
+      const el = $('kipisLight');
+      try {
+        const s = await getJson('/kipis/status');
+        const text = { main: 'KIPIS logged in', login: 'KIPIS logged out — open it and enter the code', closed: 'KIPIS not open', error: 'KIPIS not answering' };
+        el.className = 'light ' + ({ main: 'ok', login: 'warn', closed: '', error: 'bad' }[s.state] || '');
+        el.textContent = text[s.state] || `KIPIS ${s.state}`;
+      } catch { el.className = 'light bad'; el.textContent = 'KIPIS ?'; }
+    }
+    $('openBtn').addEventListener('click', async () => {
+      $('openBtn').disabled = true;
+      toast('', 'Opening KIPIS — enter the code there if it asks…', true);
+      try {
+        const d = await postJson('/open-kipis');
+        toast(d.status === 'ok' ? 'ok' : 'err', d.status === 'ok' ? 'KIPIS is open and logged in.' : d.message);
+      } catch (err) { toast('err', `Network error: ${err.message}`); }
+      finally { $('openBtn').disabled = false; loadKipisSession(); }
+    });
+
+    // ── Runs by itself: auto-filing, Pateikti check, cleanup ─────────────
+    async function loadAutoFile() {
+      try {
+        const r = await getJson('/queue/auto');
+        if (!r.at) return;
+        const n = k => (r[k] || []).length;
+        $('autoFileLine').innerHTML = (r.skipped || r.error)
+          ? `<span class="warn">${hhmm(r.at)}: skipped — ${esc(r.skipped || r.error)}</span>`
+          : `Last run ${hhmm(r.at)}: ${n('saved')} saved${n('blocked') + n('failed') ? `, <span class="warn">${n('blocked') + n('failed')} not filed</span>` : ''}${r.stoppedBecause ? ` — <span class="warn">${esc(r.stoppedBecause)}</span>` : ''}`;
+      } catch { /* keep */ }
+    }
+    async function loadWatch() {
+      try {
+        const r = await getJson('/prk/watch');
+        if (!r.at) return;
+        const moved = [...(r.submitted || []), ...(r.done || []), ...(r.cancelled || [])];
+        $('watchLine').innerHTML = (r.skipped || r.error)
+          ? `<span class="warn">${hhmm(r.at)}: skipped — ${esc(r.skipped || r.error)}</span>`
+          : `Last check ${hhmm(r.at)}: ${moved.length ? moved.map(x => esc(x.plate)).join(', ') + ' submitted' : 'nothing new'}`;
+      } catch { /* keep */ }
+    }
+    $('watchBtn').addEventListener('click', async () => {
+      $('watchBtn').disabled = true;
+      $('watchLine').textContent = 'Reading the PRK list in KIPIS…';
+      try { await postJson('/prk/watch'); } catch { /* shown below */ }
+      $('watchBtn').disabled = false; loadWatch(); loadPipeline();
+    });
+    async function loadCleanup() {
+      try {
+        const r = await getJson('/prk/cleanup');
+        if (!r.at) return;
+        $('sweepLine').innerHTML = r.status === 'ok' || r.status === 'stopped'
+          ? `Last run ${new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' })}: ${r.deleted.length} deleted${r.failed?.length ? ` — <span class="err">stopped at ${esc(r.failed[0].plate)}</span>` : ''}`
+          : `<span class="err">Not done — ${esc(r.message)}</span>`;
+      } catch { /* keep */ }
+    }
+    $('sweepBtn').addEventListener('click', async () => {
+      if (!confirm('Delete PortSystem\'s unused PRK drafts now?\n\nOnly Ruošiamas drafts for orders 2 or more days old. Today\'s and yesterday\'s drafts, and drafts made by people, are never touched. This cannot be undone.')) return;
+      $('sweepBtn').disabled = true;
+      $('sweepLine').textContent = 'Reading KIPIS and deleting…';
+      try { await postJson('/prk/cleanup'); } catch { /* shown below */ }
+      $('sweepBtn').disabled = false; loadCleanup(); loadPipeline();
+    });
+
+    async function loadLots() {
+      try {
+        const { attention } = await getJson('/lots/data');
+        const parts = [attention.lots && `${attention.lots} lot${attention.lots === 1 ? '' : 's'} to confirm`, attention.companies && `${attention.companies} compan${attention.companies === 1 ? 'y' : 'ies'} to set`].filter(Boolean);
+        $('lotsAttention').textContent = parts.length ? parts.join(' · ') + ' →' : 'all set →';
+        $('lotsLink').classList.toggle('todo', parts.length > 0);
+      } catch { /* keep */ }
+    }
+
+    // ── The order dialog: source email, cargo, weight ────────────────────
+    let currentOrder = null;
+    const BAG_KG = 600;
+    const grossOf = w => Number(w) ? String(Math.round(Number(w) + Number(w) / BAG_KG)) : '';
+    function closeOrder() { $('orderDialog').classList.remove('open'); currentOrder = null; }
+    $('modalClose').addEventListener('click', closeOrder);
+    $('orderDialog').addEventListener('click', e => { if (e.target === $('orderDialog')) closeOrder(); });
+    $('modalBulkCheck').addEventListener('change', () => {
+      $('modalGrossWeightInput').disabled = $('modalBulkCheck').checked;
+      if (!$('modalBulkCheck').checked && !$('modalGrossWeightInput').value) $('modalGrossWeightInput').value = grossOf($('modalWeightInput').value);
+    });
+    async function openOrder(o) {
+      currentOrder = o;
+      $('modalPlate').textContent = o.plate;
+      $('modalSubject').textContent = o.subject || '';
+      $('modalFrom').textContent = '';
+      $('modalBodyText').textContent = 'Loading the email…';
+      $('modalAttachments').innerHTML = '';
+      $('modalCargoInput').value = o.cargo || '';
+      $('modalWeightInput').value = o.weight || '';
+      $('modalGrossWeightInput').value = o.grossWeight || grossOf(o.weight);
+      $('modalGrossWeightInput').disabled = !!o.bulk;
+      $('modalBulkCheck').checked = !!o.bulk;
+      $('modalStatus').textContent = o.stage?.group === 'failed' && o.note ? `Why it stopped: ${o.note}` : '';
+      $('orderDialog').classList.add('open');
+      try {
+        const res = await fetch('/order-email?plate=' + encodeURIComponent(o.plate));
+        if (res.status === 404) { $('modalBodyText').textContent = 'The source email is not stored for this truck.'; return; }
+        const d = await res.json();
+        if (d.error) { $('modalBodyText').textContent = d.error; return; }
+        $('modalSubject').textContent = d.subject || o.subject || '';
+        $('modalFrom').textContent = d.from || '';
+        $('modalBodyText').textContent = (d.body || '').trim() || '(empty email)';
+        $('modalAttachments').innerHTML = (d.attachments || []).map(a =>
+          `<a class="btn small" target="_blank" rel="noopener" href="/download-attachment?messageId=${encodeURIComponent(d.messageId)}&attachmentId=${encodeURIComponent(a.attachmentId)}&filename=${encodeURIComponent(a.filename || 'attachment')}">${esc(a.filename || 'attachment')}</a>`).join('');
+      } catch (err) { $('modalBodyText').textContent = `Network error: ${err.message}`; }
+    }
+    $('modalSaveBtn').addEventListener('click', async () => {
+      if (!currentOrder) return;
+      $('modalSaveBtn').disabled = true;
+      $('modalStatus').textContent = 'Saving…';
+      try {
+        const d = await postJson('/set-cargo', {
+          id: currentOrder.id, plate: currentOrder.plate,
+          cargo: $('modalCargoInput').value.trim() || undefined,
+          weight: $('modalWeightInput').value.trim() || undefined,
+          grossWeight: $('modalGrossWeightInput').value.trim() || undefined,
+          bulk: $('modalBulkCheck').checked,
+        });
+        if (d.status === 'ok') {
+          $('modalStatus').innerHTML = `<span class="ok">Saved${[d.cargo, d.vessel].filter(Boolean).length ? ': ' + esc([d.cargo, d.vessel].filter(Boolean).join(' · ')) : ''}.</span>`;
+          loadPipeline(); setTimeout(closeOrder, 1000);
+        } else $('modalStatus').innerHTML = `<span class="err">${esc(d.error || 'Not saved — order not found.')}</span>`;
+      } catch (err) { $('modalStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
+      finally { $('modalSaveBtn').disabled = false; }
+    });
+
+    // ── The dispatch email: preview, then the operator's Send ───────────
+    let dispatchCurrent = null;
     function showRecipients() {
       if (!dispatchCurrent) return;
-      dq('dispatchTo').textContent = dispatchCurrent.recipients[dq('dispatchTerminal').value].join(', ');
-      dq('dispatchCc').textContent = dispatchCurrent.cc.join(', ');
+      $('dispatchTo').textContent = dispatchCurrent.recipients[$('dispatchTerminal').value].join(', ');
+      $('dispatchCc').textContent = dispatchCurrent.cc.join(', ');
     }
-    dq('dispatchTerminal').addEventListener('change', showRecipients);
-    dq('dispatchCancel').addEventListener('click', () => dispatchModal.classList.remove('open'));
+    $('dispatchTerminal').addEventListener('change', showRecipients);
+    $('dispatchCancel').addEventListener('click', () => $('dispatchModal').classList.remove('open'));
+    $('dispatchModal').addEventListener('click', e => { if (e.target === $('dispatchModal')) $('dispatchModal').classList.remove('open'); });
 
     async function openDispatch(id) {
       dispatchCurrent = null;
-      dispatchModal.classList.add('open');
-      dq('dispatchTitle').textContent = 'Dispatch email';
-      dq('dispatchWarn').innerHTML = '';
-      dq('dispatchStatus').textContent = 'Fetching the PRK PDF from KIPIS…';
-      dq('dispatchSend').disabled = true;
-      ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { dq(x).textContent = ''; });
-      dq('dispatchSubject').value = ''; dq('dispatchText').value = '';
+      $('dispatchModal').classList.add('open');
+      $('dispatchTitle').textContent = 'Dispatch email';
+      $('dispatchWarn').innerHTML = '';
+      $('dispatchStatus').textContent = 'Getting the PRK PDF from KIPIS…';
+      $('dispatchSend').disabled = true;
+      ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { $(x).textContent = ''; });
+      $('dispatchSubject').value = ''; $('dispatchText').value = '';
       try {
-        const r = await (await fetch('/dispatch/preview?id=' + encodeURIComponent(id))).json();
-        if (r.status !== 'ok') { dq('dispatchStatus').innerHTML = `<span class="err">${escHtml(r.message || r.error)}</span>`; return; }
+        const r = await getJson('/dispatch/preview?id=' + encodeURIComponent(id));
+        if (r.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(r.message || r.error)}</span>`; return; }
         dispatchCurrent = r;
-        dq('dispatchTitle').textContent = `Dispatch email — ${r.plate} (${r.prk})`;
-        dq('dispatchTerminal').value = r.terminal;
-        dq('dispatchSubject').value = r.subject;
-        dq('dispatchText').value = r.text;
-        dq('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB) — open to check`;
-        dq('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
+        $('dispatchTitle').innerHTML = `Dispatch email · <span class="mono">${esc(r.plate)}</span>`;
+        $('dispatchTerminal').value = r.terminal;
+        $('dispatchSubject').value = r.subject;
+        $('dispatchText').value = r.text;
+        $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
+        $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
         showRecipients();
         const warns = [];
-        if (r.sent) warns.push(`Already sent by PortSystem at ${new Date(r.sent.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' })}.`);
-        if (r.sentByHand) warns.push('An email for this truck already went to the terminal today (copy in the inbox) — check before sending again.');
-        if (r.missing && r.missing.length) warns.push(`Missing: ${r.missing.join(', ')} — fill it in the text.`);
-        dq('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${escHtml(w)}</div>`).join('');
-        dq('dispatchStatus').textContent = '';
-        dq('dispatchSend').disabled = !!r.sent;
-      } catch (err) {
-        dq('dispatchStatus').innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
-      }
+        if (r.sent) warns.push(`Already sent from here at ${hhmm(r.sent.at)}.`);
+        if (r.sentByHand) warns.push('An email for this truck already went to the terminal today — check before sending again.');
+        if (r.missing?.length) warns.push(`Missing: ${r.missing.join(', ')} — add it to the text.`);
+        $('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${esc(w)}</div>`).join('');
+        $('dispatchStatus').textContent = '';
+        $('dispatchSend').disabled = !!r.sent;
+      } catch (err) { $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
     }
-
-    dq('dispatchSend').addEventListener('click', async () => {
+    $('dispatchSend').addEventListener('click', async () => {
       const r = dispatchCurrent;
       if (!r) return;
       if (r.sentByHand && !confirm('This truck was already emailed to the terminal today. Send again?')) return;
-      dq('dispatchSend').disabled = true;
-      dq('dispatchStatus').textContent = 'Sending…';
+      $('dispatchSend').disabled = true;
+      $('dispatchStatus').textContent = 'Sending…';
       try {
-        const s = await (await fetch('/dispatch/send', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: r.id, date: r.date, terminal: dq('dispatchTerminal').value, subject: dq('dispatchSubject').value, text: dq('dispatchText').value }),
-        })).json();
-        if (s.status !== 'ok') { dq('dispatchStatus').innerHTML = `<span class="err">${escHtml(s.message || s.error)}</span>`; dq('dispatchSend').disabled = false; return; }
-        dq('dispatchStatus').innerHTML = `<span style="color:#68d391">Sent to ${escHtml(s.sentTo.join(', '))}.</span>`;
+        const s = await postJson('/dispatch/send', { id: r.id, date: r.date, terminal: $('dispatchTerminal').value, subject: $('dispatchSubject').value, text: $('dispatchText').value });
+        if (s.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(s.message || s.error)}</span>`; $('dispatchSend').disabled = false; return; }
+        $('dispatchModal').classList.remove('open');
+        toast('ok', `Email sent to ${s.sentTo.join(', ')}.`);
         loadPipeline();
-        setTimeout(() => dispatchModal.classList.remove('open'), 1500);
-      } catch (err) {
-        dq('dispatchStatus').innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
-        dq('dispatchSend').disabled = false;
-      }
+      } catch (err) { $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; $('dispatchSend').disabled = false; }
     });
 
-    async function onQueueClick(e) {
-      const emailBtn = e.target.closest('.pipe-email-btn');
-      if (emailBtn) { e.stopPropagation(); openDispatch(emailBtn.getAttribute('data-id')); return; }
-      const unassigned = e.target.closest('.pipe-company.unassigned');
-      if (unassigned) { handleCompanyClick(unassigned); return; }
-
-      const doneBtn = e.target.closest('.pipe-done-btn');
-      if (doneBtn) {
-        e.stopPropagation();
-        doneBtn.disabled = true;
-        try {
-          await fetch('/order/mark-done', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id: doneBtn.getAttribute('data-id') }),
-          });
-          loadPipeline();
-        } catch (err) {
-          doneBtn.disabled = false;
-        }
-        return;
-      }
-
-      const row = e.target.closest('.pipe-row');
-      if (!row) return;
-      const order = pipelineQueueOrders.find(o => o.id === row.getAttribute('data-id'));
-      if (order) openEmailModal(order);
-    }
-    pipelineQueueEl.addEventListener('click', onQueueClick);
-    pipelineAwaitingEl.addEventListener('click', onQueueClick);
-    pipelineSubmittedEl.addEventListener('click', onQueueClick);
-
-    // A18: last check of which drafts were submitted; the button runs one now.
-    function watchText(r) {
-      if (!r || !r.at) return '';
-      const when = new Date(r.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
-      if (r.skipped || r.error) return `<span class="err">Checked ${escHtml(when)}: not done — ${escHtml(r.skipped || r.error)}</span>`;
-      const moved = [...(r.submitted || []), ...(r.done || []), ...(r.cancelled || [])];
-      return `Checked ${escHtml(when)} (${escHtml(r.reason)}): ` + (moved.length
-        ? moved.map(x => `${escHtml(x.plate)} ${escHtml(x.status)}`).join(', ')
-        : 'no change');
-    }
-    async function loadWatch() {
-      try { document.getElementById('watchResult').innerHTML = watchText(await (await fetch('/prk/watch')).json()); } catch { /* keep */ }
-    }
-    document.getElementById('watchBtn').addEventListener('click', async () => {
-      const btn = document.getElementById('watchBtn');
-      const out = document.getElementById('watchResult');
-      btn.disabled = true;
-      out.textContent = 'Reading the PRK list in KIPIS…';
-      try {
-        out.innerHTML = watchText(await (await fetch('/prk/watch', { method: 'POST' })).json()) || 'Nothing to check — no drafts waiting.';
-      } catch (err) {
-        out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
-      } finally {
-        btn.disabled = false;
-        loadPipeline();
-      }
-    });
-    loadWatch();
-    setInterval(loadWatch, 60 * 1000);
-
-    loadPipeline();
-
-    // --- Awaiting confirmation (unconfirmed senders) ---
-    const confirmListEl     = document.getElementById('confirmList');
-    const confirmStatusEl   = document.getElementById('confirmStatus');
-    const processNextBtn    = document.getElementById('processNextBtn');
-
-    async function loadConfirmations() {
-      try {
-        const res  = await fetch('/confirmations');
-        const data = await res.json();
-        if (data.error) {
-          confirmStatusEl.textContent = 'Error: ' + data.error;
-          confirmStatusEl.style.color = '#fc8181';
-          return;
-        }
-        const pending = data.pending || [];
-        confirmListEl.innerHTML = pending.length ? pending.map(p => `
-          <div class="confirm-card">
-            <div class="confirm-subject">${escHtml(p.subject || '(no subject)')}</div>
-            <div class="confirm-meta">${escHtml(p.sender)} · ${escHtml(p.received || '')}</div>
-            <div class="confirm-detail">${escHtml(p.plates.join(', '))}${p.cargo ? ' — ' + escHtml(p.cargo) : ''}${p.bulk ? ' <b>BULK</b>' : ''}</div>
-            <div class="confirm-actions">
-              <button class="btn-always" data-action="always"      data-sender="${escHtml(p.sender)}">Confirm sender</button>
-              <button class="btn-once"   data-action="once"        data-msg="${escHtml(p.messageId)}">Confirm once</button>
-              <button class="btn-cancel" data-action="cancel_once" data-msg="${escHtml(p.messageId)}">Cancel once</button>
-              <button class="btn-never"  data-action="never"       data-sender="${escHtml(p.sender)}">Never</button>
-            </div>
-          </div>`).join('')
-          : '<div class="task-empty">Nothing awaiting confirmation.</div>';
-        confirmStatusEl.textContent = pending.length ? `${pending.length} email(s)` : '';
-        confirmStatusEl.style.color = '#64748b';
-      } catch (err) {
-        confirmStatusEl.textContent = 'Network error: ' + err.message;
-        confirmStatusEl.style.color = '#fc8181';
-      }
-    }
-
-    confirmListEl.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-action]');
-      if (!btn) return;
-      const action = btn.getAttribute('data-action');
-      if (action === 'never' && !confirm('Block this sender permanently? Their pending orders will be cancelled.')) return;
-      btn.disabled = true;
-      try {
-        await fetch('/confirmations/decide', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ action, sender: btn.getAttribute('data-sender'), messageId: btn.getAttribute('data-msg') }),
-        });
-        loadConfirmations();
-        loadPipeline();
-      } catch (err) {
-        btn.disabled = false;
-      }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { closeOrder(); $('dispatchModal').classList.remove('open'); }
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') { e.preventDefault(); $('search').focus(); }
     });
 
-    loadConfirmations();
-
-    // A12: filing runs by itself after RECHECK and every 15 min in the shift — show its last run.
-    async function loadAutoFile() {
-      const el = document.getElementById('autoFileStatus');
-      try {
-        const r = await (await fetch('/queue/auto')).json();
-        if (!r.at) { el.textContent = 'Auto-filing: on — after each RECHECK and every 15 min (08–18).'; return; }
-        const when = new Date(r.at).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
-        if (r.skipped || r.error) { el.innerHTML = `<span class="warn">Auto-filing ${escHtml(when)} (${escHtml(r.reason)}): not run — ${escHtml(r.skipped || r.error)}</span>`; return; }
-        const n = k => (r[k] || []).length;
-        const parts = [`${n('saved')} saved`, n('existing') && `${n('existing')} already filed`, n('blocked') && `${n('blocked')} not filed`, n('failed') && `${n('failed')} failed`].filter(Boolean);
-        el.innerHTML = `Auto-filing ${escHtml(when)} (${escHtml(r.reason)}): ${parts.join(', ')}`
-          + (r.stoppedBecause ? ` — <span class="warn">stopped: ${escHtml(r.stoppedBecause)}</span>` : '')
-          + ((n('blocked') || n('failed')) ? ' — <span class="warn">see the orders marked failed</span>' : '');
-      } catch { /* keep the last text */ }
-    }
-    loadAutoFile();
-    setInterval(loadAutoFile, 60 * 1000);
-
-    // A8: every ready truck in one go. The summary names each truck and what happened to it.
-    const fileAllBtn = document.getElementById('fileAllBtn');
-    fileAllBtn.addEventListener('click', async () => {
-      fileAllBtn.disabled = processNextBtn.disabled = true;
-      pipelineStatusEl.style.color = '#a5b4fc';
-      pipelineStatusEl.textContent = 'Filing every ready truck — this takes about a minute per truck…';
-      try {
-        const r = await (await fetch('/queue/file-all', { method: 'POST' })).json();
-        if (r.status !== 'ok') { pipelineStatusEl.textContent = r.message; pipelineStatusEl.style.color = '#fc8181'; return; }
-        const line = (label, list, show) => list.length ? `${label}: ${list.map(show).join(', ')}` : '';
-        const parts = [
-          line('Saved, waiting for your Pateikti', r.saved, x => `${x.plate} (${x.prkNumber})`),
-          line('Already filed', r.existing, x => x.plate),
-          line('Not filed', r.blocked, x => `${x.plate} — ${x.message}`),
-          line('Failed', r.failed, x => `${x.plate} — ${x.message}`),
-        ].filter(Boolean);
-        if (r.stoppedBecause) parts.push(`Stopped: ${r.stoppedBecause}`);
-        pipelineStatusEl.textContent = parts.length ? parts.join(' · ') : 'No ready trucks to file.';
-        pipelineStatusEl.style.color = (r.blocked.length || r.failed.length || r.stoppedBecause) ? '#fbbf24' : '#68d391';
-        if (r.blocked.some(x => x.needsLotOwners)) loadLots();
-      } catch (err) {
-        pipelineStatusEl.textContent = 'Network error: ' + err.message;
-        pipelineStatusEl.style.color = '#fc8181';
-      } finally {
-        fileAllBtn.disabled = processNextBtn.disabled = false;
-        loadPipeline();
-        loadKipisSession();
-      }
-    });
-
-    processNextBtn.addEventListener('click', async () => {
-      processNextBtn.disabled = true;
-      pipelineStatusEl.textContent = 'Filing next PRK…';
-      pipelineStatusEl.style.color = '#a5b4fc';
-      try {
-        const res  = await fetch('/queue/process-next', { method: 'POST' });
-        const data = await res.json();
-        if (data.status === 'empty')      pipelineStatusEl.textContent = data.message;
-        else if (data.status === 'error') { pipelineStatusEl.textContent = `${data.plate ? data.plate + ': ' : ''}${data.message}`; pipelineStatusEl.style.color = '#fc8181'; }
-        else if (data.existingPrk)        pipelineStatusEl.textContent = `${data.plate}: PRK already in KIPIS (${data.existingPrk}) — not filed again.`;
-        else if (data.needsLotOwners)     { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. Open Lots & owners, then run it again.`; pipelineStatusEl.style.color = '#fc8181'; loadLots(); }
-        else if (data.blocked && /^lot choice/.test(data.blocked)) { pipelineStatusEl.textContent = `${data.plate}: not filed — ${data.blocked}. No form was opened in KIPIS.`; pipelineStatusEl.style.color = '#fc8181'; }
-        else if (data.blocked)            { pipelineStatusEl.textContent = `${data.plate}: not saved — ${data.blocked}. Check the form in KIPIS and press Saugoti by hand.`; pipelineStatusEl.style.color = '#fc8181'; }
-        else                              pipelineStatusEl.textContent = `${data.plate} — ${data.submitted ? `PRK draft saved: ${data.prkNumber}` : 'filled (dry run)'}`;
-      } catch (err) {
-        pipelineStatusEl.textContent = 'Network error: ' + err.message;
-        pipelineStatusEl.style.color = '#fc8181';
-      } finally {
-        processNextBtn.disabled = false;
-        loadPipeline();
-      }
-    });
-
-    // --- Unused PRK drafts: deleted automatically once a day when their order is 2+ days old
-    // (Rule 7). The line shows the last run; the button runs the same cleanup now. ---
-    function cleanupText(r) {
-      const when = r.at ? new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }) : '';
-      if (r.status === 'error' || r.status === 'busy') return `<span class="err">Cleanup ${when ? when + ' ' : ''}not done — ${escHtml(r.message)}</span>`;
-      if (!r.at) return `Unused drafts are deleted automatically once a day when their order is ${r.minAgeDays || 2}+ days old — not run yet.`;
-      const parts = [`Last cleanup ${escHtml(when)}: ${r.deleted.length} deleted${r.deleted.length ? ' (' + r.deleted.map(d => `${escHtml(d.plate)} ${escHtml(d.number)}`).join(', ') + ')' : ''}`];
-      if (r.failed && r.failed.length) parts.push(`<span class="err">stopped at ${escHtml(r.failed[0].number)} (${escHtml(r.failed[0].plate)}): ${escHtml(r.failed[0].error)}${r.remaining ? ` — ${r.remaining} not tried` : ''}</span>`);
-      return parts.join(' · ');
-    }
-
-    async function loadCleanup() {
-      try { document.getElementById('sweepResult').innerHTML = cleanupText(await (await fetch('/prk/cleanup')).json()); } catch { /* keep the last text */ }
-    }
-
-    document.getElementById('sweepBtn').addEventListener('click', async () => {
-      if (!confirm('Run the cleanup now?\n\nDeletes (Šalinti) PortSystem\'s Ruošiamas PRK drafts for orders 2 or more days old. Today\'s and yesterday\'s drafts, and drafts made by people, are not touched. This cannot be undone.')) return;
-      const btn = document.getElementById('sweepBtn');
-      const out = document.getElementById('sweepResult');
-      btn.disabled = true;
-      out.textContent = 'Reading the PRK list in KIPIS and deleting…';
-      try {
-        out.innerHTML = cleanupText(await (await fetch('/prk/cleanup', { method: 'POST' })).json());
-      } catch (err) {
-        out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
-      } finally {
-        btn.disabled = false;
-        loadPipeline();
-      }
-    });
-    loadCleanup();
-
-    // --- Lots & owners: the page is separate (lots.html); here only what needs the operator ---
-    async function loadLots() {
-      const link = document.getElementById('lotsLink');
-      const el   = document.getElementById('lotsAttention');
-      try {
-        const { attention } = await (await fetch('/lots/data')).json();
-        const parts = [];
-        if (attention.lots)      parts.push(`${attention.lots} lot(s) to confirm`);
-        if (attention.companies) parts.push(`${attention.companies} compan${attention.companies === 1 ? 'y' : 'ies'} to set`);
-        el.textContent = parts.join(' · ');
-        link.classList.toggle('todo', parts.length > 0);
-      } catch {
-        el.textContent = '';
-      }
-    }
-
-    loadLots();
-  </script>
-
-  <script>
-    const gmailDot        = document.getElementById('gmailDot');
-    const gmailStatusText = document.getElementById('gmailStatusText');
-    const gmailError      = document.getElementById('gmailError');
-
-    // IMAP has no OAuth session to reconnect via a browser popup — "authorized" here just means
-    // the configured credentials in .env currently work. A failure means fix .env/network, not
-    // click a button, so there's no reconnect action, just a clear status + hint.
-    function setGmailStatus(authorized) {
-      gmailDot.className          = 'gmail-dot ' + (authorized ? 'ok' : 'off');
-      gmailStatusText.textContent = authorized ? 'Mail' : 'Mail disconnected';
-      document.getElementById('recheckBtn').disabled = !authorized;
-      if (authorized) {
-        gmailError.style.display = 'none';
-      } else {
-        gmailError.textContent   = 'IMAP connection failed — check IMAP_HOST/IMAP_USER/IMAP_PASSWORD in .env, and that the mail server is reachable.';
-        gmailError.style.display = 'block';
-      }
-    }
-
-    async function checkGmailStatus() {
-      try {
-        const res  = await fetch('/gmail/status');
-        const data = await res.json();
-        setGmailStatus(data.authorized);
-      } catch {
-        gmailStatusText.textContent = 'unreachable';
-      }
-    }
-
-    checkGmailStatus();
-
-    // Re-sync the two order lists periodically so a dashboard left open reflects state changes
-    // made elsewhere (KIPIS automation, another tab's RECHECK click). A soft refresh (not
-    // location.reload()) so it never interrupts someone typing in the plate box or mid-edit in
-    // the order modal. Does not fetch new mail itself — that only happens on RECHECK.
-    setInterval(() => {
-      loadPipeline();
-      loadConfirmations();
-      loadLots();
-    }, 2 * 60 * 1000);
+    // ── Start, and keep a dashboard left open current ────────────────────
+    loadPipeline(); loadConfirmations(); loadKipisSession(); checkMail();
+    loadAutoFile(); loadWatch(); loadCleanup(); loadLots();
+    setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); }, 60 * 1000);
+    setInterval(() => { loadKipisSession(); loadAutoFile(); loadWatch(); }, 60 * 1000);
   </script>
 </body>
 </html>

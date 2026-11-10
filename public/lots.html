@@ -3,103 +3,103 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lots &amp; owners</title>
+  <title>Lots &amp; owners · PortSystem</title>
+  <link rel="stylesheet" href="/ui.css" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; padding: 32px 20px; }
-    main { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
-    a { color: #a5b4fc; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-    h1 { font-size: 1.25rem; color: #a5b4fc; font-weight: 600; }
-    h2 { font-size: 0.95rem; color: #a5b4fc; font-weight: 600; margin-bottom: 8px; }
-    .hint { font-size: 0.78rem; color: #64748b; }
-    .warn { font-size: 0.8rem; color: #fbbf24; }
-    .err  { color: #fc8181; }
-    .ok   { color: #68d391; }
-    section { background: #1a1d29; border: 1px solid #2d3148; border-radius: 10px; padding: 14px 16px; }
-    select, input { background: #0f1117; color: #e2e8f0; border: 1px solid #2d3148; border-radius: 6px; padding: 4px 6px; font-size: 0.8rem; }
-    button { background: #4f46e5; color: #fff; border: 0; border-radius: 6px; padding: 5px 12px; font-size: 0.8rem; cursor: pointer; }
-    button:hover:not(:disabled) { background: #6366f1; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    button.plain { background: transparent; color: #64748b; padding: 2px 6px; }
-    button.plain:hover { color: #fc8181; background: transparent; }
+    .lots-main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-direction: column; gap: 16px; }
+    .lots-main > section { padding: 16px 18px; }
+    .lots-main h2 { font: 700 22px var(--display); margin-bottom: 2px; }
+    .hint { font-size: 13px; color: var(--steel); max-width: 760px; }
+    .warn { color: #8A6703; font-size: 13px; background: var(--yellow-2); padding: 6px 10px; border-radius: 6px; }
+    .err  { color: var(--red); }
+    .ok   { color: var(--green); }
+    /* Buttons the page script builds */
+    .lots-main button { font: 600 13px var(--body); padding: 6px 12px; border-radius: 6px; border: 1px solid var(--blue); background: var(--blue); color: #fff; cursor: pointer; }
+    .lots-main button:hover:not(:disabled) { background: #183F82; }
+    .lots-main button:disabled { opacity: 0.45; cursor: default; }
+    .lots-main button.plain { background: transparent; border-color: transparent; color: var(--steel); padding: 2px 6px; }
+    .lots-main button.plain:hover { color: var(--red); background: transparent; }
+    .lots-main select, .lots-main input { width: auto; padding: 5px 8px; font-size: 13px; }
 
-    .vessel { border: 1px solid #2d3148; border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
-    .vessel.todo { border-color: #92400e; }
-    .vessel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
-    .vessel-head b { font-size: 0.9rem; }
-    .badge { font-size: 0.7rem; padding: 1px 7px; border-radius: 10px; border: 1px solid #92400e; color: #fbbf24; }
+    .vessel { border: 1px solid var(--hair); border-left: 4px solid var(--hair); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px; background: var(--paper); }
+    .vessel.todo { border-left-color: var(--yellow); }
+    .vessel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+    .vessel-head b { font: 700 20px var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
+    .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--yellow-2); color: #7A5C04; }
     .vessel-head .spacer { flex: 1; }
-    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
-    /* Same column widths in every vessel card, so the cards line up */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .vessel table { table-layout: fixed; }
-    .vessel th:nth-child(1) { width: 150px; }
-    .vessel th:nth-child(3) { width: 90px; }
-    .vessel th:nth-child(4) { width: 50px; }
-    .vessel th:nth-child(5) { width: 160px; }
-    .vessel th:nth-child(6) { width: 62px; }
-    .vessel th:nth-child(7) { width: 36px; }
-    .vessel th:nth-child(3) { text-align: right; }
-    td, th { padding: 4px 6px; border-top: 1px solid rgba(148,163,184,0.12); text-align: left; vertical-align: middle; }
-    th { font-weight: 500; color: #64748b; font-size: 0.72rem; border-top: 0; }
+    .vessel th:nth-child(1) { width: 160px; }
+    .vessel th:nth-child(3) { width: 90px; text-align: right; }
+    .vessel th:nth-child(4) { width: 54px; }
+    .vessel th:nth-child(5) { width: 170px; }
+    .vessel th:nth-child(6) { width: 66px; }
+    .vessel th:nth-child(7) { width: 40px; }
+    td, th { padding: 6px 6px; border-top: 1px solid var(--hair-2); text-align: left; vertical-align: middle; }
+    th { font-weight: 600; color: var(--steel); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; border-top: 0; }
     td.num { text-align: right; white-space: nowrap; }
-    td.mono { font-family: ui-monospace, monospace; white-space: nowrap; }
-    td.name { color: #94a3b8; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .loading { color: #fbbf24; white-space: nowrap; }
-    select.suggested { border-color: #22543d; }
-    select.unset { border-color: #92400e; }
-    input.prio { width: 46px; }
+    td.mono { font-family: var(--mono); white-space: nowrap; }
+    td.name { color: var(--steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .loading { color: #8A6703; font-weight: 600; white-space: nowrap; }
+    select.suggested { border-color: var(--green); box-shadow: 0 0 0 2px var(--green-2); }
+    select.unset { border-color: var(--yellow); box-shadow: 0 0 0 2px var(--yellow-2); }
+    input.prio { width: 50px; }
     .row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    details summary { cursor: pointer; font-size: 0.85rem; color: #a5b4fc; }
+    details summary { cursor: pointer; font: 700 18px var(--display); }
+    @media (max-width: 760px) {
+      .lots-main { padding: 14px 12px 60px; }
+      .vessel { overflow-x: auto; }
+      .vessel table { min-width: 640px; }
+    }
   </style>
 </head>
 <body>
-<main>
-  <header>
-    <h1>Lots &amp; owners</h1>
-    <a href="/">← Dashboard</a>
-  </header>
+<header class="topbar">
+  <div class="brand">Truck desk <small>BPA · PortSystem</small></div>
+  <nav><a href="/">Trucks</a><a href="/lots.html" class="on">Lots &amp; owners</a></nav>
+  <div class="spacer"></div>
+</header>
+<main class="lots-main">
   <div id="warnings"></div>
 
-  <section>
-    <h2>Vessels and their lots</h2>
-    <p class="hint">Who owns each KIPIS lot. The owner is suggested from the stock reports (green border) — check it and press Confirm.
-      Change it any time. <b>#</b> overrides the loading order (1 = first); left empty, trucks continue the lot already being loaded, else the oldest.</p>
+  <section class="card">
+    <h2>Who owns each lot</h2>
+    <p class="hint">A truck loads only from its owner's lots. The owner is suggested from the stock reports (green outline) — check it and press Confirm.
+      You can change it any time. <b>#</b> sets the loading order (1 = first); left empty, trucks finish the lot already being loaded, then the oldest.</p>
     <div id="vessels"></div>
   </section>
 
-  <section>
+  <section class="card">
     <h2>Find lots in KIPIS</h2>
-    <p class="hint">Reads KIPIS for a cargo word (e.g. <i>amonio</i>, <i>TSP</i>, <i>axan</i>) and adds the lots in our storage above — useful when a vessel is delivered. KIPIS must be open.</p>
-    <div class="row-actions" style="margin-top:8px">
+    <p class="hint">Type a cargo word (<i>amonio</i>, <i>TSP</i>, <i>axan</i>) to add the lots in our storage to the list above — handy when a vessel has just been discharged. KIPIS must be open.</p>
+    <div class="row-actions" style="margin-top:10px">
       <input id="scanWord" placeholder="Cargo word" />
-      <button id="scanBtn">Find</button>
+      <button id="scanBtn">Find lots</button>
       <span id="scanStatus" class="hint"></span>
     </div>
   </section>
 
-  <section>
+  <section class="card">
     <h2>Companies</h2>
-    <p class="hint">Whose cargo each ordering company loads: its name in the Helm/Yara release lists (matched automatically where the names agree);
-      or, with no release line of its own, the seller it buys from (like Transwina → Helm); and whether it also loads its own cargo (like Agrokoncernas).
-      A release is used first, then <i>Buys from</i>, then own cargo.</p>
-    <table style="margin-top:8px">
+    <p class="hint">Whose cargo each ordering company loads: its name in the Helm/Yara release lists (matched automatically when the names agree);
+      or, if it has no release of its own, the seller it buys from (Transwina → Helm); and whether it also loads its own cargo (Agrokoncernas).</p>
+    <table style="margin-top:10px">
       <thead><tr><th>Company</th><th>Buyer in the release lists</th><th>Buys from</th><th>Own cargo</th><th title="Put on the PRK (Gavėjas → Valstybė) when KIPIS requires it and the lot leaves it empty">Receiver country</th><th></th></tr></thead>
       <tbody id="companies"></tbody>
     </table>
   </section>
 
-  <section>
+  <section class="card">
     <details>
       <summary>Releases (Helm release'ai, Yara perdavimai)</summary>
-      <table style="margin-top:8px">
+      <table style="margin-top:10px">
         <thead><tr><th>Seller</th><th>Buyer</th><th>Product</th><th>Vessel</th><th class="num">Left</th></tr></thead>
         <tbody id="releases"></tbody>
       </table>
     </details>
   </section>
 </main>
+
 
 <script>
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
