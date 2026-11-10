@@ -525,7 +525,7 @@
       <div id="pipelineAwaiting" class="pipeline-section"></div>
       <div class="pipeline-group-title" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
         <span>Submitted — send the dispatch email</span>
-        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti). Also runs by itself after RECHECK and every 15 minutes in the shift.">Check submitted</button>
+        <button id="watchBtn" title="Reads KIPIS's PRK list to see which drafts you have submitted (Pateikti), then puts a dispatch email draft (PRK PDF attached) in terminal@bpa.lt's Drafts for each — unless it was already emailed by hand. Also runs by itself after RECHECK and every 15 minutes in the shift.">Check submitted</button>
       </div>
       <div id="watchResult"></div>
       <div id="pipelineSubmitted" class="pipeline-section"></div>
@@ -889,6 +889,11 @@
             : `<span class="pipe-doc pending">PRK ${escHtml(o.docs.PRK.status || 'saved')}</span>`)
         : '';
       const dup     = dups.has(o.plate) ? '<span class="pipe-dup" title="This plate appears more than once today">×2</span>' : '';
+      // A19: the dispatch email for a submitted PRK — drafted in the mailbox's Drafts, or sent by hand.
+      const dd      = o.dispatchDraft;
+      const mail    = !dd ? '' : dd.skipped
+        ? `<span class="pipe-doc" title="${escHtml(dd.skipped)}">email sent</span>`
+        : `<span class="pipe-doc pending" title="In ${escHtml(dd.folder)} — check it and press Send${dd.missing && dd.missing.length ? '. Missing: ' + escHtml(dd.missing.join(', ')) : ''}">email draft ready (${escHtml(String(dd.terminal).toUpperCase())})</span>`;
       const bulk    = o.bulk ? '<span class="pipe-bulk">BULK</span>' : '';
       const weight  = o.weight ? `<span class="pipe-weight">${escHtml(String(o.weight))} kg</span>` : '';
       const doneBtn = clickable ? `<button class="pipe-done-btn" data-id="${escHtml(o.id)}" title="Mark done manually">Done</button>` : '';
@@ -906,6 +911,7 @@
           <span class="pipe-cargo">${escHtml(o.cargo || '—')}</span>
           ${weight}
           ${doc}
+          ${mail}
           <span class="pipe-state ${escHtml(o.state)}">${escHtml(o.state.replace(/_/g, ' '))}</span>
           ${doneBtn}
         </div>
@@ -1032,6 +1038,16 @@
       out.textContent = 'Reading the PRK list in KIPIS…';
       try {
         out.innerHTML = watchText(await (await fetch('/prk/watch', { method: 'POST' })).json()) || 'Nothing to check — no drafts waiting.';
+        // Then the dispatch email drafts for what is submitted (A19).
+        const d = await (await fetch('/dispatch/drafts', { method: 'POST' })).json();
+        if (d && d.at && (d.drafted || d.skipped || d.failed)) {
+          const bits = [];
+          if (d.drafted?.length) bits.push(`email drafts made: ${d.drafted.map(x => escHtml(x.plate)).join(', ')} — check them in Drafts and press Send`);
+          if (d.alreadySent?.length) bits.push(`already emailed by hand: ${d.alreadySent.map(x => escHtml(x.plate)).join(', ')}`);
+          if (d.failed?.length) bits.push(`<span class="err">email draft failed: ${d.failed.map(x => `${escHtml(x.plate)} — ${escHtml(x.error)}`).join('; ')}</span>`);
+          if (d.skipped) bits.push(`<span class="err">email drafts not made — ${escHtml(d.skipped)}</span>`);
+          if (bits.length) out.innerHTML += ' · ' + bits.join(' · ');
+        }
       } catch (err) {
         out.innerHTML = `<span class="err">Network error: ${escHtml(err.message)}</span>`;
       } finally {

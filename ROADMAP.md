@@ -447,12 +447,28 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   this check, the daily cleanup) skip their turn when the operator clicked or typed in the KIPIS
   window in the last 3 minutes (`safePage.operatorActiveWithin`; the system's own clicks don't
   count) — they would pull the page away from a draft being checked.
-- [ ] **A19. Print + email draft to dispatch** (step 8, was Phase 3 — no longer paused):
-  fetch the submitted PRK PDF, silent print, and build the dispatch email (truck details, PRK
-  PDF attached, dispatch address from a routing table) as a MIME message appended to the
-  `terminal@bpa.lt` Drafts folder over IMAP (D7; `mailparser`/`imapflow` already installed —
-  composing MIME may need a new dependency, ask first). Never sends. Find the server's Drafts
-  folder name (may be `INBOX.Drafts`). Printing needs the office PC's printer.
+- [x] **A19. Dispatch email draft — DONE 2026-11-10 (live; first real draft not yet seen).** No
+  printing and no PDF kept on the PC (D10). For every `submitted` order without one, in the
+  automatic round after the Pateikti check and on *Check submitted*:
+  1. **Already sent?** The office Cc's `terminal@bpa.lt`, so a hand-sent dispatch email is in the
+     inbox (from terminal@bpa.lt, to a dispatch address, naming the tractor plate) → no draft,
+     order marked "email sent". (Sent folder is empty — the copies live in the inbox.)
+  2. **PDF:** the PRK opened from the list (submission date yesterday–today), *Spausdinti*, the
+     download caught in memory (`browser.captureDownload`, `KIPIS_skills/PRK/prkPdf.js`) — the
+     downloads folder handler is bypassed, Playwright's temp file deleted at once.
+  3. **Email** (`src/core/dispatchEmail.js`, format from the office's own emails): subject
+     "VESSEL CARGO PLATES"; body: cargo – N big bags, "Atgabenta: laivas VESSEL", plates,
+     driver (from that day's orders Excel); PDF attached. Recipients from the routing table
+     (`src/core/terminals.js`): **KKT** for ULSAN ammonium sulphate and NPK 14-14-21 (operator)
+     → ktdispecerine@, vidas@, gates@, lina.armonaitiene@terminalas.lt; **RoRo** otherwise →
+     dispecerine@terminalas.lt; Cc terminal@bpa.lt. Hand-built MIME (no new dependency).
+  4. **Appended to `INBOX.Drafts`** (`\Draft \Seen`) — the one mailbox write allowed; never sent.
+     Recorded on the order (`dispatchDraft`), so never twice; dashboard: "email draft ready
+     (RoRo/KKT)" / "email sent". The terminal's Cc copy, once the operator sends it, closes the
+     order on the next RECHECK.
+  Live: NDL364 and GRJ153 recognised as already emailed; a `[TEST PortSystem — delete me]` draft
+  for LDC323 read back correct (To/Cc, subject, body, 49.7 KB PDF). Also: the in-page guard now
+  blocks *Anuliuoti* as well as Pateikti while automation drives (it sits next to Spausdinti).
 - [ ] **A20. Amend plates at check-in** (step 3b; D4). Compare the driver's plates with the PRK;
   if they differ, update both the `Originalaus dokumento numeris` field and the transport row,
   then `Saugoti`, and run the A2/A3 checks again. Map the amend screens first (`kipis-fill`,

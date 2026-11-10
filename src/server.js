@@ -21,6 +21,7 @@ const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCarg
 const { withAutomation, operatorActiveWithin } = require('../KIPIS_skills/safePage');
 const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
 const prkPdf   = require('../KIPIS_skills/PRK/prkPdf');
+const dispatchEmail = require('./core/dispatchEmail');
 const { captureFormState } = require('../KIPIS_skills/PRK/checkPrk');
 const prkDelete = require('../KIPIS_skills/PRK/prkDelete');
 
@@ -204,6 +205,7 @@ app.get('/pipeline', (req, res) => {
       bulk:   o.bulk,
       state:  o.state,
       docs:   o.docs,
+      dispatchDraft: o.dispatchDraft || null,
       sender: o.email?.from || '',
       company: senderCompanies.deriveCompany(o.email?.from || ''),
       subject: o.email?.subject || '',
@@ -405,11 +407,70 @@ async function runWatch(reason, automatic) {
   return lastWatch;
 }
 
-// One automatic round: file what is ready, then see what the operator has submitted.
+// A19: a dispatch email draft (PRK PDF attached) for every submitted order that has none yet,
+// unless its email was already sent by hand (the Cc copy is in the inbox). Drafts only — the
+// operator sends (SECURITY.md §5). `test`: one order by plate, subject marked [TEST], not recorded.
+let lastDispatch = null;
+async function runDispatch(reason, automatic, { testPlate } = {}) {
+  const { getBagKg } = require('../KIPIS_skills/PRK/navigateToCargo');
+  const todo = [];
+  for (const [number, o] of orderStore.prkNumbersFiled({ maxAgeDays: 1 })) {
+    const order = orderStore.getOrder(o.orderId, o.date);
+    if (!order) continue;
+    if (testPlate ? orderStore.normalizePlate(testPlate) === order.plateNorm : (order.state === 'submitted' && !order.dispatchDraft)) {
+      todo.push({ number, date: o.date, order });
+    }
+  }
+  if (!todo.length) return lastDispatch;
+  const blocked = automatic ? await autoBlocked() : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
+  if (blocked) return (lastDispatch = { at: new Date().toISOString(), reason, skipped: blocked });
+
+  const out = { at: new Date().toISOString(), reason, drafted: [], alreadySent: [], failed: [] };
+  isRunning = true;
+  try {
+    const page = getPage();
+    for (const { number, date, order } of todo) {
+      try {
+        if (!testPlate && await dispatchEmail.alreadySent(order.plate)) {
+          orderStore.setDispatchDraft(order.id, { at: new Date().toISOString(), skipped: 'already sent by hand' }, { date });
+          out.alreadySent.push({ plate: order.plate });
+          continue;
+        }
+        const pdf  = await withAutomation(page, () => prkPdf.fetchPrkPdf(page, number));
+        const mail = dispatchEmail.composeDispatch(order, date, getBagKg(order.cargo));
+        if (testPlate) mail.subject = `[TEST PortSystem — delete me] ${mail.subject}`;
+        const raw = dispatchEmail.buildMime({ from: process.env.IMAP_USER, ...mail, attachment: pdf });
+        const folder = await dispatchEmail.appendDraft(raw);
+        if (!testPlate) orderStore.setDispatchDraft(order.id, { at: new Date().toISOString(), folder, terminal: mail.terminal, prk: number, missing: mail.missing }, { date });
+        console.log(`Dispatch draft: ${order.plate} ${number} → ${folder} (${mail.terminal.toUpperCase()})${mail.missing.length ? ' — missing: ' + mail.missing.join(', ') : ''}`);
+        out.drafted.push({ plate: order.plate, prk: number, terminal: mail.terminal, missing: mail.missing });
+      } catch (err) {
+        console.error(`Dispatch draft: ${order.plate} failed — ${err.message}`);
+        out.failed.push({ plate: order.plate, error: err.message });
+      }
+    }
+  } finally {
+    isRunning = false;
+  }
+  return (lastDispatch = out);
+}
+
+// One automatic round: file what is ready, see what the operator has submitted, draft its emails.
 async function autoRound(reason) {
   await autoFile(reason);
   await runWatch(reason, true);
+  await runDispatch(reason, true);
 }
+
+app.get('/dispatch/drafts', (req, res) => res.json(lastDispatch || {}));
+// Dashboard "Draft emails": the operator asks, so it runs even if they just used KIPIS.
+app.post('/dispatch/drafts', async (req, res) => res.json((await runDispatch('dashboard button', false)) || {}));
+// One clearly marked test draft for a plate (not recorded on the order).
+app.post('/dispatch/test', async (req, res) => {
+  const plate = String(req.body?.plate || '').trim();
+  if (!plate) return res.status(400).json({ error: 'Missing plate' });
+  res.json((await runDispatch('test', false, { testPlate: plate })) || { status: 'nothing to draft' });
+});
 
 setInterval(() => {
   const h = new Date().getHours();
