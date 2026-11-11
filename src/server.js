@@ -17,7 +17,7 @@ const owners      = require('./core/owners');
 const lotRegistry = require('./core/lotRegistry');
 const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
-const { withAutomation, operatorActiveWithin } = require('../KIPIS_skills/safePage');
+const { withAutomation, operatorActiveWithin, operatorPateiktiAt } = require('../KIPIS_skills/safePage');
 const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
 const prkPdf   = require('../KIPIS_skills/PRK/prkPdf');
 const dispatchEmail = require('./core/dispatchEmail');
@@ -471,11 +471,11 @@ let lastWatch    = null;
 // An automatic job may drive the KIPIS window only when nothing else does, KIPIS is logged in,
 // and the operator has not clicked or typed in that window for a few minutes (it would pull the
 // page away from a draft being checked). Returns the reason to skip, or null.
-async function autoBlocked() {
+async function autoBlocked(quietMs = OPERATOR_QUIET_MS) {
   if (isRunning) return 'another KIPIS job is running';
   const notReady = await kipisNotReady();
   if (notReady) return notReady;
-  if (await operatorActiveWithin(getPage(), OPERATOR_QUIET_MS)) return 'you are working in the KIPIS window — next round';
+  if (await operatorActiveWithin(getPage(), quietMs)) return 'you are working in the KIPIS window — next round';
   return null;
 }
 
@@ -502,10 +502,10 @@ async function autoFile(reason) {
 }
 
 // A18: which of our drafts has the operator submitted? (`automatic` = respect autoBlocked)
-async function runWatch(reason, automatic) {
+async function runWatch(reason, automatic, quietMs) {
   const waiting = orderStore.prkNumbersFiled({ maxAgeDays: 1 });
   if (![...waiting.values()].some(o => o.state === 'drafted' || o.state === 'submitted')) return lastWatch;
-  const blocked = automatic ? await autoBlocked() : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
+  const blocked = automatic ? await autoBlocked(quietMs) : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
   if (blocked) return (lastWatch = { at: new Date().toISOString(), reason, skipped: blocked });
   isRunning = true;
   try {
@@ -705,7 +705,8 @@ async function prepareDispatches() {
 //   - drafts waiting for Pateikti → read the PRK list at most every WATCH_EVERY_MS.
 const KIPIS_AUTO_OPEN = process.env.KIPIS_AUTO_OPEN !== 'false';
 const WATCH_EVERY_MS  = 5 * 60 * 1000;
-let ticking = false, lastWatchRun = 0;
+const AFTER_PATEIKTI_QUIET_MS = 30 * 1000;
+let ticking = false, lastWatchRun = 0, pateiktiSeen = 0;
 async function shiftTick() {
   if (!inShift() || ticking) return;
   ticking = true;
@@ -717,9 +718,14 @@ async function shiftTick() {
     }
     retryStopped();
     await autoFile('shift timer');
-    if (Date.now() - lastWatchRun >= WATCH_EVERY_MS) {
-      const w = await runWatch('shift timer', true);
-      if (w && !w.skipped) lastWatchRun = Date.now();
+    // The operator pressed Pateikti in the KIPIS window since the last read: look now, once the
+    // window has been still for AFTER_PATEIKTI_QUIET_MS, so Send email shows within a minute or
+    // two instead of after the next 5-minute read.
+    const pateiktiAt = kipisOpen() ? await operatorPateiktiAt(getPage()) : 0;
+    const justSubmitted = pateiktiAt > pateiktiSeen;
+    if (justSubmitted || Date.now() - lastWatchRun >= WATCH_EVERY_MS) {
+      const w = await runWatch(justSubmitted ? 'after your Pateikti' : 'shift timer', true, justSubmitted ? AFTER_PATEIKTI_QUIET_MS : undefined);
+      if (w && !w.skipped) { lastWatchRun = Date.now(); pateiktiSeen = pateiktiAt; }
     }
     await prepareDispatches();
   } catch (err) {

@@ -53,7 +53,12 @@ function guardScript() {
 
     let armed = true;
     try { armed = window.sessionStorage.getItem('__kipisAutomation') === '1'; } catch { armed = true; }
-    if (!armed) return;   // no automation running: this is the operator's click
+    if (!armed) {         // no automation running: this is the operator's click
+      // Noted (never blocked), so the server looks for the submitted PRK straight away and the
+      // dashboard's Send email appears without waiting for the next list read.
+      try { window.sessionStorage.setItem('__kipisPateiktiAt', String(Date.now())); } catch { /* storage unavailable */ }
+      return;
+    }
 
     e.preventDefault();
     e.stopImmediatePropagation();
@@ -115,4 +120,13 @@ async function operatorActiveWithin(page, ms) {
   }
 }
 
-module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti, withAutomation, setAutomation, operatorActiveWithin };
+// When the operator last clicked Pateikti (or Anuliuoti) in the KIPIS window; 0 if never/unknown.
+async function operatorPateiktiAt(page) {
+  try {
+    return await page.evaluate(() => Number(window.sessionStorage.getItem('__kipisPateiktiAt')) || 0);
+  } catch {
+    return 0;
+  }
+}
+
+module.exports = { installPateiktiGuard, pateiktiBlockedCount, assertNotPateikti, withAutomation, setAutomation, operatorActiveWithin, operatorPateiktiAt };

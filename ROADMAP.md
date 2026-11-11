@@ -500,7 +500,17 @@ Send and the KIPIS MFA code.
   window. Sending stays the operator's click (D11). No truck was in `submitted` to test it on.
   Seen the same day: JMR442//HF039 went order 10:40 → draft 10:41 → Pateikti and the email sent
   by hand from the mail program → closed by the terminal's copy 10:50, without the dashboard's
-  Send. If the office keeps sending by hand, this step is rarely used.
+  Send.
+  **Operator, 2026-11-11: the emails are usually sent from Outlook today; the goal is to send
+  them from the dashboard.** So the dashboard's Send has to be the quicker way.
+- [~] **S20. Send email appears right after Pateikti — built 2026-11-11, not yet seen live.** The
+  Send button used to appear only after the next PRK-list read (up to 5 minutes, plus the
+  3-minute wait while the operator uses the KIPIS window) — long enough to send from Outlook
+  instead. The page guard now notes the operator's own Pateikti click (`__kipisPateiktiAt`;
+  it is never blocked — only automation's clicks are), and the shift tick reads the PRK list as
+  soon as the KIPIS window has been still for 30 seconds, then fetches the PDF (S8). Expected:
+  Send email on the dashboard one to two minutes after Pateikti. Guard tested on a blank page:
+  automation's click blocked, the operator's click goes through and is noted.
 - [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
 - [x] **S10. KIPIS opened by the server — built 2026-11-11.** During the shift, if the KIPIS
   window is closed or logged out, `shiftTick` opens it and types the login; only the MFA code is
