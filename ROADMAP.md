@@ -237,8 +237,12 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
   warning, error, retried.
 - [ ] **A13. Unified audit log** of every automated filing (order id, plate, PRK number,
   check result, timestamp) — this is a customs workflow.
-- [ ] **A14. Keep the server alive.** No process supervisor; a crash or a closed terminal stops
-  everything silently (startup is a manual `node --use-system-ca src/server.js`).
+- [x] **A14. Keep the server alive — BUILT 2026-11-11 (operator's OK).** `start-portsystem.cmd`
+  runs the server in a loop: if it stops, it starts again after 10 seconds (tested by killing
+  the process). Output goes to `server.log` / `server.err`. A file in the user's Windows Startup
+  folder (`PortSystem.cmd`) runs it at logon in a minimised window; delete that file to undo.
+  Limits: it starts at Windows **logon**, not at power-on (the PC has to log in); and every
+  start logs KIPIS out, so a person still presses Open KIPIS and enters the MFA code.
 
 - [~] **A21. Vessel lookup misses stock it should find.** *BUILT 2026-11-09 (causes 1–4 below),
   tested against the live stock reports, not yet in a live PRK run.* `stockCache.js` reads GBL +
@@ -490,7 +494,7 @@ Send and the KIPIS MFA code.
 - [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
 - [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
 - [ ] **S10. Open KIPIS at server start**, alert on logout — only the MFA code stays human.
-- [ ] **S11. Start with Windows, restart after a crash (A14)** — needs the operator's OK.
+- [x] **S11. Start with Windows, restart after a crash (A14)** — built 2026-11-11, see A14.
 - [ ] **S12. Driver check-in and plate change (A16 + A20).**
 - [ ] **S13. Trust a whole company domain** instead of one address at a time — operator's
   decision (sender addresses can be forged).
