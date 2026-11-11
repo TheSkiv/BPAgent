@@ -1,7 +1,7 @@
 @echo off
 rem Starts the PortSystem server and starts it again if it stops (ROADMAP A14 / S11).
-rem Runs at Windows logon from the Startup folder shortcut "PortSystem.cmd"; can also be
-rem double-clicked. Close this window to stop PortSystem.
+rem Runs at Windows logon (hidden) from the Startup folder file "PortSystem.cmd"; can also be
+rem double-clicked. To stop PortSystem: stop-portsystem.cmd.
 rem KIPIS still needs a person: after every start, press Open KIPIS and enter the MFA code.
 title PortSystem server
 cd /d C:\PortSystem

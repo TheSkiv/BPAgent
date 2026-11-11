@@ -240,7 +240,7 @@ Principle: **AI reads and proposes, code decides and acts.** Every human step st
 - [x] **A14. Keep the server alive — BUILT 2026-11-11 (operator's OK).** `start-portsystem.cmd`
   runs the server in a loop: if it stops, it starts again after 10 seconds (tested by killing
   the process). Output goes to `server.log` / `server.err`. A file in the user's Windows Startup
-  folder (`PortSystem.cmd`) runs it at logon in a minimised window; delete that file to undo.
+  folder (`PortSystem.cmd`) runs it at logon with no window (S19); delete that file to undo.
   Limits: it starts at Windows **logon**, not at power-on (the PC has to log in); and every
   start logs KIPIS out, so a person still presses Open KIPIS and enters the MFA code.
 
@@ -526,10 +526,10 @@ Send and the KIPIS MFA code.
 - [ ] **S18. Orders that arrive while the server is down are filed by people, then show as
   ready.** Worked correctly on 2026-11-11 (6 trucks, all found in KIPIS and not duplicated), but
   the dashboard said "ready" for them until the first round ran.
-- [ ] **S19. The server and its restart window vanished once** (2026-11-11, about 10:26, half a
-  minute after a start; no "stopped" line in `server.log`, so the whole window was closed or
-  killed, not a crash). Cause unknown. If it repeats: run it as a scheduled task instead of a
-  console window, which cannot be closed by accident (needs administrator rights).
+- [x] **S19. The server window was closed by accident** (2026-11-11, about 10:26 — the operator
+  closed the minimised "PortSystem server" window; nine minutes without mail checks). From the
+  next logon the Startup entry starts PortSystem with no window at all. To stop it on purpose:
+  `stop-portsystem.cmd`. Not yet seen through a real logoff/logon.
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the
