@@ -141,6 +141,17 @@
     'Print pack': 'Spausdinti rinkinį',
     'No CMR yet': 'CMR dar nėra',
 
+    // ── The Print step ──
+    'Print the documents': 'Atspausdinkite dokumentus',
+    'Print documents': 'Spausdinti dokumentus',
+    'PRK × 2 — one for the driver': 'PRK × 2 — vienas vairuotojui',
+    'Email sent {time}': 'Laiškas išsiųstas {time}',
+    'CMR or važtaraštis: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.': 'CMR arba važtaraštis: Ro-Ro 5 egz., KKT 1. PRK: 1 egz., birus 2.',
+    'Preparing the documents — the PRK may take a few seconds from KIPIS…': 'Ruošiami dokumentai — PRK iš KIPIS gali užtrukti kelias sekundes…',
+    'Open: {pack}. No CMR or važtaraštis for this truck — make the CMR in its window, then print again.': 'Atidaryta: {pack}. Šiam sunkvežimiui nėra CMR ar važtaraščio — sukurkite CMR jo lange ir spausdinkite dar kartą.',
+    'Printing: {pack}. The truck is done.': 'Spausdinama: {pack}. Sunkvežimis atliktas.',
+    'To print': 'Spausdinti',
+
     // Menu links: short, so the top bar stays on one line
     'nav.lots': 'Partijos',
     'nav.cmr': 'CMR',

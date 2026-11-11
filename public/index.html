@@ -170,8 +170,11 @@
     }
 
     // ── Where each truck stands, and what it needs next ─────────────────
-    const BAGGED = ['Order', 'Draft', 'Pateikti', 'Email', 'Done'];
-    const BULK   = ['Order', 'Gate pass', 'Done'];
+    const BAGGED = ['Order', 'Draft', 'Pateikti', 'Email', 'Print', 'Done'];
+    const BULK   = ['Order', 'Gate pass', 'Print', 'Done'];
+    // The Print step exists for trucks created from this moment (orderStore.PRINT_STEP_FROM).
+    const PRINT_STEP_FROM = '2026-11-11T14:00:00Z';
+    const printStep = o => !o.printedAt && (o.createdAt || '') >= PRINT_STEP_FROM;
 
     // group: needs (yours) · failed (yours, red) · system (it is on it) · waiting · done · cancelled
     function stageOf(o) {
@@ -179,7 +182,8 @@
       if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: t('Cancelled') };
       // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
       if (o.bulk) {
-        if (o.state === 'done') return { group: 'done', route: BULK, stop: 2, label: t('Done') };
+        if (o.state === 'done') return { group: 'done', route: BULK, stop: 3, label: t('Done') };
+        if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 2, label: t('Print the documents'), reason: t('PRK × 2 — one for the driver'), actions: ['print'] };
         if (o.state === 'gate_pass_ordered' || o.dispatchSent) return { group: 'waiting', route: BULK, stop: 1, label: t('Loading ordered{time} — waiting for the loaded weight', { time: o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : '' }) };
         return { group: 'needs', route: BULK, stop: 0, label: t('Order the loading by email'), actions: ['email'] };
       }
@@ -191,10 +195,13 @@
         case 'drafted':   return prk
           ? { group: 'needs', route: BAGGED, stop: 1, label: t('Check the draft in KIPIS and press Pateikti'), reason: /packaging not set/.test(o.note || '') ? t('Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.') : '' }
           : { group: 'needs', route: BAGGED, stop: 1, label: t('Form filled but not saved — save it in KIPIS') };
-        case 'submitted': return o.dispatchSent
-          ? { group: 'waiting', route: BAGGED, stop: 3, label: t('Email sent {time} — closes at the next mail check', { time: hhmm(o.dispatchSent.at) }) }
-          : { group: 'needs', route: BAGGED, stop: 3, label: t('Send the dispatch email'), actions: ['email'] };
-        case 'done':      return { group: 'done', route: BAGGED, stop: 4, label: t('Done') };
+        case 'submitted': return !o.dispatchSent
+          ? { group: 'needs', route: BAGGED, stop: 3, label: t('Send the dispatch email'), actions: ['email'] }
+          : printStep(o)
+            ? { group: 'needs', route: BAGGED, stop: 4, label: t('Print the documents'), reason: t('Email sent {time}', { time: hhmm(o.dispatchSent.at) }), actions: ['print'] }
+            : { group: 'waiting', route: BAGGED, stop: 4, label: t('Email sent {time} — closes at the next mail check', { time: hhmm(o.dispatchSent.at) }) };
+        case 'to_print':  return { group: 'needs', route: BAGGED, stop: 4, label: t('Print the documents'), actions: ['print'] };
+        case 'done':      return { group: 'done', route: BAGGED, stop: 5, label: t('Done') };
         default:          return { group: 'waiting', route: BAGGED, stop: 0, label: o.state.replace(/_/g, ' ') };
       }
     }
@@ -219,6 +226,7 @@
       const b = [];
       for (const a of st.actions || []) {
         if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? t('Order loading') : t('Send email')}</button>`);
+        if (a === 'print') b.push(`<button class="btn go small" data-act="print" data-id="${esc(o.id)}" title="${esc(t('CMR or važtaraštis: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print documents')}</button>`);
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
@@ -383,6 +391,7 @@
       const order = orders.find(o => o.id === el.getAttribute('data-id'));
       if (act === 'open' && order) return openOrder(order);
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
+      if (act === 'print') return printDocs(el.getAttribute('data-id'), el);
       if (act === 'file') return runPrk(el.getAttribute('data-plate'), el);
       if (act === 'done') {
         if (!confirm(t('Close {plate} by hand?', { plate: order ? order.plate : t('this truck') }))) return;
@@ -731,6 +740,28 @@
       } catch (err) { $('modalStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
       finally { $('modalSaveBtn').disabled = false; }
     });
+
+    // The Print step: the pack (CMR or važtaraštis + PRK, in the right number of copies) opens in a
+    // new tab; with a transport document in it the truck counts as printed and is done.
+    async function printDocs(id, btn) {
+      const tab = window.open('', '_blank');   // opened during the click, so it is not blocked
+      if (btn) btn.disabled = true;
+      toast('', t('Preparing the documents — the PRK may take a few seconds from KIPIS…'), true);
+      try {
+        const res = await fetch('/order/print-pack?id=' + encodeURIComponent(id));
+        if (!res.ok) { if (tab) tab.close(); toast('err', t(await res.text())); return; }
+        const note = decodeURIComponent(res.headers.get('X-Pack-Note') || '');
+        const url = URL.createObjectURL(await res.blob());
+        if (tab) tab.location = url; else window.open(url, '_blank');
+        if (/no CMR or važtaraštis/.test(note)) {
+          toast('warn', t('Open: {pack}. No CMR or važtaraštis for this truck — make the CMR in its window, then print again.', { pack: note }), true);
+        } else {
+          await postJson('/order/printed', { id, what: note });
+          toast('ok', t('Printing: {pack}. The truck is done.', { pack: note }));
+        }
+      } catch (err) { if (tab) tab.close(); toast('err', t('Network error: {msg}', { msg: err.message })); }
+      finally { if (btn) btn.disabled = false; loadPipeline(); }
+    }
 
     // The truck's printed CMRs, each openable again, and the print pack (CMR + PRK copies).
     async function loadOrderCmrs(o) {

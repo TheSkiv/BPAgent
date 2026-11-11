@@ -69,7 +69,7 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const day = n => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const hm = iso => iso ? new Date(iso).toLocaleString('lt-LT', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-  const STATE = { done: 'Done', cancelled: 'Cancelled', failed: 'Not filed', drafted: 'Draft — waiting for Pateikti', submitted: 'Submitted — email to send', ready: 'Ready to file', received: 'New order', filing: 'Filing', gate_pass_ordered: 'Loading ordered', needs_human: 'Sender to confirm' };
+  const STATE = { done: 'Done', cancelled: 'Cancelled', failed: 'Not filed', drafted: 'Draft — waiting for Pateikti', submitted: 'Submitted — email to send', ready: 'Ready to file', received: 'New order', filing: 'Filing', gate_pass_ordered: 'Loading ordered', needs_human: 'Sender to confirm', to_print: 'To print' };
   let rows = [], open = null;
 
   function shown() {

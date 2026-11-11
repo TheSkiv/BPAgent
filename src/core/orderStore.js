@@ -12,7 +12,7 @@ const DATA_DIR = process.env.DATA_DIR || 'C:\\PortSystem\\data';
 // `submitted`: the operator pressed Pateikti on PortSystem's draft (seen in KIPIS's PRK list,
 // ROADMAP A18) — the dispatch email still has to go out; the terminal's copy of it closes it.
 const STATES = [
-  'received', 'ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'done',
+  'received', 'ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'to_print', 'done',
   'needs_human', 'failed', 'cancelled',
 ];
 const CLOSED_STATES = ['done', 'cancelled'];
@@ -147,6 +147,33 @@ function activeOrderForPlate(plate, date) {
   return open.length ? open[open.length - 1] : null;
 }
 
+const PRINT_STEP_FROM = '2026-11-11T14:00:00Z';
+function needsPrinting(o) {
+  if (o.printedAt || (o.createdAt || '') < PRINT_STEP_FROM) return false;
+  return !!o.dispatchSent || (o.history || []).some(h => /PRK draft saved/.test(h.detail || ''));
+}
+
+// Documents printed (the print pack opened from the Print step) → the truck is done.
+function setPrinted(id, { date, what = '' } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  order.printedAt = new Date().toISOString();
+  logHistory(order, 'operator', 'printed', what || 'documents printed');
+  // Printed after the email (or once a bulk truck's PRK exists): nothing is left — done, without
+  // waiting for the terminal's copy of the email.
+  const finished = order.state === 'to_print'
+    || (order.state === 'submitted' && order.dispatchSent)
+    || (order.bulk && order.docs?.PRK?.number && ['gate_pass_ordered', 'submitted', 'drafted'].includes(order.state));
+  if (finished) {
+    logHistory(order, 'operator', 'state', `${order.state} → done — documents printed`);
+    order.state = 'done';
+  }
+  save(db, date);
+  return order;
+}
+
 // `date` (YYYY-MM-DD) addresses an earlier day's order file; default today.
 function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   if (!STATES.includes(state)) throw new Error(`Unknown order state: ${state}`);
@@ -155,6 +182,15 @@ function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
   const from = order.state;
+  // The Print step (owner, 2026-11-11: Email → Print → Done). Anything that closes a truck by
+  // itself — the terminal's copy of the email, KIPIS reporting the PRK loaded — stops at
+  // "to_print" until its documents are printed. Only trucks PortSystem drove (it saved the PRK or
+  // sent the email) and created since the step exists; the operator's own "Mark done" still closes.
+  if (state === 'done' && actor !== 'operator' && needsPrinting(order)) {
+    state = 'to_print';
+    detail = `${detail ? detail + '; ' : ''}documents to print`;
+    if (from === 'to_print') { save(db, date); return order; }
+  }
   order.state = state;
   logHistory(order, actor, 'state', `${from} → ${state}${detail ? ' — ' + detail : ''}`);
   save(db, date);
@@ -391,5 +427,5 @@ module.exports = {
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
   nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchSent,
-  markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo,
+  markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo, setPrinted,
 };

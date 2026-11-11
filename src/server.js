@@ -232,7 +232,7 @@ app.get('/pipeline', (req, res) => {
     // for its dispatch email stay on the desk until they are finished.
     const yesterday = orderStore.daysAgo(1);
     const carried = orderStore.listOrders(yesterday)
-      .filter(o => ['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number);
+      .filter(o => (['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number) || o.state === 'to_print');
     const shape = o => ({
       id:     o.id,
       plate:  o.plate,
@@ -243,6 +243,8 @@ app.get('/pipeline', (req, res) => {
       state:  o.state,
       docs:   o.docs,
       dispatchSent: o.dispatchSent || null,
+      printedAt: o.printedAt || null,
+      createdAt: o.createdAt || '',
       lastFailure: o.lastFailure || null,
       carried: orderStore.dateOf(o.id) === yesterday,
       vessel: o.loadsFrom?.vessel || '',
@@ -568,13 +570,36 @@ async function prkPdfFor(order) {
   }
 }
 
-// CMR × (Ro-Ro 5 / KKT 1) then PRK × (1, bulk 2), as one PDF. X-Pack-Note says what is in it.
+// The transport document for the print pack: the truck's CMR, or — without one — the
+// važtaraščiai that came with the order email, the release added where it is missing.
+// { buffers: [Buffer], label } ; label '' when there is none.
+async function transportDocsFor(order, cmrPdf) {
+  if (cmrPdf) return { buffers: [cmrPdf], label: 'CMR' };
+  const email = getEmailData(order.plate, orderStore.dateOf(order.id)) || {};
+  const pdfs = (email.attachments || []).filter(a => /\.pdf$/i.test(a.filename || a.attachmentId || ''));
+  if (!pdfs.length) return { buffers: [], label: '' };
+  const { releases } = await releaseStamp.releasesFor(order).catch(() => ({ releases: [] }));
+  const buffers = [];
+  let unstamped = 0;
+  for (const a of pdfs) {
+    try {
+      const r = await releaseStamp.prepareWaybill(await fetchAttachmentBytes(email.messageId, a.attachmentId), releases, null);
+      if (!r.found && !r.stamped && releases.length) unstamped++;
+      buffers.push(r.buffer);
+    } catch { /* an unreadable attachment is left out; the note counts what is in */ }
+  }
+  return { buffers, label: `važtaraštis${buffers.length > 1 ? ` (${buffers.length})` : ''}${unstamped ? ' — release not added, pick it in the truck window' : ''}` };
+}
+
+// CMR or važtaraštis × (Ro-Ro 5 / KKT 1), then PRK × (1, bulk 2), as one PDF. X-Pack-Note says
+// what is in it.
 async function sendPack(res, order, cmrPdf, terminal) {
   const copies = cmr.copiesOf({ terminal, bulk: order.bulk });
+  const docs = await transportDocsFor(order, cmrPdf);
   const prk = await prkPdfFor(order);
-  if (!cmrPdf && !prk.buffer) return res.status(404).type('text/plain').send(`Nothing to print yet for ${order.plate}: no CMR, and no PRK (${prk.why}).`);
-  const pack = await cmr.printPack([{ buffer: cmrPdf, copies: copies.cmr }, { buffer: prk.buffer, copies: copies.prk }]);
-  const note = [cmrPdf && `CMR × ${copies.cmr}`, prk.buffer ? `PRK × ${copies.prk}` : `no PRK (${prk.why})`].filter(Boolean).join(', ');
+  if (!docs.buffers.length && !prk.buffer) return res.status(404).type('text/plain').send(`Nothing to print yet for ${order.plate}: no CMR or važtaraštis, and no PRK (${prk.why}).`);
+  const pack = await cmr.printPack([...docs.buffers.map(b => ({ buffer: b, copies: copies.cmr })), { buffer: prk.buffer, copies: copies.prk }]);
+  const note = [docs.buffers.length ? `${docs.label} × ${copies.cmr}` : 'no CMR or važtaraštis', prk.buffer ? `PRK × ${copies.prk}` : `no PRK (${prk.why})`].join(', ');
   res.setHeader('X-Pack-Note', encodeURIComponent(note));
   res.setHeader('Content-Disposition', `inline; filename="${order.plate.replace(/[^\w-]/g, '_')}.pdf"`);
   res.type('application/pdf').send(pack);
@@ -1196,7 +1221,7 @@ app.get('/lots/data', async (req, res) => {
   // waiting for the sender's confirmation, and cancelled ones (blocked / rejected senders), do not
   // count: a container email from MSC (a logistics company, blocked) put MSC on this list as a
   // "company to set" (operator, 2026-11-10) — a mistakenly grabbed email must never land here.
-  const REAL_ORDER_STATES = new Set(['ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'done', 'failed']);
+  const REAL_ORDER_STATES = new Set(['ready', 'filing', 'drafted', 'submitted', 'verified', 'gate_pass_ordered', 'to_print', 'done', 'failed']);
   const companyNames = new Set(Object.keys(cfg.companies));
   for (const o of orderStore.listOrders()) {
     if (!REAL_ORDER_STATES.has(o.state)) continue;
@@ -1440,6 +1465,14 @@ app.get('/order/print-pack', async (req, res) => {
   const cmrPdf = last ? await cmr.reprint(last.number) : null;
   const terminal = last?.terminal || require('./core/terminals').terminalFor({ vessel: order.loadsFrom?.vessel || '', cargo: order.cargo });
   try { await sendPack(res, order, cmrPdf, terminal); } catch (err) { res.status(500).send(`Could not make the print pack: ${err.message}`); }
+});
+
+// The Print step: the operator opened the print pack from it → printed, and the truck is done.
+app.post('/order/printed', (req, res) => {
+  const order = req.body?.id && orderStore.getOrder(String(req.body.id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  orderStore.setPrinted(order.id, { what: String(req.body.what || '').slice(0, 200) || 'print pack opened' });
+  res.json({ status: 'ok' });
 });
 
 // The CMRs printed for one truck (its window lists them).

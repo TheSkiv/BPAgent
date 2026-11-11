@@ -712,6 +712,31 @@ Send and the KIPIS MFA code.
   Checked: log 2 days = 89 trucks (0.1 s), a year = 440 (0.05 s), > 1 year refused; Ro-Ro pack for
   LNV103 = CMR × 5 + PRK × 1 (7 pages, PRK from KIPIS in 8 s); a KKT email built (not sent) carries
   PRK + CMR; the TEST CMR was removed from the register afterwards.
+- [x] **S30. The Print step: Email → Print → Done — built 2026-11-11 (owner's request).** "Another
+  step after EMAIL and before DONE, which is PRINT. It suggests documents for printing: a
+  CMR/važtaraštis (with the required amendments) and the PRK."
+  - Route on the desk: Order · Draft · Pateikti · Email · **Print** · Done (bulk: Order · Gate pass ·
+    **Print** · Done). A truck whose email went from the dashboard, or that something closed by
+    itself, sits in "Needs you" with **Print documents**.
+  - `orderStore.setState`: an automatic "done" (terminal's copy of the email, KIPIS "Atliktas", …)
+    becomes the new state **`to_print`** for a truck PortSystem drove (it saved the PRK or sent the
+    email) created from 2026-11-11 14:00 UTC (`PRINT_STEP_FROM`) and not yet printed. The
+    operator's own "Mark done" still closes at once. Older trucks and trucks filed entirely by
+    people close as before. `to_print` carries over to the next day like drafts do.
+  - **Print documents** opens the print pack — the CMR, or without one the važtaraščiai from the
+    order email with the release added where missing (`transportDocsFor`) — × Ro-Ro 5 / KKT 1,
+    then the PRK × 1 / bulk 2 — and then marks the truck printed (`setPrinted`, `POST
+    /order/printed`) → **Done**, without waiting for the terminal's copy. A pack with no CMR and
+    no važtaraštis is opened but does **not** mark the truck: "make the CMR in its window, then
+    print again". A važtaraštis takes the CMR's copy count (Ro-Ro 5, KKT 1) — confirmed by the
+    owner 2026-11-11.
+  - `emailCache.getEmailData(plate, date)` reads an earlier day's cache, so yesterday's trucks
+    still find their važtaraštis. Route names are 9.5 px without letter-spacing to fit six steps.
+  Checked: the rules on a throwaway data copy (8 cases: terminal copy → to_print, a second
+  automatic close stays, printed → done, emailed + printed → done, older truck and hand-filed
+  truck → done as before, Mark done → done, bulk with PRK printed → done); packs for LLE718
+  (KKT: važtaraštis × 1) and MML743 (Ro-Ro: važtaraštis × 5 with "Release 273870"), both without
+  PRK because their PRKs still wait for Pateikti; six route steps on one line at 1366 px, LT and EN.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
