@@ -558,6 +558,21 @@ Send and the KIPIS MFA code.
   without either (about 0.1 s); the dashboard shows it, says it is getting the PDF, then asks
   again for the PDF and the warnings. Send stays off until that second step is done. Timed on
   MOB272//PS118 and NCB196//LR111; the owner confirmed it in the browser (2026-11-11).
+- [x] **S23. Dark theme and Lithuanian — built 2026-11-11 (owner's request).** A switch in the
+  bottom-left corner of both pages: ☾/☀ flips the theme at once; EN | LT reloads the page in the
+  other language. Both are remembered per browser (`localStorage` `theme`, `lang`); default is
+  light and English. `public/i18n.js` holds the switch and the Lithuanian text (English text is
+  the key, `I18N.t()`); `ui.css` has a `[data-theme="dark"]` colour set (new `--bar` and
+  `--warn-ink` variables replace fixed colours). Translated: everything the two pages write
+  themselves, and the server's fixed messages (KIPIS not open / logged out, already running,
+  …). **Stays English:** messages the server builds from live data (most "not filed" reasons,
+  order notes, `/lots/data` warnings), and the dispatch email text, which goes to the terminal.
+  Checked in the browser by Claude (LT + dark on both pages, no script errors). Owner: "pretty
+  good" but Lithuanian too bunched up → spacing pass: top bar stays on one line from 1366 px
+  (search box shrinks first, brand subtitle hidden under 1500 px), wider route column with
+  smaller letter-spacing on the step names, side column 300 → 320 px, balanced wrapping on
+  status labels, and shorter LT titles/buttons in "Runs by itself" (e.g. "Juodraščių šalinimas",
+  "Šalinti visus"). Measured at 1366 and 1920 px in LT and EN; owner confirmed it in the browser (2026-11-11).
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Lots &amp; owners · PortSystem</title>
   <link rel="stylesheet" href="/ui.css" />
+  <script src="/i18n.js"></script>
   <style>
     .lots-main { max-width: 1080px; margin: 0 auto; padding: 18px 20px 60px; display: flex; flex-direction: column; gap: 16px; }
     .lots-main > section { padding: 16px 18px; }
     .lots-main h2 { font: 700 22px var(--display); margin-bottom: 2px; }
     .hint { font-size: 13px; color: var(--steel); max-width: 760px; }
-    .warn { color: #8A6703; font-size: 13px; background: var(--yellow-2); padding: 6px 10px; border-radius: 6px; }
+    .warn { color: var(--warn-ink); font-size: 13px; background: var(--yellow-2); padding: 6px 10px; border-radius: 6px; }
     .err  { color: var(--red); }
     .ok   { color: var(--green); }
     /* Buttons the page script builds */
@@ -25,7 +26,7 @@
     .vessel.todo { border-left-color: var(--yellow); }
     .vessel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
     .vessel-head b { font: 700 20px var(--display); letter-spacing: 0.02em; text-transform: uppercase; }
-    .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--yellow-2); color: #7A5C04; }
+    .badge { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 10px; background: var(--yellow-2); color: var(--warn-ink); }
     .vessel-head .spacer { flex: 1; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .vessel table { table-layout: fixed; }
@@ -40,7 +41,7 @@
     td.num { text-align: right; white-space: nowrap; }
     td.mono { font-family: var(--mono); white-space: nowrap; }
     td.name { color: var(--steel); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .loading { color: #8A6703; font-weight: 600; white-space: nowrap; }
+    .loading { color: var(--warn-ink); font-weight: 600; white-space: nowrap; }
     select.suggested { border-color: var(--green); box-shadow: 0 0 0 2px var(--green-2); }
     select.unset { border-color: var(--yellow); box-shadow: 0 0 0 2px var(--yellow-2); }
     input.prio { width: 50px; }
@@ -64,14 +65,14 @@
 
   <section class="card">
     <h2>Who owns each lot</h2>
-    <p class="hint">A truck loads only from its owner's lots. The owner is suggested from the stock reports (green outline) — check it and press Confirm.
+    <p class="hint" data-i18n="lots.hint.owners">A truck loads only from its owner's lots. The owner is suggested from the stock reports (green outline) — check it and press Confirm.
       You can change it any time. <b>#</b> sets the loading order (1 = first); left empty, trucks finish the lot already being loaded, then the oldest.</p>
     <div id="vessels"></div>
   </section>
 
   <section class="card">
     <h2>Find lots in KIPIS</h2>
-    <p class="hint">Type a cargo word (<i>amonio</i>, <i>TSP</i>, <i>axan</i>) to add the lots in our storage to the list above — handy when a vessel has just been discharged. KIPIS must be open.</p>
+    <p class="hint" data-i18n="lots.hint.scan">Type a cargo word (<i>amonio</i>, <i>TSP</i>, <i>axan</i>) to add the lots in our storage to the list above — handy when a vessel has just been discharged. KIPIS must be open.</p>
     <div class="row-actions" style="margin-top:10px">
       <input id="scanWord" placeholder="Cargo word" />
       <button id="scanBtn">Find lots</button>
@@ -81,7 +82,7 @@
 
   <section class="card">
     <h2>Companies</h2>
-    <p class="hint">Whose cargo each ordering company loads: its name in the Helm/Yara release lists (matched automatically when the names agree);
+    <p class="hint" data-i18n="lots.hint.companies">Whose cargo each ordering company loads: its name in the Helm/Yara release lists (matched automatically when the names agree);
       or, if it has no release of its own, the seller it buys from (Transwina → Helm); and whether it also loads its own cargo (Agrokoncernas).</p>
     <table style="margin-top:10px">
       <thead><tr><th>Company</th><th>Buyer in the release lists</th><th>Buys from</th><th>Own cargo</th><th title="Put on the PRK (Gavėjas → Valstybė) when KIPIS requires it and the lot leaves it empty">Receiver country</th><th></th></tr></thead>
@@ -102,6 +103,8 @@
 
 
 <script>
+  I18N.translatePage();
+  const t = I18N.t;
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const tonnes = kg => (kg / 1000).toLocaleString('lt-LT', { maximumFractionDigits: 0 }) + ' t';
   const post = async (url, body) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
@@ -112,7 +115,7 @@
     const value = l.confirmedAt ? l.owner : l.suggested;
     const cls = l.confirmedAt ? '' : (l.suggested ? 'suggested' : 'unset');
     const opts = [...new Set([...data.owners, ...(l.owner ? [l.owner] : [])])];
-    return `<select class="owner ${cls}"><option value="">— owner —</option>`
+    return `<select class="owner ${cls}"><option value="">${t('— owner —')}</option>`
       + opts.map(o => `<option${o === value ? ' selected' : ''}>${esc(o)}</option>`).join('')
       + `</select>`;
   }
@@ -120,23 +123,23 @@
   function vesselCard(v) {
     return `<div class="vessel${v.unconfirmed ? ' todo' : ''}" data-vessel="${esc(v.vessel)}">
       <div class="vessel-head">
-        <b>${esc(v.vessel || '(vessel unknown)')}</b>
-        ${v.unconfirmed ? `<span class="badge">${v.unconfirmed} to confirm</span>` : ''}
+        <b>${esc(v.vessel || t('(vessel unknown)'))}</b>
+        ${v.unconfirmed ? `<span class="badge">${t('{n} to confirm', { n: v.unconfirmed })}</span>` : ''}
         <span class="spacer"></span>
         <span class="hint vessel-status"></span>
-        <button class="confirm">${v.unconfirmed ? 'Confirm' : 'Save changes'}</button>
+        <button class="confirm">${v.unconfirmed ? t('Confirm') : t('Save changes')}</button>
       </div>
       <table>
-        <thead><tr><th>Lot</th><th>KIPIS name</th><th class="num">In storage</th><th></th><th>Owner</th><th>#</th><th></th></tr></thead>
+        <thead><tr><th>${t('Lot')}</th><th>${t('KIPIS name')}</th><th class="num">${t('In storage')}</th><th></th><th>${t('Owner')}</th><th>#</th><th></th></tr></thead>
         <tbody>${v.lots.map(l => `
-          <tr data-lot="${esc(l.lot)}" title="Last seen in KIPIS ${esc((l.seenAt || '').slice(0, 16).replace('T', ' '))}">
+          <tr data-lot="${esc(l.lot)}" title="${esc(t('Last seen in KIPIS {when}', { when: (l.seenAt || '').slice(0, 16).replace('T', ' ') }))}">
             <td class="mono">${esc(l.lot)}</td>
             <td class="name" title="${esc(l.name)}">${esc(l.name)}</td>
             <td class="num">${tonnes(l.weightKg)}</td>
-            <td>${l.trucksLoading ? `<span class="loading" title="Trucks/wagons loading from this lot">▶ ${l.trucksLoading}</span>` : ''}</td>
+            <td>${l.trucksLoading ? `<span class="loading" title="${t('Trucks/wagons loading from this lot')}">▶ ${l.trucksLoading}</span>` : ''}</td>
             <td>${ownerSelect(l)}</td>
             <td><input class="prio" type="number" min="1" value="${l.priority ?? ''}" /></td>
-            <td><button class="plain forget" title="Remove this lot from the list (e.g. emptied)">✕</button></td>
+            <td><button class="plain forget" title="${t('Remove this lot from the list (e.g. emptied)')}">✕</button></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -148,7 +151,7 @@
     const unset = !c.buyer && !c.seller && !c.selfLoader ? ' unset' : '';
     return `<tr data-company="${esc(c.company)}">
       <td>${esc(c.company)}</td>
-      <td><select class="buyer${unset}"><option value="">— none —</option>`
+      <td><select class="buyer${unset}"><option value="">${t('— none —')}</option>`
         + opts.map(b => `<option${b === c.buyer ? ' selected' : ''}>${esc(b)}</option>`).join('')
         + `</select> ${c.auto ? '<span class="hint">auto</span>' : ''}</td>
       <td><select class="seller${unset}"><option value="">—</option>`
@@ -156,7 +159,7 @@
         + `</select></td>
       <td><input type="checkbox" class="self"${c.selfLoader ? ' checked' : ''} /></td>
       <td><input class="country" placeholder="—" value="${esc(c.receiverCountry)}" style="width:90px" /></td>
-      <td><button class="save-company">Save</button> <span class="hint company-status"></span></td>
+      <td><button class="save-company">${t('Save')}</button> <span class="hint company-status"></span></td>
     </tr>`;
   }
 
@@ -166,14 +169,14 @@
     const listed = data.vessels.filter(v => v.listed), other = data.vessels.filter(v => !v.listed);
     document.getElementById('vessels').innerHTML = (listed.length
       ? listed.map(vesselCard).join('')
-      : '<p class="hint" style="margin-top:8px">No lots yet — they appear after a PRK run or a search below.</p>')
+      : `<p class="hint" style="margin-top:8px">${t('No lots yet — they appear after a PRK run or a search below.')}</p>`)
       + (other.length
-        ? `<details style="margin-top:12px"><summary>Other vessels (${other.length}) — not in the stock or release lists</summary>${other.map(vesselCard).join('')}</details>`
+        ? `<details style="margin-top:12px"><summary>${t('Other vessels ({n}) — not in the stock or release lists', { n: other.length })}</summary>${other.map(vesselCard).join('')}</details>`
         : '');
     document.getElementById('companies').innerHTML = data.companies.map(companyRow).join('');
     document.getElementById('releases').innerHTML = data.releases.map(r => `<tr>
       <td>${esc(r.seller)}</td><td>${esc(r.buyer)}</td><td>${esc(r.product)}</td><td>${esc(r.vessel)}</td>
-      <td class="num">${tonnes(r.remainingKg)}${r.bulk ? ' bulk' : ''}</td></tr>`).join('');
+      <td class="num">${tonnes(r.remainingKg)}${r.bulk ? t(' bulk') : ''}</td></tr>`).join('');
   }
 
   document.getElementById('vessels').addEventListener('change', e => {
@@ -189,14 +192,14 @@
         priority: tr.querySelector('input.prio').value,
       }));
       const status = card.querySelector('.vessel-status');
-      if (lots.some(l => !l.owner)) { status.textContent = 'Pick an owner for every lot first.'; status.className = 'hint vessel-status err'; return; }
+      if (lots.some(l => !l.owner)) { status.textContent = t('Pick an owner for every lot first.'); status.className = 'hint vessel-status err'; return; }
       e.target.disabled = true;
       const r = await post('/lots/confirm', { lots });
-      if (r.error) { status.textContent = r.error; status.className = 'hint vessel-status err'; e.target.disabled = false; return; }
+      if (r.error) { status.textContent = t(r.error); status.className = 'hint vessel-status err'; e.target.disabled = false; return; }
       await load();
     } else if (e.target.matches('button.forget')) {
       const lot = e.target.closest('tr').dataset.lot;
-      if (!confirm(`Remove lot ${lot} from the list? A later PRK run or search adds it back if it is still in KIPIS.`)) return;
+      if (!confirm(t('Remove lot {lot} from the list? A later PRK run or search adds it back if it is still in KIPIS.', { lot }))) return;
       await post('/lots/remove', { lot });
       await load();
     }
@@ -213,7 +216,7 @@
       selfLoader: tr.querySelector('input.self').checked,
       receiverCountry: tr.querySelector('input.country').value,
     });
-    if (r.error) { status.textContent = r.error; status.className = 'hint company-status err'; return; }
+    if (r.error) { status.textContent = t(r.error); status.className = 'hint company-status err'; return; }
     await load();
   });
 
@@ -223,11 +226,11 @@
     const q = document.getElementById('scanWord').value.trim();
     if (!q) return;
     btn.disabled = true;
-    status.className = 'hint'; status.textContent = 'Reading KIPIS…';
+    status.className = 'hint'; status.textContent = t('Reading KIPIS…');
     try {
       const r = await post('/lots/scan', { q });
-      if (r.status === 'ok') { status.className = 'hint ok'; status.textContent = `${r.lots} lot(s) on ${r.vessels.join(', ') || 'no vessel'}`; await load(); }
-      else { status.className = 'hint err'; status.textContent = r.message || r.error; }
+      if (r.status === 'ok') { status.className = 'hint ok'; status.textContent = t('{n} lot(s) on {vessels}', { n: r.lots, vessels: r.vessels.join(', ') || t('no vessel') }); await load(); }
+      else { status.className = 'hint err'; status.textContent = t(r.message || r.error); }
     } catch (err) {
       status.className = 'hint err'; status.textContent = err.message;
     } finally {

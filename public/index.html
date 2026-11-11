@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Truck desk · PortSystem</title>
   <link rel="stylesheet" href="/ui.css" />
+  <script src="/i18n.js"></script>
 </head>
 <body>
   <header class="topbar">
@@ -107,6 +108,8 @@
   </div>
 
   <script>
+    I18N.translatePage();
+    const t = I18N.t;
     const $ = id => document.getElementById(id);
     const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     const hhmm = iso => new Date(iso).toLocaleTimeString('lt-LT', { hour: '2-digit', minute: '2-digit' });
@@ -116,12 +119,12 @@
     // ── Toast: the result of the last action ────────────────────────────
     let toastTimer = null;
     function toast(kind, text, sticky) {
-      const t = $('toast');
-      t.className = `toast show ${kind || ''}`;
-      t.innerHTML = `${esc(text)}<button aria-label="Close">✕</button>`;
-      t.querySelector('button').onclick = () => t.classList.remove('show');
+      const el = $('toast');
+      el.className = `toast show ${kind || ''}`;
+      el.innerHTML = `${esc(text)}<button aria-label="${t('Close')}">✕</button>`;
+      el.querySelector('button').onclick = () => el.classList.remove('show');
       clearTimeout(toastTimer);
-      if (!sticky) toastTimer = setTimeout(() => t.classList.remove('show'), kind === 'err' ? 15000 : 7000);
+      if (!sticky) toastTimer = setTimeout(() => el.classList.remove('show'), kind === 'err' ? 15000 : 7000);
     }
 
     // ── Where each truck stands, and what it needs next ─────────────────
@@ -131,54 +134,54 @@
     // group: needs (yours) · failed (yours, red) · system (it is on it) · waiting · done · cancelled
     function stageOf(o) {
       const prk = o.docs?.PRK?.number;
-      if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: 'Cancelled' };
+      if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: t('Cancelled') };
       // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
       if (o.bulk) {
-        if (o.state === 'done') return { group: 'done', route: BULK, stop: 2, label: 'Done' };
-        if (o.state === 'gate_pass_ordered' || o.dispatchSent) return { group: 'waiting', route: BULK, stop: 1, label: `Loading ordered${o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : ''} — waiting for the loaded weight` };
-        return { group: 'needs', route: BULK, stop: 0, label: 'Order the loading by email', actions: ['email'] };
+        if (o.state === 'done') return { group: 'done', route: BULK, stop: 2, label: t('Done') };
+        if (o.state === 'gate_pass_ordered' || o.dispatchSent) return { group: 'waiting', route: BULK, stop: 1, label: t('Loading ordered{time} — waiting for the loaded weight', { time: o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : '' }) };
+        return { group: 'needs', route: BULK, stop: 0, label: t('Order the loading by email'), actions: ['email'] };
       }
       switch (o.state) {
-        case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: 'Gets its PRK draft automatically', actions: ['file'] };
-        case 'received':  return { group: 'waiting', route: BAGGED, stop: 0, label: 'New order' };
-        case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: 'Filing in KIPIS now…' };
-        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: (o.lastFailure?.kind === 'transient' && o.lastFailure.autoRetries < 2 && !prk) ? 'Not filed — will be tried again automatically' : 'Not filed', reason: o.note, actions: ['retry', 'open'] };
+        case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: t('Gets its PRK draft automatically'), actions: ['file'] };
+        case 'received':  return { group: 'waiting', route: BAGGED, stop: 0, label: t('New order') };
+        case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: t('Filing in KIPIS now…') };
+        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: (o.lastFailure?.kind === 'transient' && o.lastFailure.autoRetries < 2 && !prk) ? t('Not filed — will be tried again automatically') : t('Not filed'), reason: t(o.note || ''), actions: ['retry', 'open'] };
         case 'drafted':   return prk
-          ? { group: 'needs', route: BAGGED, stop: 1, label: 'Check the draft in KIPIS and press Pateikti', reason: /packaging not set/.test(o.note || '') ? 'Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.' : '' }
-          : { group: 'needs', route: BAGGED, stop: 1, label: 'Form filled but not saved — save it in KIPIS' };
+          ? { group: 'needs', route: BAGGED, stop: 1, label: t('Check the draft in KIPIS and press Pateikti'), reason: /packaging not set/.test(o.note || '') ? t('Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.') : '' }
+          : { group: 'needs', route: BAGGED, stop: 1, label: t('Form filled but not saved — save it in KIPIS') };
         case 'submitted': return o.dispatchSent
-          ? { group: 'waiting', route: BAGGED, stop: 3, label: `Email sent ${hhmm(o.dispatchSent.at)} — closes at the next mail check` }
-          : { group: 'needs', route: BAGGED, stop: 3, label: 'Send the dispatch email', actions: ['email'] };
-        case 'done':      return { group: 'done', route: BAGGED, stop: 4, label: 'Done' };
+          ? { group: 'waiting', route: BAGGED, stop: 3, label: t('Email sent {time} — closes at the next mail check', { time: hhmm(o.dispatchSent.at) }) }
+          : { group: 'needs', route: BAGGED, stop: 3, label: t('Send the dispatch email'), actions: ['email'] };
+        case 'done':      return { group: 'done', route: BAGGED, stop: 4, label: t('Done') };
         default:          return { group: 'waiting', route: BAGGED, stop: 0, label: o.state.replace(/_/g, ' ') };
       }
     }
 
     const TABS = [
-      { key: 'needs',   label: 'Needs you',      groups: ['needs', 'failed'], cls: 'needs' },
-      { key: 'system',  label: 'System working', groups: ['system'] },
-      { key: 'waiting', label: 'Waiting',        groups: ['waiting'] },
-      { key: 'done',    label: 'Done',           groups: ['done'] },
-      { key: 'all',     label: 'All',            groups: ['needs', 'failed', 'system', 'waiting', 'done', 'cancelled'] },
+      { key: 'needs',   label: t('Needs you'),      groups: ['needs', 'failed'], cls: 'needs' },
+      { key: 'system',  label: t('System working'), groups: ['system'] },
+      { key: 'waiting', label: t('Waiting'),        groups: ['waiting'] },
+      { key: 'done',    label: t('Done'),           groups: ['done'] },
+      { key: 'all',     label: t('All'),            groups: ['needs', 'failed', 'system', 'waiting', 'done', 'cancelled'] },
     ];
     let activeTab = null;        // chosen on first load: Needs you when anything is there
     let orders = [];             // every order today (open + closed), with its stage
     let pending = [];            // emails waiting for the sender's confirmation
 
     function routeHtml(st) {
-      return `<div class="route" aria-label="${esc(st.route[Math.max(st.stop, 0)] || '')}">${st.route.map((name, i) =>
-        `<span class="stop ${i < st.stop ? 'past' : i === st.stop ? 'here' : ''}">${esc(name)}</span>`).join('')}</div>`;
+      return `<div class="route" aria-label="${esc(t(st.route[Math.max(st.stop, 0)] || ''))}">${st.route.map((name, i) =>
+        `<span class="stop ${i < st.stop ? 'past' : i === st.stop ? 'here' : ''}">${esc(t(name))}</span>`).join('')}</div>`;
     }
 
     function actionsHtml(o, st) {
       const b = [];
       for (const a of st.actions || []) {
-        if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? 'Order loading' : 'Send email'}</button>`);
-        if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">File now</button>`);
-        if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">Try again</button>`);
-        if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">Fix order</button>`);
+        if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? t('Order loading') : t('Send email')}</button>`);
+        if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
+        if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
+        if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
       }
-      if (!['done', 'cancelled'].includes(st.group)) b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="Close this truck by hand">Mark done</button>`);
+      if (!['done', 'cancelled'].includes(st.group)) b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
       return b.join('');
     }
 
@@ -187,16 +190,16 @@
       const cls = st.group === 'cancelled' ? 'done' : st.group;
       const company = o.company
         ? esc(o.company)
-        : `<span class="unassigned" data-sender="${esc(o.sender)}" title="Click to name this company">${esc((o.sender.match(/<([^>]+)>/) || [, o.sender])[1])}</span>`;
-      const chips = [o.bulk && '<span class="chip bulk">BULK</span>', o.dup && '<span class="chip dup" title="This plate has more than one order today">×2</span>'].filter(Boolean).join('');
+        : `<span class="unassigned" data-sender="${esc(o.sender)}" title="${t('Click to name this company')}">${esc((o.sender.match(/<([^>]+)>/) || [, o.sender])[1])}</span>`;
+      const chips = [o.bulk && '<span class="chip bulk">BULK</span>', o.dup && `<span class="chip dup" title="${t('This plate has more than one order today')}">×2</span>`].filter(Boolean).join('');
       return `<article class="truck ${cls}">
         <div>
-          <div class="plate" data-act="open" data-id="${esc(o.id)}" title="Open the order and its email">${esc(o.plate)}</div>
-          <div class="who">${company}${o.carried ? ' · <span class="warn">from yesterday</span>' : ''}</div>
+          <div class="plate" data-act="open" data-id="${esc(o.id)}" title="${t('Open the order and its email')}">${esc(o.plate)}</div>
+          <div class="who">${company}${o.carried ? ` · <span class="warn">${t('from yesterday')}</span>` : ''}</div>
         </div>
         <div>
-          <div class="what">${chips}${esc(o.cargo || 'Cargo not known')}${o.weight ? ` · ${Number(o.weight).toLocaleString('lt-LT')} kg` : ''}</div>
-          <div class="what sub">${[o.vessel && `from ${esc(o.vessel)}`, o.docs?.PRK?.number && `<span class="mono">${esc(o.docs.PRK.number)}</span>`].filter(Boolean).join(' · ') || '&nbsp;'}</div>
+          <div class="what">${chips}${esc(o.cargo || t('Cargo not known'))}${o.weight ? ` · ${Number(o.weight).toLocaleString('lt-LT')} kg` : ''}</div>
+          <div class="what sub">${[o.vessel && esc(t('from {vessel}', { vessel: o.vessel })), o.docs?.PRK?.number && `<span class="mono">${esc(o.docs.PRK.number)}</span>`].filter(Boolean).join(' · ') || '&nbsp;'}</div>
           ${routeHtml(st)}
         </div>
         <div class="next">
@@ -224,14 +227,14 @@
       const showConfirm = (activeTab === 'needs' || activeTab === 'all') && !q;
       $('confirmations').innerHTML = showConfirm ? pending.map(p => `
         <div class="card confirm">
-          <div class="subject">${esc(p.subject || '(no subject)')}</div>
-          <div class="meta">New sender: ${esc(p.sender)} · ${esc(p.received || '')}</div>
+          <div class="subject">${esc(p.subject || t('(no subject)'))}</div>
+          <div class="meta">${esc(t('New sender: {sender}', { sender: p.sender }))} · ${esc(p.received || '')}</div>
           <div><span class="mono">${esc(p.plates.join(', '))}</span>${p.cargo ? ' — ' + esc(p.cargo) : ''}${p.bulk ? ' <span class="chip bulk">BULK</span>' : ''}</div>
           <div class="actions">
-            <button class="btn primary small" data-decide="always" data-sender="${esc(p.sender)}" title="Trust this sender from now on; their orders get filed automatically">Trust this sender</button>
-            <button class="btn small" data-decide="once" data-msg="${esc(p.messageId)}">Accept this email only</button>
-            <button class="btn quiet small" data-decide="cancel_once" data-msg="${esc(p.messageId)}">Ignore this email</button>
-            <button class="btn danger small" data-decide="never" data-sender="${esc(p.sender)}">Block sender</button>
+            <button class="btn primary small" data-decide="always" data-sender="${esc(p.sender)}" title="${t('Trust this sender from now on; their orders get filed automatically')}">${t('Trust this sender')}</button>
+            <button class="btn small" data-decide="once" data-msg="${esc(p.messageId)}">${t('Accept this email only')}</button>
+            <button class="btn quiet small" data-decide="cancel_once" data-msg="${esc(p.messageId)}">${t('Ignore this email')}</button>
+            <button class="btn danger small" data-decide="never" data-sender="${esc(p.sender)}">${t('Block sender')}</button>
           </div>
         </div>`).join('') : '';
 
@@ -240,9 +243,9 @@
         .sort((a, b) => order[a.stage.group] - order[b.stage.group] || (a.id < b.id ? -1 : 1));
       $('trucks').innerHTML = list.length ? list.map(truckHtml).join('')
         : (showConfirm && pending.length) ? ''
-        : `<div class="card empty">${q ? `<strong>No truck matches “${esc(q)}”.</strong>Try the plate without slashes, or the company name.`
-            : activeTab === 'needs' ? '<strong>Nothing needs you right now.</strong>New orders come in with Check mail and are filed automatically.'
-            : '<strong>No trucks here.</strong>'}</div>`;
+        : `<div class="card empty">${q ? `<strong>${esc(t('No truck matches “{q}”.', { q }))}</strong>${t('Try the plate without slashes, or the company name.')}`
+            : activeTab === 'needs' ? `<strong>${t('Nothing needs you right now.')}</strong>${t('New orders come in with Check mail and are filed automatically.')}`
+            : `<strong>${t('No trucks here.')}</strong>`}</div>`;
     }
 
     $('tabs').addEventListener('click', e => {
@@ -265,7 +268,7 @@
         render();
         checkAlerts();
       } catch (err) {
-        $('trucks').innerHTML = `<div class="card empty"><strong>Could not load the trucks.</strong>${esc(err.message)}</div>`;
+        $('trucks').innerHTML = `<div class="card empty"><strong>${t('Could not load the trucks.')}</strong>${esc(err.message)}</div>`;
       }
     }
 
@@ -284,8 +287,8 @@
     function waitingNow() {
       const items = new Map();
       for (const o of orders) if (['needs', 'failed'].includes(o.stage.group)) items.set(`${o.id}:${o.stage.label}`, `${o.plate}: ${o.stage.label}`);
-      for (const p of pending) items.set(`confirm:${p.messageId}`, `New sender to confirm: ${p.sender}`);
-      if (kipisState && kipisState !== 'main') items.set('kipis', 'KIPIS is logged out — open it and enter the code');
+      for (const p of pending) items.set(`confirm:${p.messageId}`, t('New sender to confirm: {sender}', { sender: p.sender }));
+      if (kipisState && kipisState !== 'main') items.set('kipis', t('KIPIS is logged out — open it and enter the code'));
       return items;
     }
     function beep() {
@@ -303,19 +306,19 @@
     }
     function checkAlerts() {
       const now = waitingNow();
-      document.title = `${now.size ? `(${now.size}) ` : ''}Truck desk · PortSystem`;
+      document.title = `${now.size ? `(${now.size}) ` : ''}${t('Truck desk')} · PortSystem`;
       const fresh = alertBase ? [...now].filter(([k]) => !alertBase.has(k)).map(([, v]) => v) : [];
       alertBase = new Set(now.keys());
       if (!fresh.length || !alertsOn) return;
       beep();
-      const text = fresh.length === 1 ? fresh[0] : `${fresh.length} things need you: ${fresh.slice(0, 3).join('; ')}`;
+      const text = fresh.length === 1 ? fresh[0] : t('{n} things need you: {list}', { n: fresh.length, list: fresh.slice(0, 3).join('; ') });
       if (window.Notification && Notification.permission === 'granted') {
-        try { new Notification('Truck desk', { body: text, tag: 'truck-desk' }); } catch { /* fall back to the toast */ }
+        try { new Notification(t('Truck desk'), { body: text, tag: 'truck-desk' }); } catch { /* fall back to the toast */ }
       }
       toast('warn', text, true);
     }
     function showAlertBtn() {
-      $('alertBtn').textContent = alertsOn ? 'Alerts on' : 'Alerts off';
+      $('alertBtn').textContent = alertsOn ? t('Alerts on') : t('Alerts off');
       $('alertBtn').classList.toggle('primary', false);
     }
     $('alertBtn').addEventListener('click', async () => {
@@ -325,7 +328,7 @@
       if (!alertsOn) return;
       beep();   // this click is what lets the browser play sound later
       if (window.Notification && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* sound only */ } }
-      toast('ok', 'Alerts on — a sound when something new needs you. Keep this tab open.');
+      toast('ok', t('Alerts on — a sound when something new needs you. Keep this tab open.'));
     });
     showAlertBtn();
 
@@ -340,7 +343,7 @@
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
       if (act === 'file') return runPrk(el.getAttribute('data-plate'), el);
       if (act === 'done') {
-        if (!confirm(`Close ${order ? order.plate : 'this truck'} by hand?`)) return;
+        if (!confirm(t('Close {plate} by hand?', { plate: order ? order.plate : t('this truck') }))) return;
         el.disabled = true;
         await postJson('/order/mark-done', { id: el.getAttribute('data-id') });
         loadPipeline();
@@ -351,14 +354,14 @@
       const btn = e.target.closest('[data-decide]');
       if (!btn) return;
       const action = btn.getAttribute('data-decide');
-      if (action === 'never' && !confirm('Block this sender for good? Their waiting orders are cancelled.')) return;
+      if (action === 'never' && !confirm(t('Block this sender for good? Their waiting orders are cancelled.'))) return;
       btn.disabled = true;
       await postJson('/confirmations/decide', { action, sender: btn.getAttribute('data-sender'), messageId: btn.getAttribute('data-msg') });
       loadConfirmations(); loadPipeline();
     });
 
     async function nameCompany(sender) {
-      const company = prompt('Company name for this sender:\n' + sender);
+      const company = prompt(t('Company name for this sender:') + '\n' + sender);
       if (!company || !company.trim()) return;
       await postJson('/sender-company', { sender, company: company.trim() });
       loadPipeline();
@@ -366,18 +369,18 @@
 
     // ── Filing ───────────────────────────────────────────────────────────
     async function runPrk(plate, btn) {
-      if (!plate) return toast('err', 'Type a truck plate first.');
+      if (!plate) return toast('err', t('Type a truck plate first.'));
       if (btn) btn.disabled = true;
-      toast('', `Filing the PRK for ${plate} — about a minute…`, true);
+      toast('', t('Filing the PRK for {plate} — about a minute…', { plate }), true);
       try {
         const d = await postJson('/run-prk', { value: plate });
-        if (d.status !== 'ok') toast('err', `${plate}: ${d.message}`);
-        else if (d.existingPrk) toast('ok', `${plate} already has a PRK in KIPIS (${d.existingPrk}) — nothing filed.`);
-        else if (d.needsLotOwners) { toast('warn', `${plate} not filed: ${d.blocked}. Confirm the lot owners, then try again.`); loadLots(); }
-        else if (d.blocked) toast('warn', `${plate} not filed: ${d.blocked}`);
-        else toast('ok', d.submitted ? `${plate}: PRK draft ${d.prkNumber} saved — check it in KIPIS and press Pateikti.` : `${plate}: form filled (test mode) — not saved.`);
+        if (d.status !== 'ok') toast('err', `${plate}: ${t(d.message)}`);
+        else if (d.existingPrk) toast('ok', t('{plate} already has a PRK in KIPIS ({prk}) — nothing filed.', { plate, prk: d.existingPrk }));
+        else if (d.needsLotOwners) { toast('warn', t('{plate} not filed: {why}. Confirm the lot owners, then try again.', { plate, why: t(d.blocked) })); loadLots(); }
+        else if (d.blocked) toast('warn', t('{plate} not filed: {why}', { plate, why: t(d.blocked) }));
+        else toast('ok', d.submitted ? t('{plate}: PRK draft {prk} saved — check it in KIPIS and press Pateikti.', { plate, prk: d.prkNumber }) : t('{plate}: form filled (test mode) — not saved.', { plate }));
       } catch (err) {
-        toast('err', `Network error: ${err.message}`);
+        toast('err', t('Network error: {msg}', { msg: err.message }));
       } finally {
         if (btn) btn.disabled = false;
         loadPipeline(); loadKipisSession();
@@ -387,54 +390,54 @@
 
     $('processNextBtn').addEventListener('click', async () => {
       $('processNextBtn').disabled = true;
-      toast('', 'Filing the next truck in line…', true);
+      toast('', t('Filing the next truck in line…'), true);
       try {
         const d = await postJson('/queue/process-next');
-        if (d.status === 'empty') toast('', 'No truck is waiting to be filed.');
-        else if (d.status === 'error') toast('err', `${d.plate ? d.plate + ': ' : ''}${d.message}`);
-        else if (d.existingPrk) toast('ok', `${d.plate} already has a PRK (${d.existingPrk}).`);
-        else if (d.blocked) toast('warn', `${d.plate} not filed: ${d.blocked}`);
-        else toast('ok', `${d.plate}: PRK draft ${d.prkNumber} saved.`);
-      } catch (err) { toast('err', `Network error: ${err.message}`); }
+        if (d.status === 'empty') toast('', t('No truck is waiting to be filed.'));
+        else if (d.status === 'error') toast('err', `${d.plate ? d.plate + ': ' : ''}${t(d.message)}`);
+        else if (d.existingPrk) toast('ok', t('{plate} already has a PRK ({prk}).', { plate: d.plate, prk: d.existingPrk }));
+        else if (d.blocked) toast('warn', t('{plate} not filed: {why}', { plate: d.plate, why: t(d.blocked) }));
+        else toast('ok', t('{plate}: PRK draft {prk} saved.', { plate: d.plate, prk: d.prkNumber }));
+      } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { $('processNextBtn').disabled = false; loadPipeline(); }
     });
 
     $('fileAllBtn').addEventListener('click', async () => {
       $('fileAllBtn').disabled = true;
-      toast('', 'Filing every ready truck — about a minute per truck…', true);
+      toast('', t('Filing every ready truck — about a minute per truck…'), true);
       try {
         const r = await postJson('/queue/file-all');
-        if (r.status !== 'ok') return toast('err', r.message);
+        if (r.status !== 'ok') return toast('err', t(r.message));
         const parts = [
-          r.saved.length && `${r.saved.length} saved (${r.saved.map(x => x.plate).join(', ')})`,
-          r.existing.length && `${r.existing.length} already filed`,
-          r.blocked.length && `${r.blocked.length} not filed`,
-          r.failed.length && `${r.failed.length} failed`,
+          r.saved.length && t('{n} saved ({list})', { n: r.saved.length, list: r.saved.map(x => x.plate).join(', ') }),
+          r.existing.length && t('{n} already filed', { n: r.existing.length }),
+          r.blocked.length && t('{n} not filed', { n: r.blocked.length }),
+          r.failed.length && t('{n} failed', { n: r.failed.length }),
         ].filter(Boolean);
-        if (r.stoppedBecause) parts.push(`stopped: ${r.stoppedBecause}`);
-        toast(r.blocked.length || r.failed.length || r.stoppedBecause ? 'warn' : 'ok', parts.length ? parts.join(' · ') : 'No ready trucks to file.');
-      } catch (err) { toast('err', `Network error: ${err.message}`); }
+        if (r.stoppedBecause) parts.push(t('stopped: {why}', { why: t(r.stoppedBecause) }));
+        toast(r.blocked.length || r.failed.length || r.stoppedBecause ? 'warn' : 'ok', parts.length ? parts.join(' · ') : t('No ready trucks to file.'));
+      } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { $('fileAllBtn').disabled = false; loadPipeline(); loadAutoFile(); loadKipisSession(); }
     });
 
     // ── Mail ─────────────────────────────────────────────────────────────
     $('recheckBtn').addEventListener('click', async () => {
       $('recheckBtn').disabled = true;
-      toast('', 'Checking mail…', true);
+      toast('', t('Checking mail…'), true);
       try {
         const d = await getJson('/gmail/emails?max=100&q=' + encodeURIComponent('in:inbox'));
-        if (d.error) return toast('err', d.error === 'AUTH_REQUIRED' ? 'Mail is not set up — check the mail settings in .env.' : d.error);
+        if (d.error) return toast('err', d.error === 'AUTH_REQUIRED' ? t('Mail is not set up — check the mail settings in .env.') : t(d.message || d.error));
         const s = d.summary;
-        const parts = [s.saved ? `${s.saved} new truck${s.saved === 1 ? '' : 's'}` : 'No new trucks'];
-        if (s.prkMarked) parts.push(`${s.prkMarked} closed by the terminal's copy`);
-        if (s.cargoFilled) parts.push(`${s.cargoFilled} cargo filled in`);
+        const parts = [s.saved ? (s.saved === 1 ? t('1 new truck') : t('{n} new trucks', { n: s.saved })) : t('No new trucks')];
+        if (s.prkMarked) parts.push(t("{n} closed by the terminal's copy", { n: s.prkMarked }));
+        if (s.cargoFilled) parts.push(t('{n} cargo filled in', { n: s.cargoFilled }));
         // An email with plates in it that was still not read as a truck order — say which.
         if (s.missed) {
-          toast('warn', parts.join(' · ') + `. Check by hand — has plates but was not read as an order: ${(s.missedSubjects || []).join('; ')}`, true);
+          toast('warn', parts.join(' · ') + '. ' + t('Check by hand — has plates but was not read as an order: {list}', { list: (s.missedSubjects || []).join('; ') }), true);
           return;
         }
-        toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? ' — filing them now.' : '.'));
-      } catch (err) { toast('err', `Network error: ${err.message}`); }
+        toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? t(' — filing them now.') : '.'));
+      } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); loadMail(); setTimeout(loadPipeline, 20000); }
     });
 
@@ -442,11 +445,11 @@
       try {
         const { authorized } = await getJson('/gmail/status');
         $('mailLight').className = 'light ' + (authorized ? 'ok' : 'bad');
-        $('mailLight').textContent = authorized ? 'Mail' : 'Mail down';
+        $('mailLight').textContent = authorized ? t('Mail') : t('Mail down');
         $('recheckBtn').disabled = !authorized;
         $('mailError').style.display = authorized ? 'none' : '';
-        $('mailError').innerHTML = authorized ? '' : '<h3>Mail not connected</h3><div class="muted" style="font-size:13px">The mailbox did not answer. Check the network and the mail settings in .env.</div>';
-      } catch { $('mailLight').textContent = 'Mail ?'; }
+        $('mailError').innerHTML = authorized ? '' : `<h3>${t('Mail not connected')}</h3><div class="muted" style="font-size:13px">${t('The mailbox did not answer. Check the network and the mail settings in .env.')}</div>`;
+      } catch { $('mailLight').textContent = t('Mail ?'); }
     }
 
     // ── KIPIS ────────────────────────────────────────────────────────────
@@ -454,7 +457,7 @@
       const el = $('kipisLight');
       try {
         const s = await getJson('/kipis/status');
-        const text = { main: 'KIPIS logged in', login: 'KIPIS logged out — open it and enter the code', closed: 'KIPIS not open', error: 'KIPIS not answering' };
+        const text = { main: t('KIPIS logged in'), login: t('KIPIS is logged out — open it and enter the code'), closed: t('KIPIS not open'), error: t('KIPIS not answering') };
         el.className = 'light ' + ({ main: 'ok', login: 'warn', closed: '', error: 'bad' }[s.state] || '');
         el.textContent = text[s.state] || `KIPIS ${s.state}`;
         kipisState = s.state; checkAlerts();
@@ -462,11 +465,11 @@
     }
     $('openBtn').addEventListener('click', async () => {
       $('openBtn').disabled = true;
-      toast('', 'Opening KIPIS — enter the code there if it asks…', true);
+      toast('', t('Opening KIPIS — enter the code there if it asks…'), true);
       try {
         const d = await postJson('/open-kipis');
-        toast(d.status === 'ok' ? 'ok' : 'err', d.status === 'ok' ? 'KIPIS is open and logged in.' : d.message);
-      } catch (err) { toast('err', `Network error: ${err.message}`); }
+        toast(d.status === 'ok' ? 'ok' : 'err', d.status === 'ok' ? t('KIPIS is open and logged in.') : t(d.message));
+      } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { $('openBtn').disabled = false; loadKipisSession(); }
     });
 
@@ -476,22 +479,22 @@
       try {
         if (mailEvery === null) mailEvery = (await getJson('/mail/auto')).minutes || 0;
         const r = await getJson('/gmail/last');
-        const how = mailEvery ? `Every ${mailEvery} min, day and night.` : '<span class="warn">Automatic check is off — use Check mail.</span>';
+        const how = mailEvery ? t('Every {n} min, day and night.', { n: mailEvery }) : `<span class="warn">${t('Automatic check is off — use Check mail.')}</span>`;
         if (!r.at) $('mailLine').innerHTML = how;
-        else if (r.error) $('mailLine').innerHTML = `<span class="warn">${hhmm(r.at)}: check failed — ${esc(r.error)}</span>`;
+        else if (r.error) $('mailLine').innerHTML = `<span class="warn">${esc(t('{time}: check failed — {err}', { time: hhmm(r.at), err: t(r.error) }))}</span>`;
         else {
           const m = r.summary || {};
-          const got = [m.saved ? `${m.saved} new truck${m.saved === 1 ? '' : 's'}` : 'nothing new'];
-          if (m.prkMarked) got.push(`${m.prkMarked} closed by the terminal's copy`);
-          $('mailLine').innerHTML = `Last check ${hhmm(r.at)}: ${got.join(', ')}. ${how}`;
+          const got = [m.saved ? (m.saved === 1 ? t('1 new truck') : t('{n} new trucks', { n: m.saved })) : t('nothing new')];
+          if (m.prkMarked) got.push(t("{n} closed by the terminal's copy", { n: m.prkMarked }));
+          $('mailLine').innerHTML = `${esc(t('Last check {time}: {what}.', { time: hhmm(r.at), what: got.join(', ') }))} ${how}`;
         }
         // Emails with plates in them that were not read as an order stay listed until looked at.
         const missed = r.missed || [];
         $('missedBox').innerHTML = missed.length
-          ? `<div class="line"><span class="warn">Check by hand — has plates, not read as an order:</span></div>`
+          ? `<div class="line"><span class="warn">${t('Check by hand — has plates, not read as an order:')}</span></div>`
             + [...missed.reduce((m, x) => { const k = x.subject + '|' + x.from; m.set(k, { ...x, n: (m.get(k)?.n || 0) + 1 }); return m; }, new Map()).values()]
                 .map(x => `<div class="line">${esc(x.subject)}${x.n > 1 ? ` ×${x.n}` : ''} <span class="muted">— ${esc(x.from)} (${esc((x.plates || []).join(', '))})</span></div>`).join('')
-            + `<button class="btn small" id="missedSeenBtn">I have checked them</button>`
+            + `<button class="btn small" id="missedSeenBtn">${t('I have checked them')}</button>`
           : '';
         if (missed.length) $('missedSeenBtn').addEventListener('click', async () => { await postJson('/gmail/missed/clear'); loadMail(); });
       } catch { /* keep */ }
@@ -502,8 +505,8 @@
         if (!r.at) return;
         const n = k => (r[k] || []).length;
         $('autoFileLine').innerHTML = (r.skipped || r.error)
-          ? `<span class="warn">${hhmm(r.at)}: skipped — ${esc(r.skipped || r.error)}</span>`
-          : `Last run ${hhmm(r.at)}: ${n('saved')} saved${n('blocked') + n('failed') ? `, <span class="warn">${n('blocked') + n('failed')} not filed</span>` : ''}${r.stoppedBecause ? ` — <span class="warn">${esc(r.stoppedBecause)}</span>` : ''}`;
+          ? `<span class="warn">${esc(t('{time}: skipped — {why}', { time: hhmm(r.at), why: t(r.skipped || r.error) }))}</span>`
+          : `${esc(t('Last run {time}: {n} saved', { time: hhmm(r.at), n: n('saved') }))}${n('blocked') + n('failed') ? `, <span class="warn">${esc(t('{n} not filed', { n: n('blocked') + n('failed') }))}</span>` : ''}${r.stoppedBecause ? ` — <span class="warn">${esc(t(r.stoppedBecause))}</span>` : ''}`;
       } catch { /* keep */ }
     }
     async function loadWatch() {
@@ -512,13 +515,13 @@
         if (!r.at) return;
         const moved = [...(r.submitted || []), ...(r.done || []), ...(r.cancelled || [])];
         $('watchLine').innerHTML = (r.skipped || r.error)
-          ? `<span class="warn">${hhmm(r.at)}: skipped — ${esc(r.skipped || r.error)}</span>`
-          : `Last check ${hhmm(r.at)}: ${moved.length ? moved.map(x => esc(x.plate)).join(', ') + ' submitted' : 'nothing new'}`;
+          ? `<span class="warn">${esc(t('{time}: skipped — {why}', { time: hhmm(r.at), why: t(r.skipped || r.error) }))}</span>`
+          : esc(t('Last check {time}: {what}', { time: hhmm(r.at), what: moved.length ? t('{plates} submitted', { plates: moved.map(x => x.plate).join(', ') }) : t('nothing new') }));
       } catch { /* keep */ }
     }
     $('watchBtn').addEventListener('click', async () => {
       $('watchBtn').disabled = true;
-      $('watchLine').textContent = 'Reading the PRK list in KIPIS…';
+      $('watchLine').textContent = t('Reading the PRK list in KIPIS…');
       try { await postJson('/prk/watch'); } catch { /* shown below */ }
       $('watchBtn').disabled = false; loadWatch(); loadPipeline();
     });
@@ -527,21 +530,21 @@
         const r = await getJson('/prk/cleanup');
         if (!r.at) return;
         // Say why the others stayed: ours but under 2 days old, or made by other people.
-        const kept = [r.tooYoung && `${r.tooYoung} of ours under 2 days old (the daily run waits; the button takes them)`, r.othersKept && `${r.othersKept} by other people (never touched)`].filter(Boolean).join(', ');
+        const kept = [r.tooYoung && t('{n} of ours under 2 days old (the daily run waits; the button takes them)', { n: r.tooYoung }), r.othersKept && t('{n} by other people (never touched)', { n: r.othersKept })].filter(Boolean).join(', ');
         $('sweepLine').innerHTML = r.status === 'ok' || r.status === 'stopped'
-          ? `Last run ${new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' })}: ${r.deleted.length} deleted${kept ? ` · kept ${kept}` : ''}${r.failed?.length ? ` — <span class="err">stopped at ${esc(r.failed[0].plate)}</span>` : ''}`
-          : `<span class="err">Not done — ${esc(r.message)}</span>`;
+          ? `${esc(t('Last run {time}: {n} deleted', { time: new Date(r.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }), n: r.deleted.length }))}${kept ? ` · ${esc(t('kept {kept}', { kept }))}` : ''}${r.failed?.length ? ` — <span class="err">${esc(t('stopped at {plate}', { plate: r.failed[0].plate }))}</span>` : ''}`
+          : `<span class="err">${esc(t('Not done — {msg}', { msg: t(r.message) }))}</span>`;
       } catch { /* keep */ }
     }
     $('sweepBtn').addEventListener('click', async () => {
-      if (!confirm('Delete ALL of PortSystem\'s unsubmitted (Ruošiamas) PRK drafts now — today\'s included?\n\nThis also deletes drafts for trucks still waiting for your Pateikti. Drafts already submitted, and drafts made by other people, are never touched.\n\nThis cannot be undone.')) return;
+      if (!confirm(t("Delete ALL of PortSystem's unsubmitted (Ruošiamas) PRK drafts now — today's included?\n\nThis also deletes drafts for trucks still waiting for your Pateikti. Drafts already submitted, and drafts made by other people, are never touched.\n\nThis cannot be undone."))) return;
       $('sweepBtn').disabled = true;
-      $('sweepLine').textContent = 'Reading KIPIS and deleting…';
+      $('sweepLine').textContent = t('Reading KIPIS and deleting…');
       let r = null;
       try { r = await postJson('/prk/cleanup'); } catch (err) { r = { status: 'error', message: err.message }; }
       $('sweepBtn').disabled = false;
       // "busy" / not logged in are not saved as a run — show them here, or it looks like nothing happened.
-      if (r && (r.status === 'busy' || (r.status === 'error' && !r.at))) $('sweepLine').innerHTML = `<span class="err">Not run — ${esc(r.message)}</span>`;
+      if (r && (r.status === 'busy' || (r.status === 'error' && !r.at))) $('sweepLine').innerHTML = `<span class="err">${esc(t('Not run — {msg}', { msg: t(r.message) }))}</span>`;
       else loadCleanup();
       loadPipeline();
     });
@@ -549,8 +552,8 @@
     async function loadLots() {
       try {
         const { attention } = await getJson('/lots/data');
-        const parts = [attention.lots && `${attention.lots} lot${attention.lots === 1 ? '' : 's'} to confirm`, attention.companies && `${attention.companies} compan${attention.companies === 1 ? 'y' : 'ies'} to set`].filter(Boolean);
-        $('lotsAttention').textContent = parts.length ? parts.join(' · ') + ' →' : 'all set →';
+        const parts = [attention.lots && (attention.lots === 1 ? t('1 lot to confirm') : t('{n} lots to confirm', { n: attention.lots })), attention.companies && (attention.companies === 1 ? t('1 company to set') : t('{n} companies to set', { n: attention.companies }))].filter(Boolean);
+        $('lotsAttention').textContent = parts.length ? parts.join(' · ') + ' →' : t('all set →');
         $('lotsLink').classList.toggle('todo', parts.length > 0);
       } catch { /* keep */ }
     }
@@ -568,7 +571,7 @@
     const grossOf = (w, cargo) => Number(w) ? String(Number(w) + Math.round(Number(w) / bagKgOf(cargo))) : '';
     const grossHint = () => {
       const g = grossOf($('modalWeightInput').value, $('modalCargoInput').value);
-      $('modalGrossWeightInput').placeholder = g ? `Empty = ${g} (weight + 1 kg per ${bagKgOf($('modalCargoInput').value)} kg bag)` : '';
+      $('modalGrossWeightInput').placeholder = g ? t('Empty = {g} (weight + 1 kg per {bag} kg bag)', { g, bag: bagKgOf($('modalCargoInput').value) }) : '';
     };
     $('modalWeightInput').addEventListener('input', grossHint);
     $('modalCargoInput').addEventListener('input', grossHint);
@@ -583,7 +586,7 @@
       $('modalPlate').textContent = o.plate;
       $('modalSubject').textContent = o.subject || '';
       $('modalFrom').textContent = '';
-      $('modalBodyText').textContent = 'Loading the email…';
+      $('modalBodyText').textContent = t('Loading the email…');
       $('modalAttachments').innerHTML = '';
       $('modalCargoInput').value = o.cargo || '';
       $('modalWeightInput').value = o.weight || '';
@@ -591,24 +594,24 @@
       $('modalGrossWeightInput').disabled = !!o.bulk;
       grossHint();
       $('modalBulkCheck').checked = !!o.bulk;
-      $('modalStatus').textContent = o.stage?.group === 'failed' && o.note ? `Why it stopped: ${o.note}` : '';
+      $('modalStatus').textContent = o.stage?.group === 'failed' && o.note ? t('Why it stopped: {note}', { note: t(o.note) }) : '';
       $('orderDialog').classList.add('open');
       try {
         const res = await fetch('/order-email?plate=' + encodeURIComponent(o.plate));
-        if (res.status === 404) { $('modalBodyText').textContent = 'The source email is not stored for this truck.'; return; }
+        if (res.status === 404) { $('modalBodyText').textContent = t('The source email is not stored for this truck.'); return; }
         const d = await res.json();
-        if (d.error) { $('modalBodyText').textContent = d.error; return; }
+        if (d.error) { $('modalBodyText').textContent = t(d.error); return; }
         $('modalSubject').textContent = d.subject || o.subject || '';
         $('modalFrom').textContent = d.from || '';
-        $('modalBodyText').textContent = (d.body || '').trim() || '(empty email)';
+        $('modalBodyText').textContent = (d.body || '').trim() || t('(empty email)');
         $('modalAttachments').innerHTML = (d.attachments || []).map(a =>
-          `<a class="btn small" target="_blank" rel="noopener" href="/download-attachment?messageId=${encodeURIComponent(d.messageId)}&attachmentId=${encodeURIComponent(a.attachmentId)}&filename=${encodeURIComponent(a.filename || 'attachment')}">${esc(a.filename || 'attachment')}</a>`).join('');
-      } catch (err) { $('modalBodyText').textContent = `Network error: ${err.message}`; }
+          `<a class="btn small" target="_blank" rel="noopener" href="/download-attachment?messageId=${encodeURIComponent(d.messageId)}&attachmentId=${encodeURIComponent(a.attachmentId)}&filename=${encodeURIComponent(a.filename || 'attachment')}">${esc(a.filename || t('attachment'))}</a>`).join('');
+      } catch (err) { $('modalBodyText').textContent = t('Network error: {msg}', { msg: err.message }); }
     }
     $('modalSaveBtn').addEventListener('click', async () => {
       if (!currentOrder) return;
       $('modalSaveBtn').disabled = true;
-      $('modalStatus').textContent = 'Saving…';
+      $('modalStatus').textContent = t('Saving…');
       try {
         const d = await postJson('/set-cargo', {
           id: currentOrder.id, plate: currentOrder.plate,
@@ -618,10 +621,10 @@
           bulk: $('modalBulkCheck').checked,
         });
         if (d.status === 'ok') {
-          $('modalStatus').innerHTML = `<span class="ok">Saved${[d.cargo, d.vessel].filter(Boolean).length ? ': ' + esc([d.cargo, d.vessel].filter(Boolean).join(' · ')) : ''}.${d.requeued ? ' Filing it again now.' : ''}</span>`;
+          $('modalStatus').innerHTML = `<span class="ok">${t('Saved')}${[d.cargo, d.vessel].filter(Boolean).length ? ': ' + esc([d.cargo, d.vessel].filter(Boolean).join(' · ')) : ''}.${d.requeued ? t(' Filing it again now.') : ''}</span>`;
           loadPipeline(); setTimeout(closeOrder, 1000);
-        } else $('modalStatus').innerHTML = `<span class="err">${esc(d.error || 'Not saved — order not found.')}</span>`;
-      } catch (err) { $('modalStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
+        } else $('modalStatus').innerHTML = `<span class="err">${esc(t(d.error || 'Not saved — order not found.'))}</span>`;
+      } catch (err) { $('modalStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
       finally { $('modalSaveBtn').disabled = false; }
     });
 
@@ -639,9 +642,9 @@
     let dispatchSeq = 0;
     function dispatchWarnings(r) {
       const warns = [];
-      if (r.sent) warns.push(`Already sent from here at ${hhmm(r.sent.at)}.`);
-      if (r.sentByHand) warns.push('An email for this truck already went to the terminal today — check before sending again.');
-      if (r.missing?.length) warns.push(`Missing: ${r.missing.join(', ')} — add it to the text.`);
+      if (r.sent) warns.push(t('Already sent from here at {time}.', { time: hhmm(r.sent.at) }));
+      if (r.sentByHand) warns.push(t('An email for this truck already went to the terminal today — check before sending again.'));
+      if (r.missing?.length) warns.push(t('Missing: {list} — add it to the text.', { list: r.missing.join(', ') }));
       $('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${esc(w)}</div>`).join('');
     }
     function showDispatchPdf(r) {
@@ -649,7 +652,7 @@
         $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
         $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
       } else {
-        $('dispatchPdf').textContent = r.bulk ? 'None — the PRK follows the loaded weight' : 'Getting the PRK PDF from KIPIS…';
+        $('dispatchPdf').textContent = r.bulk ? t('None — the PRK follows the loaded weight') : t('Getting the PRK PDF from KIPIS…');
         $('dispatchPdf').removeAttribute('href');
       }
     }
@@ -659,17 +662,17 @@
       const seq = ++dispatchSeq;
       dispatchCurrent = null;
       $('dispatchModal').classList.add('open');
-      $('dispatchTitle').textContent = 'Dispatch email';
+      $('dispatchTitle').textContent = t('Dispatch email');
       $('dispatchWarn').innerHTML = '';
-      $('dispatchStatus').textContent = 'Writing the email…';
+      $('dispatchStatus').textContent = t('Writing the email…');
       $('dispatchSend').disabled = true;
       ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { $(x).textContent = ''; });
       $('dispatchSubject').value = ''; $('dispatchText').value = '';
       try {
         const q = await getJson('/dispatch/preview?quick=1&id=' + encodeURIComponent(id));
         if (seq !== dispatchSeq) return;
-        if (q.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(q.message || q.error)}</span>`; return; }
-        $('dispatchTitle').innerHTML = `${q.bulk ? 'Loading order' : 'Dispatch email'} · <span class="mono">${esc(q.plate)}</span>`;
+        if (q.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(t(q.message || q.error))}</span>`; return; }
+        $('dispatchTitle').innerHTML = `${q.bulk ? t('Loading order') : t('Dispatch email')} · <span class="mono">${esc(q.plate)}</span>`;
         $('dispatchTerminal').value = q.terminal;
         $('dispatchSubject').value = q.subject;
         $('dispatchText').value = q.text;
@@ -677,31 +680,31 @@
         showRecipients();
         showDispatchPdf(q);
         dispatchWarnings(q);
-        $('dispatchStatus').innerHTML = `<span class="muted">${q.bulk ? 'Checking whether this truck was already emailed today…' : 'Getting the PRK PDF from KIPIS and checking the inbox — Send turns on in a few seconds. You can read and edit the text meanwhile.'}</span>`;
+        $('dispatchStatus').innerHTML = `<span class="muted">${q.bulk ? t('Checking whether this truck was already emailed today…') : t('Getting the PRK PDF from KIPIS and checking the inbox — Send turns on in a few seconds. You can read and edit the text meanwhile.')}</span>`;
 
         const r = await getJson('/dispatch/preview?id=' + encodeURIComponent(id));
         if (seq !== dispatchSeq) return;
-        if (r.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(r.message || r.error)}</span>`; return; }
+        if (r.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(t(r.message || r.error))}</span>`; return; }
         dispatchCurrent = r;
         showDispatchPdf(r);
         dispatchWarnings(r);
         $('dispatchStatus').textContent = '';
         $('dispatchSend').disabled = !!r.sent;
-      } catch (err) { if (seq === dispatchSeq) $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
+      } catch (err) { if (seq === dispatchSeq) $('dispatchStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
     }
     $('dispatchSend').addEventListener('click', async () => {
       const r = dispatchCurrent;
       if (!r) return;
-      if (r.sentByHand && !confirm('This truck was already emailed to the terminal today. Send again?')) return;
+      if (r.sentByHand && !confirm(t('This truck was already emailed to the terminal today. Send again?'))) return;
       $('dispatchSend').disabled = true;
-      $('dispatchStatus').textContent = 'Sending…';
+      $('dispatchStatus').textContent = t('Sending…');
       try {
         const s = await postJson('/dispatch/send', { id: r.id, date: r.date, terminal: $('dispatchTerminal').value, subject: $('dispatchSubject').value, text: $('dispatchText').value });
-        if (s.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(s.message || s.error)}</span>`; $('dispatchSend').disabled = false; return; }
+        if (s.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(t(s.message || s.error))}</span>`; $('dispatchSend').disabled = false; return; }
         $('dispatchModal').classList.remove('open');
-        toast('ok', `Email sent to ${s.sentTo.join(', ')}.`);
+        toast('ok', t('Email sent to {list}.', { list: s.sentTo.join(', ') }));
         loadPipeline();
-      } catch (err) { $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; $('dispatchSend').disabled = false; }
+      } catch (err) { $('dispatchStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; $('dispatchSend').disabled = false; }
     });
 
     document.addEventListener('keydown', e => {
