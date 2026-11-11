@@ -112,7 +112,7 @@ function releaseBuyer(release) {
 // Print: draw the PDF, write the register line, and remember what the operator confirmed.
 async function issue({ order, key, releaseId, terminal, cmr, remember = true }) {
   const pdf = await buildCmr(cmr);
-  const entry = { at: new Date().toISOString(), number: cmr.number, orderId: order.id, plate: order.plate, releaseId: releaseId || null, consignee: cmr.consignee[0], delivery: cmr.delivery.place, goods: cmr.goods.map(g => g.text).join(' / '), grossKg: cmr.grossKg, cmr };
+  const entry = { at: new Date().toISOString(), number: cmr.number, orderId: order.id, plate: order.plate, terminal: terminal || null, bulk: !!order.bulk, releaseId: releaseId || null, consignee: cmr.consignee[0], delivery: cmr.delivery.place, goods: cmr.goods.map(g => g.text).join(' / '), grossKg: cmr.grossKg, cmr };
   fs.appendFileSync(REGISTER_PATH, JSON.stringify(entry) + '\n');
   if (remember) {
     const c = loadConfig();
@@ -136,4 +136,23 @@ async function reprint(number) {
   return e ? buildCmr(e.cmr) : null;
 }
 
-module.exports = { draftFor, issue, reprint, register, deliveryFromText, hsCodeFor };
+// The CMRs printed for one order, newest first.
+const forOrder = orderId => register().filter(r => r.orderId === orderId).reverse();
+
+// How many paper copies (owner, 2026-11-11): CMR — Ro-Ro 5, KKT 1 (our archive; KKT gets it by
+// email); PRK — 1 for our archive, 2 for bulk (one goes to the driver).
+const copiesOf = ({ terminal, bulk }) => ({ cmr: terminal === 'kkt' ? 1 : 5, prk: bulk ? 2 : 1 });
+
+// One PDF to print in one go: the CMR × its copies, then the PRK × its copies.
+async function printPack(parts) {
+  const { PDFDocument } = require('pdf-lib');
+  const out = await PDFDocument.create();
+  for (const { buffer, copies } of parts) {
+    if (!buffer || !copies) continue;
+    const src = await PDFDocument.load(buffer);
+    for (let i = 0; i < copies; i++) for (const p of await out.copyPages(src, src.getPageIndices())) out.addPage(p);
+  }
+  return Buffer.from(await out.save());
+}
+
+module.exports = { draftFor, issue, reprint, register, forOrder, copiesOf, printPack, deliveryFromText, hsCodeFor };

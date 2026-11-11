@@ -154,7 +154,8 @@ function withSignature(text) {
 
 // RFC 5322 message, UTF-8 throughout, base64 bodies. With `html`: text/plain and text/html as
 // alternatives, the `inline` images (logo) next to them, then the PDF when given.
-function buildMime({ from, to, cc, subject, text, html, inline = [], attachment }) {
+function buildMime({ from, to, cc, subject, text, html, inline = [], attachment, attachments }) {
+  const files = [...(attachment ? [attachment] : []), ...(attachments || [])].filter(Boolean);
   const b64lines = buf => buf.toString('base64').replace(/.{1,76}/g, '$&\r\n').trimEnd();
   const enc = s => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
   const boundary = `----=_PortSystem_${crypto.randomBytes(12).toString('hex')}`;
@@ -184,7 +185,7 @@ function buildMime({ from, to, cc, subject, text, html, inline = [], attachment 
   }
   const parts = [
     [`--${boundary}`, body].join('\r\n'),
-    ...(attachment ? [[`--${boundary}`, `Content-Type: application/pdf; name="${attachment.filename}"`, `Content-Disposition: attachment; filename="${attachment.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(attachment.buffer)].join('\r\n')] : []),
+    ...files.map(a => [`--${boundary}`, `Content-Type: application/pdf; name="${a.filename}"`, `Content-Disposition: attachment; filename="${a.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(a.buffer)].join('\r\n')),
   ];
   return Buffer.from([...headers, '', ...parts, `--${boundary}--`, ''].join('\r\n'), 'utf8');
 }

@@ -687,6 +687,31 @@ Send and the KIPIS MFA code.
   MOB272 (own cargo) picks its delivery place from the važtaraštis; MML743 (Helm) opens with
   sender / place of delivery / customs code flagged empty — Helm's sender has to be typed once.
   A truck with two releases (KPG386) needs one CMR per release: pick the release, edit the goods.
+- [x] **S29. Print pack, CMR to KKT by email, truck log — built 2026-11-11 (owner's request).**
+  Owner's rules: CMR — Ro-Ro **5 paper copies**, KKT **1** (our archive) and KKT also gets it **by
+  email**; PRK — **1** copy for our archive, **2** for bulk (one goes to the driver); print the CMR
+  "immediately, along with the PRK".
+  - *Print pack*: **Print CMR** now opens one PDF: CMR × 5 or × 1, then the PRK × 1 or × 2
+    (`cmr.copiesOf`, `cmr.printPack`, server `sendPack`). The PRK comes from memory or from KIPIS
+    (read-only "Spausdinti", `prkPdfFor`); not submitted yet / KIPIS busy → the pack has the CMR
+    only and the message says why. The truck window lists its CMRs and has **Print pack** (its
+    latest CMR + PRK) — also for yesterday's and older trucks, from the log.
+  - *KKT email*: when the dispatch email goes to KKT and the truck has a CMR, the latest one is a
+    second attachment (`buildMime` takes several); the send window shows "CMR … goes to KKT too"
+    or warns that there is none (Send is not blocked — a truck with a važtaraštis needs none).
+    Ro-Ro emails never carry it. The dispatch log records the CMR number.
+  - *Truck log*: `/log.html` (menu "Truck log" / "Žurnalas"): every order of any date range up to
+    a year — plates, company, cargo, net, vessel, PRK + status, when and where the email went,
+    CMRs, state — searchable, a click shows its history with Print pack and its CMRs, "Download for
+    Excel" (CSV). Read straight from `data/orders_state_<date>.json` (`GET /log`).
+  - *Keeping a year*: nothing in PortSystem deletes those day files (oldest order file 2026-07-29,
+    oldest data 2026-04-07). Size measured 2026-11-11: all data 3.9 MB, a busy day 100–260 KB, so
+    roughly 50–100 MB a year; 166 GB free on C:. **Do not add a cleanup that deletes day files
+    younger than a year.** Risk not covered: everything is on this one PC's disk — no backup.
+  - Menu links have short Lithuanian names (Partijos, CMR, Žurnalas) so the bar fits at 1366 px.
+  Checked: log 2 days = 89 trucks (0.1 s), a year = 440 (0.05 s), > 1 year refused; Ro-Ro pack for
+  LNV103 = CMR × 5 + PRK × 1 (7 pages, PRK from KIPIS in 8 s); a KKT email built (not sent) carries
+  PRK + CMR; the TEST CMR was removed from the register afterwards.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

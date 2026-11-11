@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Truck log · PortSystem</title>
+  <link rel="stylesheet" href="/ui.css" />
+  <script src="/i18n.js"></script>
+  <style>
+    .log-main { max-width: 1320px; margin: 0 auto; padding: 18px 20px 60px; }
+    .log-main > section { padding: 16px 18px; }
+    .log-main h2 { font: 700 22px var(--display); margin-bottom: 2px; }
+    .hint { font-size: 13px; color: var(--steel); }
+    .controls { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px; }
+    .controls label { display: block; font-size: 12px; font-weight: 600; color: var(--steel); margin-bottom: 3px; }
+    .controls input { width: auto; }
+    .controls #q { width: 280px; }
+    .quick { display: flex; gap: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 12px; }
+    td, th { padding: 7px 6px; border-top: 1px solid var(--hair-2); text-align: left; vertical-align: top; }
+    th { font-weight: 600; color: var(--steel); font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; border-top: 0; white-space: nowrap; }
+    td.mono { font-family: var(--mono); white-space: nowrap; }
+    td.num { text-align: right; white-space: nowrap; }
+    tr.row { cursor: pointer; }
+    tr.row:hover td { background: var(--hair-2); }
+    tr.detail td { background: var(--fog); padding: 10px 14px; }
+    .hist { display: grid; grid-template-columns: 120px 80px 1fr; gap: 2px 12px; font-size: 12.5px; }
+    .hist .t { font-family: var(--mono); color: var(--steel); }
+    .state { font-size: 12px; font-weight: 600; }
+    .state.done { color: var(--green); } .state.cancelled { color: var(--steel); } .state.failed { color: var(--red); }
+    .summary { margin-top: 10px; font-size: 13px; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  </style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Truck desk <small>BPA · PortSystem</small></div>
+  <nav><a href="/">Trucks</a><a href="/lots.html" data-i18n="nav.lots">Lots &amp; owners</a><a href="/cmr.html" data-i18n="nav.cmr">CMR register</a><a href="/log.html" class="on" data-i18n="nav.log">Truck log</a></nav>
+  <div class="spacer"></div>
+</header>
+<main class="log-main">
+  <section class="card">
+    <h2>Truck log</h2>
+    <p class="hint">Every truck PortSystem handled, with its PRK, email, CMRs and history. Kept for at least a year; up to a year at a time.</p>
+    <div class="controls">
+      <div><label for="from">From</label><input id="from" type="date" /></div>
+      <div><label for="to">To</label><input id="to" type="date" /></div>
+      <div class="quick">
+        <button class="btn small" data-days="0">Today</button>
+        <button class="btn small" data-days="1">Yesterday</button>
+        <button class="btn small" data-days="7">7 days</button>
+        <button class="btn small" data-days="31">Month</button>
+        <button class="btn small" data-days="365">Year</button>
+      </div>
+      <div><label for="q">Find</label><input id="q" type="search" placeholder="Plate, company, cargo, PRK, CMR" autocomplete="off" /></div>
+      <button class="btn" id="csvBtn">Download for Excel</button>
+    </div>
+    <div class="summary" id="summary"></div>
+    <table>
+      <thead><tr><th>Date</th><th>Plates</th><th>Company</th><th>Cargo</th><th class="num">Net, kg</th><th>Vessel</th><th>PRK</th><th>Email</th><th>CMR</th><th>State</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="10" class="hint">Loading…</td></tr></tbody>
+    </table>
+  </section>
+</main>
+<script>
+  I18N.translatePage();
+  const t = I18N.t;
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const day = n => { const d = new Date(); d.setDate(d.getDate() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  const hm = iso => iso ? new Date(iso).toLocaleString('lt-LT', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+  const STATE = { done: 'Done', cancelled: 'Cancelled', failed: 'Not filed', drafted: 'Draft — waiting for Pateikti', submitted: 'Submitted — email to send', ready: 'Ready to file', received: 'New order', filing: 'Filing', gate_pass_ordered: 'Loading ordered', needs_human: 'Sender to confirm' };
+  let rows = [], open = null;
+
+  function shown() {
+    const q = $('q').value.trim().toLowerCase().replace(/[\s/]+/g, '');
+    return rows.filter(r => !q || [r.plate, r.company, r.cargo, r.prk, r.vessel, r.cmrs.join(' '), r.subject].join(' ').toLowerCase().replace(/[\s/]+/g, '').includes(q));
+  }
+  function render() {
+    const list = shown();
+    const n = s => list.filter(r => r.state === s).length;
+    $('summary').textContent = t('{n} trucks · {done} done · {cancelled} cancelled · {open} open', { n: list.length, done: n('done'), cancelled: n('cancelled'), open: list.length - n('done') - n('cancelled') });
+    $('rows').innerHTML = list.length ? list.map(r => `
+      <tr class="row" data-id="${esc(r.id)}">
+        <td class="mono">${esc(r.date.slice(5))}</td><td class="mono">${esc(r.plate)}</td><td>${esc(r.company)}</td>
+        <td>${r.bulk ? '<span class="chip bulk">BULK</span>' : ''}${esc(r.cargo)}</td><td class="num">${esc(r.weight)}</td><td>${esc(r.vessel)}</td>
+        <td class="mono">${esc(r.prk)}${r.prkStatus ? `<div class="hint">${esc(r.prkStatus)}</div>` : ''}</td>
+        <td>${r.emailAt ? `${esc(hm(r.emailAt))} <span class="hint">${esc(r.emailTo === 'kkt' ? 'KKT' : 'Ro-Ro')}</span>` : ''}</td>
+        <td class="mono">${esc(r.cmrs.join(', '))}</td>
+        <td><span class="state ${esc(r.state)}">${esc(t(STATE[r.state] || r.state))}</span></td>
+      </tr>${open === r.id ? detail(r) : ''}`).join('')
+      : `<tr><td colspan="10" class="hint">${t('No trucks in these days.')}</td></tr>`;
+  }
+  function detail(r) {
+    return `<tr class="detail"><td colspan="10">
+      <div class="hint">${esc(r.subject)}</div>
+      <div class="hist" style="margin-top:6px">${r.history.map(h => `<span class="t">${esc(hm(h.at))}</span><span class="hint">${esc(h.actor)}</span><span>${esc(h.detail)}</span>`).join('')}</div>
+      <div class="actions">
+        <a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(r.id)}">${t('Print pack')}</a>
+        ${r.cmrs.map(c => `<a class="btn small" target="_blank" rel="noopener" href="/cmr/pdf?number=${encodeURIComponent(c)}">CMR ${esc(c)}</a>`).join('')}
+      </div></td></tr>`;
+  }
+  async function load() {
+    $('rows').innerHTML = `<tr><td colspan="10" class="hint">${t('Loading…')}</td></tr>`;
+    const r = await (await fetch('/log?' + new URLSearchParams({ from: $('from').value, to: $('to').value }))).json();
+    if (r.error) { $('rows').innerHTML = `<tr><td colspan="10" class="err">${esc(t(r.error))}</td></tr>`; return; }
+    rows = r.rows; open = null; render();
+  }
+  function csv() {
+    const head = ['Date', 'Plates', 'Company', 'Cargo', 'Bulk', 'Net kg', 'Gross kg', 'Vessel', 'Lot', 'PRK', 'PRK status', 'Email sent', 'Email to', 'CMR', 'State', 'Order email'];
+    const body = shown().map(r => [r.date, r.plate, r.company, r.cargo, r.bulk ? 'yes' : '', r.weight, r.grossWeight, r.vessel, r.lot, r.prk, r.prkStatus, hm(r.emailAt), r.emailTo, r.cmrs.join(' '), r.state, r.subject]);
+    const cell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const text = '﻿' + [head, ...body].map(l => l.map(cell).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    a.download = `truck-log_${$('from').value}_${$('to').value}.csv`;
+    a.click();
+  }
+  $('rows').addEventListener('click', e => {
+    if (e.target.closest('a')) return;
+    const tr = e.target.closest('tr.row');
+    if (tr) { open = open === tr.dataset.id ? null : tr.dataset.id; render(); }
+  });
+  document.querySelectorAll('[data-days]').forEach(b => b.addEventListener('click', () => {
+    const n = Number(b.dataset.days);
+    $('from').value = day(n); $('to').value = n === 1 ? day(1) : day(0);
+    load();
+  }));
+  $('from').addEventListener('change', load);
+  $('to').addEventListener('change', load);
+  $('q').addEventListener('input', render);
+  $('csvBtn').addEventListener('click', csv);
+  $('from').value = day(1); $('to').value = day(0);
+  load();
+</script>
+</body>
+</html>

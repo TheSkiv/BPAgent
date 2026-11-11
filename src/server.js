@@ -545,6 +545,41 @@ async function bulkVessel(order) {
   return { company, vessel: src.stop ? '' : (src.vessels || [])[0] || '', vessels: src.vessels || [], why: src.stop || '' };
 }
 
+// The order's submitted PRK as a PDF, for the print pack: from memory (fetched for the dispatch
+// email) or from KIPIS (read-only, "Spausdinti"). { buffer } or { why } when it cannot be had now.
+async function prkPdfFor(order) {
+  const number = order.docs?.PRK?.number;
+  if (!number) return { why: 'no PRK yet' };
+  const cached = dispatchPdfs.get(order.id);
+  if (cached && cached.number === number) return { buffer: cached.buffer };
+  if (isRunning) return { why: 'KIPIS is busy with another job' };
+  const notReady = await kipisNotReady();
+  if (notReady) return { why: 'KIPIS is not open or logged out' };
+  isRunning = true;
+  try {
+    const page = getPage();
+    const pdf = await withAutomation(page, () => prkPdf.fetchPrkPdf(page, number));
+    dispatchPdfs.set(order.id, { number, filename: pdf.filename, buffer: pdf.buffer });
+    return { buffer: pdf.buffer };
+  } catch (err) {
+    return { why: `the PRK ${number} is not submitted yet (${err.message})` };
+  } finally {
+    isRunning = false;
+  }
+}
+
+// CMR × (Ro-Ro 5 / KKT 1) then PRK × (1, bulk 2), as one PDF. X-Pack-Note says what is in it.
+async function sendPack(res, order, cmrPdf, terminal) {
+  const copies = cmr.copiesOf({ terminal, bulk: order.bulk });
+  const prk = await prkPdfFor(order);
+  if (!cmrPdf && !prk.buffer) return res.status(404).type('text/plain').send(`Nothing to print yet for ${order.plate}: no CMR, and no PRK (${prk.why}).`);
+  const pack = await cmr.printPack([{ buffer: cmrPdf, copies: copies.cmr }, { buffer: prk.buffer, copies: copies.prk }]);
+  const note = [cmrPdf && `CMR × ${copies.cmr}`, prk.buffer ? `PRK × ${copies.prk}` : `no PRK (${prk.why})`].filter(Boolean).join(', ');
+  res.setHeader('X-Pack-Note', encodeURIComponent(note));
+  res.setHeader('Content-Disposition', `inline; filename="${order.plate.replace(/[^\w-]/g, '_')}.pdf"`);
+  res.type('application/pdf').send(pack);
+}
+
 app.get('/dispatch/preview', async (req, res) => {
   const { id, date } = req.query;
   // quick=1 returns the text at once, without the KIPIS PDF fetch and the inbox check (seconds),
@@ -566,6 +601,7 @@ app.get('/dispatch/preview', async (req, res) => {
         terminal: mail.terminal, recipients: BULK_DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
         subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
         pdf: null, sentByHand, sent: order.dispatchSent || null, signature: dispatchEmail.signatureHtml('/bpa-logo.png'),
+        cmr: cmr.forOrder(order.id)[0]?.number || null,
       });
     } catch (err) {
       return res.json({ status: 'error', message: err.message });
@@ -599,6 +635,7 @@ app.get('/dispatch/preview', async (req, res) => {
       subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
       pdf: pdf && { filename: pdf.filename, bytes: pdf.buffer.length },
       sentByHand, sent: order.dispatchSent || null, signature: dispatchEmail.signatureHtml('/bpa-logo.png'),
+      cmr: cmr.forOrder(order.id)[0]?.number || null,
     });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
@@ -627,15 +664,19 @@ app.post('/dispatch/send', async (req, res) => {
   const pdf = order.bulk ? null : dispatchPdfs.get(order.id);
   if (!order.bulk && (!pdf || pdf.number !== order.docs.PRK.number)) return res.json({ status: 'error', message: 'Open the email preview again — the PRK PDF is not loaded.' });
 
+  // KKT gets the truck's CMR too (owner, 2026-11-11); Ro-Ro never — its 5 copies go on paper.
+  const lastCmr = terminal === 'kkt' ? cmr.forOrder(order.id)[0] : null;
+  const cmrFile = lastCmr ? { filename: `CMR ${lastCmr.number.replace(/[^\w-]/g, '_')}.pdf`, buffer: await cmr.reprint(lastCmr.number) } : null;
+
   const from = process.env.IMAP_USER;
   const to = table[terminal];
   const raw = dispatchEmail.buildMime({
     from, to, cc: DISPATCH_CC, subject: String(subject).trim(),
-    ...dispatchEmail.withSignature(text), attachment: pdf,
+    ...dispatchEmail.withSignature(text), attachments: [pdf, cmrFile],
   });
   try {
     const reply = await smtpSend.sendRaw(raw, { from, recipients: [...to, ...DISPATCH_CC] });
-    const record = { at: new Date().toISOString(), terminal, to, prk: pdf ? pdf.number : null, bulk: !!order.bulk, subject: String(subject).trim() };
+    const record = { at: new Date().toISOString(), terminal, to, prk: pdf ? pdf.number : null, cmr: lastCmr ? lastCmr.number : null, bulk: !!order.bulk, subject: String(subject).trim() };
     orderStore.setDispatchSent(order.id, record, { date: date || undefined });
     // A bulk truck is now ordered: the terminal loads it and reports the weight for the PRK.
     if (order.bulk && !orderStore.CLOSED_STATES.includes(order.state)) {
@@ -1351,13 +1392,59 @@ app.post('/cmr/print', async (req, res) => {
   if (!data.number) return res.status(400).json({ error: 'The CMR needs a number' });
   if (cmr.register().some(r => r.number === data.number)) return res.status(400).json({ error: `CMR ${data.number} was already printed — use another number or print it again from the register` });
   try {
-    const { pdf } = await cmr.issue({ order, key: str(key), releaseId: releaseId ? str(releaseId) : null, terminal: ['kkt', 'roro'].includes(terminal) ? terminal : null, cmr: data, remember: remember !== false });
+    const term = ['kkt', 'roro'].includes(terminal) ? terminal : null;
+    const { pdf } = await cmr.issue({ order, key: str(key), releaseId: releaseId ? str(releaseId) : null, terminal: term, cmr: data, remember: remember !== false });
     console.log(`CMR ${data.number} printed for ${order.plate}`);
-    res.setHeader('Content-Disposition', `inline; filename="CMR ${data.number.replace(/[^\w-]/g, '_')}.pdf"`);
-    res.type('application/pdf').send(pdf);
+    await sendPack(res, order, pdf, term);
   } catch (err) {
     res.status(500).json({ error: `CMR not made: ${err.message}` });
   }
+});
+
+// The truck log (owner, 2026-11-11: "the whole log of trucks we are doing", kept for a year): every
+// order in the day files between two dates, with its PRK, dispatch email, CMRs and history. Read
+// straight from data/orders_state_<date>.json — nothing is copied; those files are never deleted.
+app.get('/log', (req, res) => {
+  const day = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? String(s) : null;
+  const to = day(req.query.to) || todayString();
+  const from = day(req.query.from) || to;
+  if (from > to) return res.status(400).json({ error: 'from is after to' });
+  if ((new Date(to) - new Date(from)) / 86400000 > 366) return res.status(400).json({ error: 'At most one year at a time' });
+  const cmrsBy = new Map();
+  for (const r of cmr.register()) cmrsBy.set(r.orderId, [...(cmrsBy.get(r.orderId) || []), r.number]);
+  const dataDir = path.join(__dirname, '../data');
+  const days = require('fs').readdirSync(dataDir).map(f => (f.match(/^orders_state_(\d{4}-\d{2}-\d{2})\.json$/) || [])[1]).filter(d => d && d >= from && d <= to).sort().reverse();
+  const rows = [];
+  for (const d of days) {
+    for (const o of orderStore.listOrders(d)) {
+      if (o.state === 'needs_human' && !o.docs?.PRK) continue;
+      rows.push({
+        date: d, id: o.id, plate: o.plate, company: senderCompanies.deriveCompany(o.email?.from || ''),
+        cargo: o.cargo || '', weight: o.weight || '', grossWeight: o.grossWeight || '', bulk: !!o.bulk, state: o.state,
+        vessel: o.loadsFrom?.vessel || '', lot: o.loadsFrom?.lot || '',
+        prk: o.docs?.PRK?.number || '', prkStatus: o.docs?.PRK?.status || '',
+        emailAt: o.dispatchSent?.at || '', emailTo: o.dispatchSent?.terminal || '',
+        cmrs: cmrsBy.get(o.id) || [], subject: o.email?.subject || '', created: o.createdAt, updated: o.updatedAt,
+        history: (o.history || []).map(h => ({ at: h.at, actor: h.actor, detail: h.detail || h.action })),
+      });
+    }
+  }
+  res.json({ from, to, rows });
+});
+
+// The truck's print pack again (its latest CMR, if any, and its PRK).
+app.get('/order/print-pack', async (req, res) => {
+  const order = req.query.id && orderStore.getOrder(String(req.query.id));
+  if (!order) return res.status(404).send('Order not found');
+  const last = cmr.forOrder(order.id)[0];
+  const cmrPdf = last ? await cmr.reprint(last.number) : null;
+  const terminal = last?.terminal || require('./core/terminals').terminalFor({ vessel: order.loadsFrom?.vessel || '', cargo: order.cargo });
+  try { await sendPack(res, order, cmrPdf, terminal); } catch (err) { res.status(500).send(`Could not make the print pack: ${err.message}`); }
+});
+
+// The CMRs printed for one truck (its window lists them).
+app.get('/order/cmrs', (req, res) => {
+  res.json({ cmrs: cmr.forOrder(String(req.query.id || '')).map(({ cmr: c, ...r }) => r) });
 });
 
 app.get('/cmr/register', (req, res) => {

@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <div class="brand">Truck desk <small>BPA · PortSystem</small></div>
-    <nav><a href="/" class="on">Trucks</a><a href="/lots.html">Lots &amp; owners</a><a href="/cmr.html">CMR register</a></nav>
+    <nav><a href="/" class="on">Trucks</a><a href="/lots.html" data-i18n="nav.lots">Lots &amp; owners</a><a href="/cmr.html" data-i18n="nav.cmr">CMR register</a><a href="/log.html" data-i18n="nav.log">Truck log</a></nav>
     <label class="search" aria-label="Find a truck">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <input id="search" type="search" placeholder="Find a truck — plate, company, cargo, PRK" autocomplete="off" />
@@ -83,6 +83,7 @@
       <div class="mailbody" id="modalBodyText"></div>
       <div id="modalAttachments" style="display:flex;gap:8px;flex-wrap:wrap"></div>
       <div id="modalRelease" class="release-box" style="display:none"></div>
+      <div id="modalCmrs" class="release-box"></div>
       <div class="grid2">
         <div><label for="modalCargoInput">Cargo</label><input id="modalCargoInput" /></div>
         <div><label for="modalWeightInput">Weight, kg</label><input id="modalWeightInput" inputmode="numeric" /></div>
@@ -136,7 +137,7 @@
       <div id="dispatchWarn"></div>
       <div class="grid2">
         <div><label for="dispatchTerminal">Terminal</label><select id="dispatchTerminal"><option value="roro">RoRo</option><option value="kkt">KKT</option></select></div>
-        <div><label>Attachment</label><a id="dispatchPdf" target="_blank" rel="noopener"></a></div>
+        <div><label>Attachment</label><a id="dispatchPdf" target="_blank" rel="noopener"></a><div id="dispatchCmr" style="font-size:13px;margin-top:3px"></div></div>
       </div>
       <div><label>To</label><div class="addr" id="dispatchTo"></div></div>
       <div><label>Cc</label><div class="addr" id="dispatchCc"></div></div>
@@ -657,6 +658,7 @@
       $('modalBodyText').textContent = t('Loading the email…');
       $('modalAttachments').innerHTML = '';
       $('modalRelease').style.display = 'none'; $('modalRelease').innerHTML = '';
+      loadOrderCmrs(o);
       $('modalCargoInput').value = o.cargo || '';
       $('modalWeightInput').value = o.weight || '';
       $('modalGrossWeightInput').value = o.grossWeight || '';
@@ -730,6 +732,21 @@
       finally { $('modalSaveBtn').disabled = false; }
     });
 
+    // The truck's printed CMRs, each openable again, and the print pack (CMR + PRK copies).
+    async function loadOrderCmrs(o) {
+      const box = $('modalCmrs');
+      box.innerHTML = '';
+      try {
+        const { cmrs } = await getJson('/order/cmrs?id=' + encodeURIComponent(o.id));
+        if (currentOrder !== o) return;
+        const pack = `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}" title="${esc(t('CMR: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print pack')}</a>`;
+        box.innerHTML = `<label>CMR</label><div class="release-row">`
+          + (cmrs.length ? cmrs.map(c => `<a class="btn small" target="_blank" rel="noopener" href="/cmr/pdf?number=${encodeURIComponent(c.number)}">${esc(c.number)}</a><span class="muted">${esc(new Date(c.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }))}</span>`).join('')
+            : `<span class="muted">${t('No CMR yet')}</span>`)
+          + pack + `</div>`;
+      } catch { /* the list is a convenience; the register page has them all */ }
+    }
+
     // ── The CMR: pre-filled by the server, checked here, printed ─────────
     let cmrDraft = null;
     const linesOf = id => $(id).value.split('\n').map(s => s.trim());
@@ -794,10 +811,12 @@
         const res = await fetch('/cmr/print', { method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: d.orderId, key: d.key, releaseId: $('cmrReleaseWrap').style.display === 'none' ? d.releaseId : $('cmrRelease').value, terminal: d.terminal, remember: $('cmrRemember').checked, cmr }) });
         if (!res.ok) { const e = await res.json().catch(() => ({})); if (tab) tab.close(); $('cmrStatus').innerHTML = `<span class="err">${esc(t(e.error || 'CMR not made.'))}</span>`; $('cmrPrint').disabled = false; return; }
+        const note = decodeURIComponent(res.headers.get('X-Pack-Note') || '');
         const url = URL.createObjectURL(await res.blob());
         if (tab) tab.location = url; else window.open(url, '_blank');
-        toast('ok', t('CMR {number} is open in a new tab — print it from there. It is in the CMR register.', { number: cmr.number }));
+        toast('ok', t('CMR {number} is open in a new tab, ready to print: {pack}. It is in the CMR register.', { number: cmr.number, pack: note }), true);
         closeCmr();
+        if (currentOrder && currentOrder.id === d.orderId) loadOrderCmrs(currentOrder);
       } catch (err) { if (tab) tab.close(); $('cmrStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; $('cmrPrint').disabled = false; }
     });
 
@@ -805,6 +824,12 @@
     let dispatchCurrent = null;
     function showRecipients() {
       if (!dispatchCurrent) return;
+      // KKT gets the CMR as a second attachment; Ro-Ro never (its copies go on paper).
+      const kkt = $('dispatchTerminal').value === 'kkt';
+      const c = dispatchCurrent.cmr;
+      $('dispatchCmr').innerHTML = !kkt ? ''
+        : c ? `<a target="_blank" rel="noopener" href="/cmr/pdf?number=${encodeURIComponent(c)}">CMR ${esc(c)}</a> <span class="muted">${esc(t('goes to KKT too'))}</span>`
+        : `<span class="warn" style="background:none;padding:0">${esc(t('No CMR for this truck — make one in its window first, unless it has a važtaraštis.'))}</span>`;
       $('dispatchTo').textContent = dispatchCurrent.recipients[$('dispatchTerminal').value].join(', ');
       $('dispatchCc').textContent = dispatchCurrent.cc.join(', ');
     }
