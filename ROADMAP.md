@@ -754,6 +754,15 @@ Send and the KIPIS MFA code.
   truck → done as before, Mark done → done, bulk with PRK printed → done); packs for LLE718
   (KKT: važtaraštis × 1) and MML743 (Ro-Ro: važtaraštis × 5 with "Release 273870"), both without
   PRK because their PRKs still wait for Pateikti; six route steps on one line at 1366 px, LT and EN.
+- [x] **S31. Cancel a truck that is not a real order — built 2026-11-11 (owner's request).** An
+  email read as a truck order by mistake (NDR243 — Agrokoncernas "didmaišiai 5 paletės į
+  Micaičius", failed: no weight) had only "Mark done", which counts it as a finished truck. Every
+  open truck now has **Cancel** next to Mark done (not while it is being filed); a confirmation
+  explains it, and mentions a PortSystem PRK draft if there is one (it stays in KIPIS for the
+  draft cleanup — KIPIS is not touched). `POST /order/cancel` → `cancelled`, history "cancelled
+  by hand — not a real truck order". Not re-created: the Excel sync skips a plate with any record
+  today (S24) and a repeat of the same email thread finds the closed record. No undo yet.
+  Checked: refuses an already-closed truck and an unknown id. NDR243 left for the owner to cancel.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

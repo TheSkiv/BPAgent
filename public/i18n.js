@@ -141,6 +141,13 @@
     'Print pack': 'Spausdinti rinkinį',
     'No CMR yet': 'CMR dar nėra',
 
+    // ── Cancel a truck that is not a real order ──
+    'Cancel': 'Atšaukti',
+    'Not a real truck order — remove it from the desk': 'Ne tikras sunkvežimio užsakymas — pašalinti iš pulto',
+    'Cancel {plate}? Use this when it is not a real truck order (read from an email by mistake). It leaves the desk and is not created again.': 'Atšaukti {plate}? Naudokite, kai tai ne tikras sunkvežimio užsakymas (per klaidą perskaitytas iš laiško). Jis dings iš pulto ir nebus sukurtas iš naujo.',
+    'Its PRK draft {prk} stays in KIPIS — the draft cleanup removes it.': 'Jo PRK juodraštis {prk} lieka KIPIS — jį pašalins juodraščių šalinimas.',
+    '{plate} cancelled.': '{plate} atšauktas.',
+
     // ── Bulk: loaded weight → PRK ──
     'Weight': 'Svoris',
     'Enter the loaded weight': 'Įveskite pakrautą svorį',

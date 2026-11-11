@@ -239,7 +239,10 @@
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
       }
-      if (!['done', 'cancelled'].includes(st.group)) b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
+      if (!['done', 'cancelled'].includes(st.group)) {
+        b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
+        if (o.state !== 'filing') b.push(`<button class="btn quiet small cancel-btn" data-act="cancel" data-id="${esc(o.id)}" title="${t('Not a real truck order — remove it from the desk')}">${t('Cancel')}</button>`);
+      }
       return b.join('');
     }
 
@@ -401,6 +404,17 @@
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
       if (act === 'print') return printDocs(el.getAttribute('data-id'), el);
       if (act === 'weight') return enterWeight(el.getAttribute('data-id'), el);
+      if (act === 'cancel') {
+        const plate = order ? order.plate : '';
+        const draft = order?.docs?.PRK?.number;
+        if (!confirm(t('Cancel {plate}? Use this when it is not a real truck order (read from an email by mistake). It leaves the desk and is not created again.', { plate })
+          + (draft ? '\n\n' + t('Its PRK draft {prk} stays in KIPIS — the draft cleanup removes it.', { prk: draft }) : ''))) return;
+        el.disabled = true;
+        const r = await postJson('/order/cancel', { id: el.getAttribute('data-id') });
+        if (r.status !== 'ok') { toast('err', t(r.message || r.error)); el.disabled = false; return; }
+        toast('ok', t('{plate} cancelled.', { plate }));
+        return loadPipeline();
+      }
       if (act === 'file') return runPrk(el.getAttribute('data-plate'), el);
       if (act === 'done') {
         if (!confirm(t('Close {plate} by hand?', { plate: order ? order.plate : t('this truck') }))) return;

@@ -1313,6 +1313,20 @@ app.post('/order/mark-done', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// A truck that is not a real order (an email read as one by mistake — NDR243, "didmaišiai 5
+// paletės", 2026-11-11) leaves the desk as cancelled. It is not created again: the Excel sync skips
+// a plate with any record today, and a repeat of the same email thread finds this closed record.
+// KIPIS is not touched — a PortSystem draft, if any, goes with the draft cleanup.
+app.post('/order/cancel', (req, res) => {
+  const order = req.body?.id && orderStore.getOrder(String(req.body.id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (orderStore.CLOSED_STATES.includes(order.state)) return res.json({ status: 'error', message: `${order.plate} is already ${order.state}` });
+  if (order.state === 'filing') return res.json({ status: 'error', message: `${order.plate} is being filed in KIPIS right now — try again in a minute` });
+  orderStore.setState(order.id, 'cancelled', { actor: 'operator', detail: 'cancelled by hand — not a real truck order' });
+  console.log(`Order cancelled by hand: ${order.plate} (${order.id})`);
+  res.json({ status: 'ok' });
+});
+
 app.post('/refresh-cargo', (req, res) => {
   try {
     const updated = refreshCargo();
