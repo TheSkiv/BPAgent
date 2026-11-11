@@ -473,18 +473,18 @@ Send and the KIPIS MFA code.
   https) — a desktop notification. Works only while the dashboard tab is open; nothing reaches a
   phone. Not yet heard by the operator.
 - [x] **S4. Fixing an order resumes it (A15) — built 2026-11-11.** A failed filing records why it
-  stopped (:  /  / ).  puts a
-  failed order back to  () and starts a filing round — never one that
-  failed after Saugoti or already has a PRK. Trucks that failed before this change have no
-   and still need "Try again".
+  stopped (`order.lastFailure.kind`: `transient` / `data` / `after-save`). `POST /set-cargo` puts
+  a failed order back to `ready` (`orderStore.requeue`) and starts a filing round — never one
+  that failed after Saugoti or already has a PRK. Trucks that failed before this change have no
+  `lastFailure` and still need "Try again".
 - [x] **S5. Stopped trucks retried in a later round (A10 remainder) — built 2026-11-11.**
-   at the start of each automatic round:  failures only, 10+ minutes
+  `retryStopped` at the start of each automatic round: `transient` failures only, 10+ minutes
   after the failure, at most twice per truck. Rules tested on a throwaway day file; not yet seen
   on a real KIPIS hiccup.
-- [x] **S6. Yesterday's open trucks on the desk — built 2026-11-11.**  adds
-  yesterday's orders that have a PRK and are still  or , tagged "from
+- [x] **S6. Yesterday's open trucks on the desk — built 2026-11-11.** `GET /pipeline` adds
+  yesterday's orders that have a PRK and are still `drafted` or `submitted`, tagged "from
   yesterday". An order id starts with its day, and the order store now finds the day file from
-  the id (), so Send email and Mark done work on them. Not carried: yesterday's trucks
+  the id (`dateOf`), so Send email and Mark done work on them. Not carried: yesterday's trucks
   that never got a PRK, and bulk trucks.
 - [ ] **S7. Spot Pateikti sooner** — the watch runs every 15 min, 08–18 only.
 - [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
