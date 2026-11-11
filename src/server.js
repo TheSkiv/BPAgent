@@ -1305,6 +1305,72 @@ app.get('/order/waybill', async (req, res) => {
   }
 });
 
+// CMRs printed by PortSystem instead of Avilda (ROADMAP S28). GET /cmr/draft: every box
+// pre-filled for the operator to check. POST /cmr/print: the PDF, a register line, and the
+// confirmed parties remembered (per release; per company for own cargo). The register and a
+// reprint of any CMR by its number. PDFs are made in memory and shown for printing.
+const cmr = require('./core/cmr');
+app.get('/cmr/draft', async (req, res) => {
+  const order = req.query.id && orderStore.getOrder(String(req.query.id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  try {
+    // Own cargo (Agrokoncernas' farmers): the place of delivery is in the email or on the
+    // važtaraštis attached to it.
+    const email = getEmailData(order.plate) || {};
+    let extraText = email.body || '';
+    if (order.loadsFrom?.source === 'own' && !cmr.deliveryFromText(extraText)) {
+      const { PDFParse } = require('pdf-parse');
+      for (const a of (email.attachments || []).filter(x => /\.pdf$/i.test(x.filename || x.attachmentId || ''))) {
+        try { extraText += '\n' + (await new PDFParse({ data: await fetchAttachmentBytes(email.messageId, a.attachmentId) }).getText()).text; } catch { /* the operator types it */ }
+      }
+    }
+    res.json({ status: 'ok', ...(await cmr.draftFor(order, { releaseId: req.query.release, date: orderStore.dateOf(order.id), extraText })) });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+app.post('/cmr/print', async (req, res) => {
+  const { id, key, releaseId, terminal, remember } = req.body || {};
+  const order = id && orderStore.getOrder(String(id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const c = req.body.cmr || {};
+  const str = v => String(v ?? '').slice(0, 200);
+  const lines = a => [...(Array.isArray(a) ? a : []), '', '', '', ''].slice(0, 4).map(str);
+  const data = {
+    number: str(c.number), sender: lines(c.sender), consignee: lines(c.consignee), carrier: lines(c.carrier),
+    delivery: { place: str(c.delivery?.place), address: str(c.delivery?.address), extra: str(c.delivery?.extra) },
+    loading: { place: str(c.loading?.place), address: str(c.loading?.address), date: str(c.loading?.date) },
+    reservations: (Array.isArray(c.reservations) ? c.reservations : []).slice(0, 3).map(str),
+    documents: str(c.documents),
+    goods: (Array.isArray(c.goods) ? c.goods : []).slice(0, 10).map((g, i) => ({ text: str(g.text ?? g), indent: i > 0 })),
+    statNo: str(c.statNo), grossKg: str(c.grossKg),
+    instructions: (Array.isArray(c.instructions) ? c.instructions : []).slice(0, 3).map(str),
+    establishedIn: str(c.establishedIn), date: str(c.date), driver: str(c.driver), plates: str(c.plates),
+  };
+  if (!data.number) return res.status(400).json({ error: 'The CMR needs a number' });
+  if (cmr.register().some(r => r.number === data.number)) return res.status(400).json({ error: `CMR ${data.number} was already printed — use another number or print it again from the register` });
+  try {
+    const { pdf } = await cmr.issue({ order, key: str(key), releaseId: releaseId ? str(releaseId) : null, terminal: ['kkt', 'roro'].includes(terminal) ? terminal : null, cmr: data, remember: remember !== false });
+    console.log(`CMR ${data.number} printed for ${order.plate}`);
+    res.setHeader('Content-Disposition', `inline; filename="CMR ${data.number.replace(/[^\w-]/g, '_')}.pdf"`);
+    res.type('application/pdf').send(pdf);
+  } catch (err) {
+    res.status(500).json({ error: `CMR not made: ${err.message}` });
+  }
+});
+
+app.get('/cmr/register', (req, res) => {
+  res.json({ cmrs: cmr.register().reverse().slice(0, 300).map(({ cmr: c, ...r }) => r) });
+});
+
+app.get('/cmr/pdf', async (req, res) => {
+  const pdf = await cmr.reprint(String(req.query.number || ''));
+  if (!pdf) return res.status(404).send('No CMR with that number in the register');
+  res.setHeader('Content-Disposition', `inline; filename="CMR ${String(req.query.number).replace(/[^\w-]/g, '_')}.pdf"`);
+  res.type('application/pdf').send(pdf);
+});
+
 const ATTACHMENT_CONTENT_TYPES = {
   pdf:  'application/pdf',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

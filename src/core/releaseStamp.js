@@ -36,7 +36,7 @@ async function releasesFor(order) {
     const id = r.numbers.map(n => n.value).join('|');
     if (seen.has(id)) continue;
     seen.add(id);
-    releases.push({ id, seller: r.seller, vessel: r.vessel, product: r.product, remainingKg: r.remainingKg, numbers: r.numbers, text: releaseText(r) });
+    releases.push({ id, seller: r.seller, buyer: r.buyer, vessel: r.vessel, product: r.product, remainingKg: r.remainingKg, numbers: r.numbers, text: releaseText(r) });
   }
   return { own: false, releases };
 }

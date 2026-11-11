@@ -222,6 +222,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); outline: 
 .dialog .ok   { color: var(--green); }
 .dialog .row  { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .dialog .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.dialog .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.dialog.wide { width: min(900px, 100%); }
+.dialog .grid2 > div > input + input { margin-top: 4px; }
+.dialog#cmrModal textarea, #cmrModal .dialog textarea { min-height: 0; }
 .dialog .mailbody { white-space: pre-wrap; font-size: 13px; background: var(--fog); padding: 10px; border-radius: 6px; max-height: 260px; overflow: auto; }
 .dialog textarea { min-height: 170px; resize: vertical; }
 /* The release on each waybill PDF, in the order window */
@@ -247,6 +251,6 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); outline: 
   .truck { grid-template-columns: 1fr; gap: 8px; }
   .next { align-items: flex-start; text-align: left; }
   .next .actions { justify-content: flex-start; }
-  .dialog .grid2 { grid-template-columns: 1fr; }
+  .dialog .grid2, .dialog .grid3 { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

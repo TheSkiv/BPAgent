@@ -644,7 +644,8 @@ Send and the KIPIS MFA code.
   into CMR box 5, Yara as "Inv 0620860510 / DL 697302240 / Kont 30289178". Hence (1) the
   "already on it" check ignores leading zeros, (2) Yara's line is now written the office's way,
   "Inv. … / DL … / Kont. …" (Helm stays "Release N"). Tested against that box-5 text.
-- [ ] **S28. PortSystem prints the CMR instead of Avilda — decided 2026-11-11, not built.** For a
+- [x] **S28. PortSystem prints the CMR instead of Avilda — built 2026-11-11, layout approved by the
+  owner; first real CMR not printed yet.** For a
   truck with no važtaraštis attached, the office issues a CMR in Avilda, which prints straight to
   paper. Owner: "print out the same style CMRs instead of Avilda — fill in all the data". Owner's
   decisions: (a) sender / consignee / place of delivery / carrier come from a table filled once
@@ -655,6 +656,37 @@ Send and the KIPIS MFA code.
   statistical number, e.g. 31052090) from a table per product; (e) new npm package
   @pdf-lib/fontkit approved, to print Lithuanian letters in Arial. Layout to match the owner's
   examples (`Y:\Scaner_Agensy\CMR templates.pdf`, 27 boxes, A4).
+  **Step 1 done (2026-11-11):** `src/core/cmrPdf.js` draws the whole form on blank A4 (all 27
+  boxes, bilingual labels, grey CMR mark, corner number) and fills it — positions taken from the
+  owner's scan, Arial embedded (@pdf-lib/fontkit 1.1.1 installed). A sample with the data of the
+  owner's KPG386/IA976 example was sent for a side-by-side check; the owner approved it.
+  **Step 2 done:** `src/core/cmr.js` + `config/cmr.json` + `public/cmr.html`.
+  - *Data* (`config/cmr.json`): settings (corner-number prefix "B", "Surašyta KLAIPĖDA", box 13 and
+    18 texts, loading place per terminal), sender per seller, parties per release (consignee,
+    place of delivery, carrier, buyer), parties per company for own cargo, customs codes per
+    cargo name. Seeded only from the owner's two CMRs: Yara's sender; Scandagra (Šilutės
+    sandėlis) and Baltic Agro (Pakruojis) releases; 31052090 (YaraMila NPK 10-13-25), 31052010
+    (NPK 18-11-13). Ro-Ro's loading place set the same as KKT's (Minijos 180) — the owner's CMR
+    for a truck our routing calls Ro-Ro (LNV103) says KKT; correct once in the window if wrong.
+  - *Pre-fill* (`draftFor`): the order's release (picker when it could be several); saved parties
+    for that release, else the same seller's sender and the same buyer's last delivery place;
+    own cargo (Agrokoncernas) reads "Iškrovimo vieta / Pristatymo adresas" from the email text,
+    then from the attached važtaraštis; goods "N big bags - trąšos <cargo>" + "Netto N kg" (bulk:
+    "Birios trąšos … (palaidas)"); gross = recorded gross or net + 1 kg per bag; customs code by
+    cargo name (NPK formula / words); driver from the day's Excel; number B+MMDD+series.
+    Box 16 (carrier) is empty by default: in the examples it is the carrier's own stamp.
+  - *Window*: the order window's **CMR** button → every box editable, a yellow line naming empty
+    must-haves, "remember … for this release / for <company>" (on by default), **Print CMR** →
+    PDF in a new tab. Printing writes `data/cmr_register.jsonl` (everything printed) and saves
+    what was confirmed (parties, seller's sender, loading place, customs code). A number already
+    in the register is refused.
+  - *Register*: `/cmr.html` (top menu "CMR register"), searchable, "Print again" redraws any CMR
+    exactly as printed.
+  Checked: LNV103's pre-filled CMR equals the owner's Avilda example 1 box for box (printed once
+  as TEST-LNV103 with "remember" off, the test line then removed from the register);
+  MOB272 (own cargo) picks its delivery place from the važtaraštis; MML743 (Helm) opens with
+  sender / place of delivery / customs code flagged empty — Helm's sender has to be typed once.
+  A truck with two releases (KPG386) needs one CMR per release: pick the release, edit the goods.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

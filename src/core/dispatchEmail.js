@@ -215,4 +215,4 @@ async function alreadySent(plate) {
     && key(`${e.subject} ${e.body}`).includes(tractor));
 }
 
-module.exports = { composeDispatch, composeBulkDispatch, buildMime, withSignature, signatureHtml, appendDraft, alreadySent, cargoName };
+module.exports = { composeDispatch, composeBulkDispatch, buildMime, withSignature, signatureHtml, appendDraft, alreadySent, cargoName, excelRow };

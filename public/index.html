@@ -10,7 +10,7 @@
 <body>
   <header class="topbar">
     <div class="brand">Truck desk <small>BPA · PortSystem</small></div>
-    <nav><a href="/" class="on">Trucks</a><a href="/lots.html">Lots &amp; owners</a></nav>
+    <nav><a href="/" class="on">Trucks</a><a href="/lots.html">Lots &amp; owners</a><a href="/cmr.html">CMR register</a></nav>
     <label class="search" aria-label="Find a truck">
       <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.5" stroke="currentColor" stroke-width="1.6"/><path d="M11 11l3.5 3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       <input id="search" type="search" placeholder="Find a truck — plate, company, cargo, PRK" autocomplete="off" />
@@ -90,7 +90,42 @@
         <div><label>&nbsp;</label><label style="display:flex;gap:8px;align-items:center;font-size:14px;color:var(--ink);font-weight:500"><input type="checkbox" id="modalBulkCheck" style="width:auto" /> Bulk cargo</label></div>
       </div>
       <div id="modalStatus" style="font-size:13px"></div>
-      <div class="row"><button class="btn quiet" id="modalClose">Close</button><button class="btn primary" id="modalSaveBtn">Save changes</button></div>
+      <div class="row"><button class="btn" id="modalCmrBtn" style="margin-right:auto" title="Fill in and print a CMR for this truck">CMR</button><button class="btn quiet" id="modalClose">Close</button><button class="btn primary" id="modalSaveBtn">Save changes</button></div>
+    </div>
+  </div>
+
+  <!-- The CMR: pre-filled, checked and changed here, then printed -->
+  <div class="dialog-back" id="cmrModal">
+    <div class="dialog wide" role="dialog" aria-modal="true" aria-labelledby="cmrTitle">
+      <h2 id="cmrTitle">CMR</h2>
+      <div id="cmrWarn"></div>
+      <div class="grid3">
+        <div><label for="cmrNumber">CMR number</label><input id="cmrNumber" /></div>
+        <div id="cmrReleaseWrap"><label for="cmrRelease">Release</label><select id="cmrRelease"></select></div>
+        <div><label for="cmrDate">21 Date</label><input id="cmrDate" /></div>
+      </div>
+      <div class="grid2">
+        <div><label for="cmrSender">1 Sender</label><textarea id="cmrSender" rows="4"></textarea></div>
+        <div><label for="cmrConsignee">2 Consignee</label><textarea id="cmrConsignee" rows="4"></textarea></div>
+        <div><label>3 Place of delivery</label><input id="cmrDelPlace" placeholder="Vieta / Place" /><input id="cmrDelAddress" placeholder="Adresas, šalis / Address, country" /><input id="cmrDelExtra" placeholder="Tel., more" /></div>
+        <div><label>4 Place and date of loading</label><input id="cmrLoadPlace" placeholder="Vieta / Place" /><input id="cmrLoadAddress" placeholder="Adresas, šalis / Address, country" /><input id="cmrLoadDate" placeholder="Data / Date" /></div>
+      </div>
+      <div><label for="cmrDocuments">5 Documents attached (release)</label><input id="cmrDocuments" /></div>
+      <div><label for="cmrGoods">6–9 Goods (one line each)</label><textarea id="cmrGoods" rows="3"></textarea></div>
+      <div class="grid3">
+        <div><label for="cmrStatNo">10 Statistical number</label><input id="cmrStatNo" /></div>
+        <div><label for="cmrGross">11 Gross weight, kg</label><input id="cmrGross" inputmode="numeric" /></div>
+        <div><label for="cmrPlates">25 Vehicle reg. no.</label><input id="cmrPlates" /></div>
+      </div>
+      <div class="grid2">
+        <div><label for="cmrInstructions">13 Sender's instructions</label><textarea id="cmrInstructions" rows="2"></textarea></div>
+        <div><label for="cmrReservations">18 Carrier's reservations</label><textarea id="cmrReservations" rows="2"></textarea></div>
+        <div><label for="cmrCarrier">16 Carrier (empty = stamped by the carrier)</label><textarea id="cmrCarrier" rows="4"></textarea></div>
+        <div><label for="cmrDriver">23 Driver</label><input id="cmrDriver" /><label for="cmrEstablished" style="margin-top:8px">21 Established in</label><input id="cmrEstablished" /></div>
+      </div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;color:var(--ink);font-weight:500"><input type="checkbox" id="cmrRemember" checked style="width:auto" /> <span id="cmrRememberText">Remember sender, consignee, place of delivery and carrier for next time</span></label>
+      <div id="cmrStatus" style="font-size:13px"></div>
+      <div class="row"><a class="btn quiet" href="/cmr.html" target="_blank" rel="noopener" style="margin-right:auto">CMR register</a><button class="btn quiet" id="cmrClose">Close</button><button class="btn primary" id="cmrPrint">Print CMR</button></div>
     </div>
   </div>
 
@@ -695,6 +730,77 @@
       finally { $('modalSaveBtn').disabled = false; }
     });
 
+    // ── The CMR: pre-filled by the server, checked here, printed ─────────
+    let cmrDraft = null;
+    const linesOf = id => $(id).value.split('\n').map(s => s.trim());
+    const setLines = (id, a) => { $(id).value = (a || []).join('\n').replace(/\n+$/, ''); };
+    function closeCmr() { $('cmrModal').classList.remove('open'); cmrDraft = null; }
+    $('cmrClose').addEventListener('click', closeCmr);
+    $('cmrModal').addEventListener('click', e => { if (e.target === $('cmrModal')) closeCmr(); });
+    $('modalCmrBtn').addEventListener('click', () => { if (currentOrder) openCmr(currentOrder.id); });
+    $('cmrRelease').addEventListener('change', () => cmrDraft && openCmr(cmrDraft.orderId, $('cmrRelease').value));
+
+    async function openCmr(id, release) {
+      $('cmrModal').classList.add('open');
+      $('cmrStatus').textContent = t('Filling in the CMR…');
+      $('cmrWarn').innerHTML = '';
+      $('cmrPrint').disabled = true;
+      try {
+        const d = await getJson('/cmr/draft?' + new URLSearchParams({ id, release: release || '' }));
+        if (d.status !== 'ok') { $('cmrStatus').innerHTML = `<span class="err">${esc(t(d.message || d.error))}</span>`; return; }
+        cmrDraft = d;
+        const c = d.cmr;
+        $('cmrTitle').innerHTML = `CMR · <span class="mono">${esc(d.plate)}</span>`;
+        $('cmrNumber').value = c.number;
+        $('cmrReleaseWrap').style.display = d.releases.length > 1 ? '' : 'none';
+        $('cmrRelease').innerHTML = d.releases.map(r => `<option value="${esc(r.id)}"${r.id === d.releaseId ? ' selected' : ''}>${esc(`${r.text} · ${r.vessel} · ${Math.round(r.remainingKg / 1000)} t ${t('left')}`)}</option>`).join('');
+        $('cmrDate').value = c.date;
+        setLines('cmrSender', c.sender); setLines('cmrConsignee', c.consignee); setLines('cmrCarrier', c.carrier);
+        $('cmrDelPlace').value = c.delivery.place; $('cmrDelAddress').value = c.delivery.address; $('cmrDelExtra').value = c.delivery.extra;
+        $('cmrLoadPlace').value = c.loading.place; $('cmrLoadAddress').value = c.loading.address; $('cmrLoadDate').value = c.loading.date;
+        $('cmrDocuments').value = c.documents;
+        setLines('cmrGoods', c.goods.map(g => g.text));
+        $('cmrStatNo').value = c.statNo; $('cmrGross').value = c.grossKg; $('cmrPlates').value = c.plates;
+        setLines('cmrInstructions', c.instructions); setLines('cmrReservations', c.reservations);
+        $('cmrDriver').value = c.driver; $('cmrEstablished').value = c.establishedIn;
+        $('cmrRememberText').textContent = d.own || !d.releaseId
+          ? t('Remember sender, consignee, place of delivery and carrier for {company}', { company: d.company })
+          : t('Remember sender, consignee, place of delivery and carrier for this release');
+        const empty = [!c.sender.some(Boolean) && t('1 Sender'), !c.delivery.place && t('3 Place of delivery'), !c.statNo && t('10 Statistical number'), !c.grossKg && t('11 Gross weight')].filter(Boolean);
+        $('cmrWarn').innerHTML = empty.length ? `<div class="warn">${esc(t('Empty — fill in before printing: {list}', { list: empty.join(', ') }))}</div>` : '';
+        $('cmrStatus').textContent = '';
+        $('cmrPrint').disabled = false;
+      } catch (err) { $('cmrStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
+    }
+
+    $('cmrPrint').addEventListener('click', async () => {
+      const d = cmrDraft;
+      if (!d) return;
+      const cmr = {
+        number: $('cmrNumber').value.trim(), date: $('cmrDate').value.trim(),
+        sender: linesOf('cmrSender'), consignee: linesOf('cmrConsignee'), carrier: linesOf('cmrCarrier'),
+        delivery: { place: $('cmrDelPlace').value.trim(), address: $('cmrDelAddress').value.trim(), extra: $('cmrDelExtra').value.trim() },
+        loading: { place: $('cmrLoadPlace').value.trim(), address: $('cmrLoadAddress').value.trim(), date: $('cmrLoadDate').value.trim() },
+        documents: $('cmrDocuments').value.trim(),
+        goods: linesOf('cmrGoods').filter(Boolean).map(text => ({ text })),
+        statNo: $('cmrStatNo').value.trim(), grossKg: $('cmrGross').value.trim(), plates: $('cmrPlates').value.trim(),
+        instructions: linesOf('cmrInstructions').filter(Boolean), reservations: linesOf('cmrReservations').filter(Boolean),
+        driver: $('cmrDriver').value.trim(), establishedIn: $('cmrEstablished').value.trim(),
+      };
+      const tab = window.open('', '_blank');   // opened now, while the click still counts, so no pop-up block
+      $('cmrPrint').disabled = true;
+      $('cmrStatus').textContent = t('Making the CMR…');
+      try {
+        const res = await fetch('/cmr/print', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: d.orderId, key: d.key, releaseId: $('cmrReleaseWrap').style.display === 'none' ? d.releaseId : $('cmrRelease').value, terminal: d.terminal, remember: $('cmrRemember').checked, cmr }) });
+        if (!res.ok) { const e = await res.json().catch(() => ({})); if (tab) tab.close(); $('cmrStatus').innerHTML = `<span class="err">${esc(t(e.error || 'CMR not made.'))}</span>`; $('cmrPrint').disabled = false; return; }
+        const url = URL.createObjectURL(await res.blob());
+        if (tab) tab.location = url; else window.open(url, '_blank');
+        toast('ok', t('CMR {number} is open in a new tab — print it from there. It is in the CMR register.', { number: cmr.number }));
+        closeCmr();
+      } catch (err) { if (tab) tab.close(); $('cmrStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; $('cmrPrint').disabled = false; }
+    });
+
     // ── The dispatch email: preview, then the operator's Send ───────────
     let dispatchCurrent = null;
     function showRecipients() {
@@ -778,7 +884,7 @@
     });
 
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeOrder(); $('dispatchModal').classList.remove('open'); }
+      if (e.key === 'Escape') { closeOrder(); closeCmr(); $('dispatchModal').classList.remove('open'); }
       if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') { e.preventDefault(); $('search').focus(); }
     });
 
