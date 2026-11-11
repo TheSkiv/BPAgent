@@ -466,13 +466,26 @@ From a full read of the code with one goal: the operator touches the system only
 Send and the KIPIS MFA code.
 - [x] **S1. Mail checked by the server** — built 2026-11-10 (A12, D1 reversed).
 - [x] **S2. "Possibly missed" emails stay on the dashboard** — built 2026-11-10 with S1.
-- [ ] **S3. Alerts (A17).** Nothing tells the operator that a draft waits for Pateikti, an email
-  waits for Send, a truck stopped, or KIPIS logged out. Browser notification + sound.
-- [ ] **S4. Fixing an order resumes it (A15).** "Fix order" saves the fields but the truck stays
-  `failed` until "Try again" (`updateOrderFields` / `POST /set-cargo` leave the state alone).
-- [ ] **S5. Retry stopped trucks in a later round** (A10 remainder) — transient failures only.
-- [ ] **S6. Show yesterday's open trucks.** `GET /pipeline` reads today's file only; a draft left
-  overnight, or an order emailed late in the evening, is not on the dashboard next morning.
+- [x] **S3. Alerts (A17) — built 2026-11-11, in the browser.** The tab title carries the count of
+  things waiting ("Needs you" trucks, senders to confirm, KIPIS logged out). With the **Alerts**
+  button on (remembered per browser; the click is what lets a browser play sound), anything newly
+  waiting gives a two-tone sound, a sticky toast and — where the browser allows it (localhost or
+  https) — a desktop notification. Works only while the dashboard tab is open; nothing reaches a
+  phone. Not yet heard by the operator.
+- [x] **S4. Fixing an order resumes it (A15) — built 2026-11-11.** A failed filing records why it
+  stopped (:  /  / ).  puts a
+  failed order back to  () and starts a filing round — never one that
+  failed after Saugoti or already has a PRK. Trucks that failed before this change have no
+   and still need "Try again".
+- [x] **S5. Stopped trucks retried in a later round (A10 remainder) — built 2026-11-11.**
+   at the start of each automatic round:  failures only, 10+ minutes
+  after the failure, at most twice per truck. Rules tested on a throwaway day file; not yet seen
+  on a real KIPIS hiccup.
+- [x] **S6. Yesterday's open trucks on the desk — built 2026-11-11.**  adds
+  yesterday's orders that have a PRK and are still  or , tagged "from
+  yesterday". An order id starts with its day, and the order store now finds the day file from
+  the id (), so Send email and Mark done work on them. Not carried: yesterday's trucks
+  that never got a PRK, and bulk trucks.
 - [ ] **S7. Spot Pateikti sooner** — the watch runs every 15 min, 08–18 only.
 - [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
 - [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**

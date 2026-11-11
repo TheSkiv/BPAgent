@@ -17,6 +17,7 @@
     <div class="spacer"></div>
     <span class="light" id="kipisLight" title="Checked in the background every few minutes">KIPIS …</span>
     <span class="light" id="mailLight">Mail …</span>
+    <button class="btn" id="alertBtn" title="Sound and a notification when something new needs you">Alerts off</button>
     <button class="btn" id="openBtn">Open KIPIS</button>
     <button class="btn primary" id="recheckBtn" title="Fetches new order emails; new trucks are then filed automatically">Check mail</button>
   </header>
@@ -141,7 +142,7 @@
         case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: 'Gets its PRK draft automatically', actions: ['file'] };
         case 'received':  return { group: 'waiting', route: BAGGED, stop: 0, label: 'New order' };
         case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: 'Filing in KIPIS now…' };
-        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: 'Not filed', reason: o.note, actions: ['retry', 'open'] };
+        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: (o.lastFailure?.kind === 'transient' && o.lastFailure.autoRetries < 2 && !prk) ? 'Not filed — will be tried again automatically' : 'Not filed', reason: o.note, actions: ['retry', 'open'] };
         case 'drafted':   return prk
           ? { group: 'needs', route: BAGGED, stop: 1, label: 'Check the draft in KIPIS and press Pateikti', reason: /packaging not set/.test(o.note || '') ? 'Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.' : '' }
           : { group: 'needs', route: BAGGED, stop: 1, label: 'Form filled but not saved — save it in KIPIS' };
@@ -191,7 +192,7 @@
       return `<article class="truck ${cls}">
         <div>
           <div class="plate" data-act="open" data-id="${esc(o.id)}" title="Open the order and its email">${esc(o.plate)}</div>
-          <div class="who">${company}</div>
+          <div class="who">${company}${o.carried ? ' · <span class="warn">from yesterday</span>' : ''}</div>
         </div>
         <div>
           <div class="what">${chips}${esc(o.cargo || 'Cargo not known')}${o.weight ? ` · ${Number(o.weight).toLocaleString('lt-LT')} kg` : ''}</div>
@@ -262,14 +263,71 @@
         all.filter(o => o.state !== 'cancelled').forEach(o => seen.set(o.plate, (seen.get(o.plate) || 0) + 1));
         orders = all.map(o => ({ ...o, dup: seen.get(o.plate) > 1, stage: stageOf(o) }));
         render();
+        checkAlerts();
       } catch (err) {
         $('trucks').innerHTML = `<div class="card empty"><strong>Could not load the trucks.</strong>${esc(err.message)}</div>`;
       }
     }
 
     async function loadConfirmations() {
-      try { pending = (await getJson('/confirmations')).pending || []; render(); } catch { /* keep */ }
+      try { pending = (await getJson('/confirmations')).pending || []; render(); checkAlerts(); } catch { /* keep */ }
     }
+
+    // ── Alerts: something new needs you ──────────────────────────────────
+    // What is waiting for the operator right now: trucks in "Needs you", senders to confirm, and
+    // KIPIS logged out. The count is in the tab title; anything that was not waiting a minute ago
+    // gets a sound and a notification (once Alerts is switched on — a browser needs one click
+    // before it may play sound).
+    let kipisState = null, alertBase = null, audioCtx = null;
+    let alertsOn = false;
+    try { alertsOn = localStorage.getItem('alerts') === 'on'; } catch { /* off */ }
+    function waitingNow() {
+      const items = new Map();
+      for (const o of orders) if (['needs', 'failed'].includes(o.stage.group)) items.set(`${o.id}:${o.stage.label}`, `${o.plate}: ${o.stage.label}`);
+      for (const p of pending) items.set(`confirm:${p.messageId}`, `New sender to confirm: ${p.sender}`);
+      if (kipisState && kipisState !== 'main') items.set('kipis', 'KIPIS is logged out — open it and enter the code');
+      return items;
+    }
+    function beep() {
+      try {
+        audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+        [0, 0.22].forEach((at, i) => {
+          const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+          o.frequency.value = i ? 880 : 660;
+          g.gain.setValueAtTime(0.15, audioCtx.currentTime + at);
+          g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + at + 0.2);
+          o.connect(g); g.connect(audioCtx.destination);
+          o.start(audioCtx.currentTime + at); o.stop(audioCtx.currentTime + at + 0.2);
+        });
+      } catch { /* no sound on this device */ }
+    }
+    function checkAlerts() {
+      const now = waitingNow();
+      document.title = `${now.size ? `(${now.size}) ` : ''}Truck desk · PortSystem`;
+      const fresh = alertBase ? [...now].filter(([k]) => !alertBase.has(k)).map(([, v]) => v) : [];
+      alertBase = new Set(now.keys());
+      if (!fresh.length || !alertsOn) return;
+      beep();
+      const text = fresh.length === 1 ? fresh[0] : `${fresh.length} things need you: ${fresh.slice(0, 3).join('; ')}`;
+      if (window.Notification && Notification.permission === 'granted') {
+        try { new Notification('Truck desk', { body: text, tag: 'truck-desk' }); } catch { /* fall back to the toast */ }
+      }
+      toast('warn', text, true);
+    }
+    function showAlertBtn() {
+      $('alertBtn').textContent = alertsOn ? 'Alerts on' : 'Alerts off';
+      $('alertBtn').classList.toggle('primary', false);
+    }
+    $('alertBtn').addEventListener('click', async () => {
+      alertsOn = !alertsOn;
+      try { localStorage.setItem('alerts', alertsOn ? 'on' : 'off'); } catch { /* not remembered */ }
+      showAlertBtn();
+      if (!alertsOn) return;
+      beep();   // this click is what lets the browser play sound later
+      if (window.Notification && Notification.permission === 'default') { try { await Notification.requestPermission(); } catch { /* sound only */ } }
+      toast('ok', 'Alerts on — a sound when something new needs you. Keep this tab open.');
+    });
+    showAlertBtn();
 
     // ── Row actions ──────────────────────────────────────────────────────
     $('trucks').addEventListener('click', async e => {
@@ -399,6 +457,7 @@
         const text = { main: 'KIPIS logged in', login: 'KIPIS logged out — open it and enter the code', closed: 'KIPIS not open', error: 'KIPIS not answering' };
         el.className = 'light ' + ({ main: 'ok', login: 'warn', closed: '', error: 'bad' }[s.state] || '');
         el.textContent = text[s.state] || `KIPIS ${s.state}`;
+        kipisState = s.state; checkAlerts();
       } catch { el.className = 'light bad'; el.textContent = 'KIPIS ?'; }
     }
     $('openBtn').addEventListener('click', async () => {
@@ -558,7 +617,7 @@
           bulk: $('modalBulkCheck').checked,
         });
         if (d.status === 'ok') {
-          $('modalStatus').innerHTML = `<span class="ok">Saved${[d.cargo, d.vessel].filter(Boolean).length ? ': ' + esc([d.cargo, d.vessel].filter(Boolean).join(' · ')) : ''}.</span>`;
+          $('modalStatus').innerHTML = `<span class="ok">Saved${[d.cargo, d.vessel].filter(Boolean).length ? ': ' + esc([d.cargo, d.vessel].filter(Boolean).join(' · ')) : ''}.${d.requeued ? ' Filing it again now.' : ''}</span>`;
           loadPipeline(); setTimeout(closeOrder, 1000);
         } else $('modalStatus').innerHTML = `<span class="err">${esc(d.error || 'Not saved — order not found.')}</span>`;
       } catch (err) { $('modalStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }

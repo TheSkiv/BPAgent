@@ -221,6 +221,11 @@ app.get('/pipeline', (req, res) => {
   try {
     orderStore.syncFromExcel();
     const { queue, done } = orderStore.queueAndDone();
+    // A PRK is for today or tomorrow: yesterday's trucks whose PRK still waits for Pateikti or
+    // for its dispatch email stay on the desk until they are finished.
+    const yesterday = orderStore.daysAgo(1);
+    const carried = orderStore.listOrders(yesterday)
+      .filter(o => ['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number);
     const shape = o => ({
       id:     o.id,
       plate:  o.plate,
@@ -231,6 +236,8 @@ app.get('/pipeline', (req, res) => {
       state:  o.state,
       docs:   o.docs,
       dispatchSent: o.dispatchSent || null,
+      lastFailure: o.lastFailure || null,
+      carried: orderStore.dateOf(o.id) === yesterday,
       vessel: o.loadsFrom?.vessel || '',
       // The last thing that happened to the order — the dashboard shows it as the reason a truck
       // stopped (e.g. "not saved — lot choice — owner not confirmed …").
@@ -242,7 +249,7 @@ app.get('/pipeline', (req, res) => {
       received: o.email?.received || '',
       updatedAt: o.updatedAt,
     });
-    res.json({ queue: queue.map(shape), done: done.map(shape) });
+    res.json({ queue: [...queue, ...carried].map(shape), done: done.map(shape) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -368,6 +375,7 @@ async function fileOrderOnce(order, actor, run) {
     }
     if (result.blocked) {
       orderStore.setState(order.id, 'failed', { actor: 'kipis', detail: `not saved — ${result.blocked}; form left open in KIPIS for review` });
+      orderStore.markFailure(order.id, 'data');
       return { ...base, outcome: 'blocked', message: result.blocked, needsLotOwners: !!result.needsLotOwners };
     }
     orderStore.setState(order.id, 'drafted', { actor: 'kipis', detail: 'filled, not saved (dry run)' });
@@ -375,6 +383,7 @@ async function fileOrderOnce(order, actor, run) {
   } catch (err) {
     run.error = err;
     orderStore.setState(order.id, 'failed', { actor: 'kipis', detail: err.message });
+    orderStore.markFailure(order.id, err.saveClicked ? 'after-save' : TRANSIENT_ERROR.test(err.message || '') ? 'transient' : 'data');
     console.error(`Queue: ${order.id} failed —`, err.message);
     return { ...base, outcome: 'failed', message: err.message };
   }
@@ -528,7 +537,7 @@ app.get('/dispatch/preview', async (req, res) => {
   if (error) return res.status(404).json({ error });
   if (order.bulk) {
     try {
-      const fileDate = date || todayString();
+      const fileDate = date || orderStore.dateOf(order.id) || todayString();
       const v = await bulkVessel(order);
       const mail = dispatchEmail.composeBulkDispatch(order, fileDate, v);
       if (v.vessels.length > 1) mail.missing.push(`check the vessel (${v.vessels.join(', ')})`);
@@ -561,7 +570,7 @@ app.get('/dispatch/preview', async (req, res) => {
       }
     }
     const { getBagKg } = require('../KIPIS_skills/PRK/navigateToCargo');
-    const fileDate = date || todayString();
+    const fileDate = date || orderStore.dateOf(order.id) || todayString();
     const mail = dispatchEmail.composeDispatch(order, fileDate, getBagKg(order.cargo));
     let sentByHand = false;
     try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
@@ -624,8 +633,23 @@ app.post('/dispatch/send', async (req, res) => {
   }
 });
 
+// A10: a truck that stopped on a KIPIS hiccup (never after Saugoti) goes back in line by itself,
+// 10+ minutes later, at most twice — then it stays for the operator.
+const RETRY_AFTER_MS = 10 * 60 * 1000;
+function retryStopped() {
+  for (const o of orderStore.listOrders()) {
+    if (o.state !== 'failed' || o.bulk || o.lastFailure?.kind !== 'transient') continue;
+    if (Date.now() - new Date(o.lastFailure.at).getTime() < RETRY_AFTER_MS) continue;
+    const n = o.lastFailure.autoRetries + 1;
+    if (orderStore.requeue(o.id, { actor: 'system', detail: `automatic retry ${n} of ${orderStore.AUTO_RETRY_LIMIT}`, auto: true })) {
+      console.log(`Auto retry: ${o.plate} back in line (${n} of ${orderStore.AUTO_RETRY_LIMIT})`);
+    }
+  }
+}
+
 // One automatic round: file what is ready, then see what the operator has submitted.
 async function autoRound(reason) {
+  retryStopped();
   await autoFile(reason);
   await runWatch(reason, true);
 }
@@ -1109,7 +1133,8 @@ app.post('/order/mark-done', (req, res) => {
   if (!id) return res.status(400).json({ error: 'Missing id' });
   const order = orderStore.getOrder(id);
   if (!order) return res.status(404).json({ error: 'Order not found' });
-  markDone(order.plate);
+  // The done list blocks a second PRK for the plate today — not for a truck from yesterday.
+  if (orderStore.dateOf(id) === todayString()) markDone(order.plate);
   orderStore.setState(id, 'done', { actor: 'operator', detail: 'marked done manually' });
   res.json({ status: 'ok' });
 });
@@ -1182,7 +1207,11 @@ app.post('/set-cargo', (req, res) => {
       console.log(`Manual order edit: ${plate} →${resolvedCargo ? ' ' + resolvedCargo : ''}${weight !== undefined ? ' ' + weight + 'kg' : ''}${grossWeight !== undefined ? ' gross ' + grossWeight + 'kg' : ''}${bulk ? ' [BULK]' : ''}`);
       if (id) orderStore.updateOrderFields(id, fields);
     }
-    res.json({ status: updated ? 'ok' : 'not_found', cargo: resolvedCargo, vessel: resolvedVessel });
+    // A15: a truck that stopped for something in the order goes back in line once it is fixed —
+    // no second click. Never one that failed after Saugoti or already has a PRK.
+    const requeued = !!(updated && id && orderStore.requeue(id, { actor: 'operator', detail: 'order fixed — filing again' }));
+    if (requeued) setTimeout(() => autoRound('order fixed').catch(err => console.error('Auto round:', err.message)), 1000);
+    res.json({ status: updated ? 'ok' : 'not_found', cargo: resolvedCargo, vessel: resolvedVessel, requeued });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

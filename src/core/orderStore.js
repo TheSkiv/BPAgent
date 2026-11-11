@@ -40,6 +40,13 @@ function save(db, date) {
   fs.writeFileSync(statePath(date), JSON.stringify(db, null, 1));
 }
 
+// An order id starts with its day ("2026-11-10-003"), which names the file it lives in — so an
+// order from yesterday can be opened, sent and closed without the caller knowing its date.
+function dateOf(id) {
+  const m = String(id || '').match(/^(\d{4}-\d{2}-\d{2})-/);
+  return m ? m[1] : undefined;
+}
+
 function logHistory(order, actor, action, detail) {
   order.history.push({ at: new Date().toISOString(), actor, action, detail: detail || '' });
   order.updatedAt = new Date().toISOString();
@@ -93,7 +100,8 @@ function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received
 
 // Manual operator edit (cargo/weight/BULK) — always overwrites, unlike the AI back-fill path.
 function updateOrderFields(id, { cargo, weight, bulk, grossWeight } = {}) {
-  const db    = load();
+  const date  = dateOf(id);
+  const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
   const changes = [];
@@ -103,7 +111,7 @@ function updateOrderFields(id, { cargo, weight, bulk, grossWeight } = {}) {
   if (grossWeight !== undefined) { order.grossWeight  = grossWeight; changes.push(`grossWeight → ${grossWeight}`); }
   if (!changes.length) return order;
   logHistory(order, 'operator', 'fields', changes.join(', '));
-  save(db);
+  save(db, date);
   return order;
 }
 
@@ -112,7 +120,7 @@ function listOrders(date) {
 }
 
 function getOrder(id, date) {
-  return load(date).orders.find(o => o.id === id) || null;
+  return load(date || dateOf(id)).orders.find(o => o.id === id) || null;
 }
 
 // All orders for a plate — may be more than one on the same day.
@@ -130,6 +138,7 @@ function activeOrderForPlate(plate, date) {
 // `date` (YYYY-MM-DD) addresses an earlier day's order file; default today.
 function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   if (!STATES.includes(state)) throw new Error(`Unknown order state: ${state}`);
+  date = date || dateOf(id);
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
@@ -140,8 +149,42 @@ function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   return order;
 }
 
+// Why the last filing attempt stopped, so the order can go back in line without a click:
+//   'transient'  — a KIPIS hiccup before Saugoti; a later round tries again (at most twice)
+//   'data'       — something in the order is missing or wrong; fixing the order re-queues it
+//   'after-save' — it failed after Saugoti was pressed: a draft may exist, a person looks (Rule 6)
+const AUTO_RETRY_LIMIT = 2;
+function markFailure(id, kind, { date } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  order.lastFailure = { kind, at: new Date().toISOString(), autoRetries: order.lastFailure?.autoRetries || 0 };
+  save(db, date);
+  return order;
+}
+
+// Puts a failed order back to `ready` — only one that has no PRK and did not fail after Saugoti.
+// auto: counts against AUTO_RETRY_LIMIT; an operator's fix resets the count. Returns the order
+// if it was re-queued, else null.
+function requeue(id, { actor = 'system', detail = '', auto = false, date } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order || order.state !== 'failed' || order.docs?.PRK?.number) return null;
+  const f = order.lastFailure;
+  if (!f || f.kind === 'after-save') return null;
+  if (auto && (f.kind !== 'transient' || f.autoRetries >= AUTO_RETRY_LIMIT)) return null;
+  f.autoRetries = auto ? f.autoRetries + 1 : 0;
+  order.state = 'ready';
+  logHistory(order, actor, 'state', `failed → ready${detail ? ' — ' + detail : ''}`);
+  save(db, date);
+  return order;
+}
+
 // Links a KIPIS document to the order. `number` may be null until document capture exists.
 function attachDocument(id, { type, number = null, status = 'drafted' }, { actor = 'kipis', date } = {}) {
+  date = date || dateOf(id);
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
@@ -155,6 +198,7 @@ function attachDocument(id, { type, number = null, status = 'drafted' }, { actor
 // orders can see what is already promised from a release (ROADMAP A7).
 function setLoadsFrom(id, loadsFrom, { date } = {}) {
   if (!loadsFrom) return null;
+  date = date || dateOf(id);
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
@@ -166,6 +210,7 @@ function setLoadsFrom(id, loadsFrom, { date } = {}) {
 // The dispatch email the operator sent from the dashboard (A19) — { at, terminal, to, prk,
 // subject } — so it is never sent twice.
 function setDispatchSent(id, info, { date } = {}) {
+  date = date || dateOf(id);
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
@@ -326,4 +371,5 @@ module.exports = {
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
   nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchSent,
+  markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo,
 };
