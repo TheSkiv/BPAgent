@@ -106,6 +106,7 @@
       <div><label>Cc</label><div class="addr" id="dispatchCc"></div></div>
       <div><label for="dispatchSubject">Subject</label><input id="dispatchSubject" /></div>
       <div><label for="dispatchText">Text</label><textarea id="dispatchText"></textarea></div>
+      <div id="dispatchSigWrap" style="display:none"><label>Signature (added when sent)</label><div class="sigpreview" id="dispatchSig"></div></div>
       <div id="dispatchStatus" style="font-size:13px"></div>
       <div class="row"><button class="btn quiet" id="dispatchCancel">Close</button><button class="btn go" id="dispatchSend">Send email</button></div>
     </div>
@@ -707,6 +708,9 @@
         $('dispatchTerminal').value = q.terminal;
         $('dispatchSubject').value = q.subject;
         $('dispatchText').value = q.text;
+        // The company signature comes from the server's own template (not from any email).
+        $('dispatchSig').innerHTML = q.signature || '';
+        $('dispatchSigWrap').style.display = q.signature ? '' : 'none';
         dispatchCurrent = q;
         showRecipients();
         showDispatchPdf(q);

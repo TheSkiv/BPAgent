@@ -565,7 +565,7 @@ app.get('/dispatch/preview', async (req, res) => {
         status: 'ok', bulk: true, id: order.id, date: fileDate, plate: order.plate, prk: null,
         terminal: mail.terminal, recipients: BULK_DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
         subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
-        pdf: null, sentByHand, sent: order.dispatchSent || null,
+        pdf: null, sentByHand, sent: order.dispatchSent || null, signature: dispatchEmail.signatureHtml('/bpa-logo.png'),
       });
     } catch (err) {
       return res.json({ status: 'error', message: err.message });
@@ -598,7 +598,7 @@ app.get('/dispatch/preview', async (req, res) => {
       terminal: mail.terminal, recipients: DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
       subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
       pdf: pdf && { filename: pdf.filename, bytes: pdf.buffer.length },
-      sentByHand, sent: order.dispatchSent || null,
+      sentByHand, sent: order.dispatchSent || null, signature: dispatchEmail.signatureHtml('/bpa-logo.png'),
     });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
@@ -631,7 +631,7 @@ app.post('/dispatch/send', async (req, res) => {
   const to = table[terminal];
   const raw = dispatchEmail.buildMime({
     from, to, cc: DISPATCH_CC, subject: String(subject).trim(),
-    text: String(text).replace(/\r?\n/g, '\r\n'), attachment: pdf,
+    ...dispatchEmail.withSignature(text), attachment: pdf,
   });
   try {
     const reply = await smtpSend.sendRaw(raw, { from, recipients: [...to, ...DISPATCH_CC] });

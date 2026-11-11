@@ -53,9 +53,6 @@ function composeDispatch(order, date, bagKg) {
     '',
     `Transportas: ${plates}`,
     `Vairuotojas: ${driver || '—'}`,
-    '',
-    'Pagarbiai,',
-    'UAB "BPA"',
   ].join('\r\n');
 
   return { terminal, to: DISPATCH_RECIPIENTS[terminal], cc: DISPATCH_CC, subject, text, missing };
@@ -90,9 +87,6 @@ function composeBulkDispatch(order, date, { vessel, company }) {
     `(${named}) - palaidas`,
     '',
     ...BULK_LINES,
-    '',
-    'Pagarbiai,',
-    'UAB "BPA"',
   ].join('\r\n');
   return { terminal, to: BULK_DISPATCH_RECIPIENTS[terminal], cc: DISPATCH_CC, subject, text, missing };
 }
@@ -108,8 +102,59 @@ function cargoLtName(cargo) {
   } catch { return ''; }
 }
 
-// RFC 5322 message: text/plain (+ one PDF when given), UTF-8 throughout, base64 bodies.
-function buildMime({ from, to, cc, subject, text, attachment }) {
+// The company signature, added below the operator's text when the email is sent (owner,
+// 2026-11-11): the office's own Outlook signature (Gordey Sebastjanovic's) without a person's
+// name — logo, address, phones, e-mail, web. The logo is embedded (Content-ID), not linked.
+const LOGO_PATH = path.resolve(__dirname, '../../public/bpa-logo.png');
+const LOGO_CID  = 'bpa-logo@bpa.lt';
+const CLOSING   = 'Pagarbiai,';
+const SIGNATURE = [
+  'UAB "BPA"',
+  'S.Daukanto str. 37,',
+  'LT-92229 Klaipeda, Lithuania',
+  'tel: +370-46-355770',
+  'mobile: +370-641-81754',
+  'e-mail: terminal@bpa.lt',
+  'Web: www.bpa.lt',
+];
+const FONT = "font-family:Calibri,'Segoe UI',Arial,sans-serif;font-size:11pt;color:#000000";
+const escHtml = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+function signatureText() {
+  return [CLOSING, ...SIGNATURE].join('\r\n');
+}
+
+// logoSrc: "cid:…" in the email, "/bpa-logo.png" in the dashboard preview.
+function signatureHtml(logoSrc = `cid:${LOGO_CID}`) {
+  const p = inner => `<p style="margin:0;${FONT}">${inner}</p>`;
+  const link = (href, label) => `<a href="${href}" style="color:#0563C1">${label}</a>`;
+  return [
+    p(escHtml(CLOSING)),
+    p(`<img src="${logoSrc}" width="122" height="44" alt="BPA" style="width:122px;height:44px;border:0;display:block;margin:6px 0">`),
+    ...SIGNATURE.map(line => {
+      if (line.startsWith('e-mail: ')) return p(`e-mail:&nbsp;${link('mailto:terminal@bpa.lt', 'terminal@bpa.lt')}`);
+      if (line.startsWith('Web: ')) return p(`Web:&nbsp;&nbsp;${link('http://www.bpa.lt/', 'www.bpa.lt')}`);
+      return p(escHtml(line));
+    }),
+  ].join('\n');
+}
+
+// The operator's text (as edited on the dashboard) + the signature, as plain text and as HTML.
+function withSignature(text) {
+  const body = String(text).replace(/\r?\n/g, '\r\n').trimEnd();
+  const html = `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>`
+    + body.split('\r\n').map(l => `<p style="margin:0;${FONT}">${l.trim() ? escHtml(l) : '&nbsp;'}</p>`).join('\n')
+    + `\n<p style="margin:0;${FONT}">&nbsp;</p>\n${signatureHtml()}\n</body></html>`;
+  return {
+    text: `${body}\r\n\r\n${signatureText()}`,
+    html,
+    inline: [{ cid: LOGO_CID, filename: 'bpa-logo.png', contentType: 'image/png', buffer: fs.readFileSync(LOGO_PATH) }],
+  };
+}
+
+// RFC 5322 message, UTF-8 throughout, base64 bodies. With `html`: text/plain and text/html as
+// alternatives, the `inline` images (logo) next to them, then the PDF when given.
+function buildMime({ from, to, cc, subject, text, html, inline = [], attachment }) {
   const b64lines = buf => buf.toString('base64').replace(/.{1,76}/g, '$&\r\n').trimEnd();
   const enc = s => /^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${Buffer.from(s, 'utf8').toString('base64')}?=`;
   const boundary = `----=_PortSystem_${crypto.randomBytes(12).toString('hex')}`;
@@ -124,8 +169,21 @@ function buildMime({ from, to, cc, subject, text, attachment }) {
     'MIME-Version: 1.0',
     `Content-Type: multipart/mixed; boundary="${boundary}"`,
   ];
+  const textPart = ['Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(text, 'utf8'))].join('\r\n');
+  let body = textPart;
+  if (html) {
+    const alt = `${boundary}_alt`, rel = `${boundary}_rel`;
+    const htmlPart = ['Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(html, 'utf8'))].join('\r\n');
+    const alternative = [`Content-Type: multipart/alternative; boundary="${alt}"`, '', `--${alt}`, textPart, `--${alt}`, htmlPart, `--${alt}--`].join('\r\n');
+    body = [
+      `Content-Type: multipart/related; boundary="${rel}"`, '',
+      `--${rel}`, alternative,
+      ...inline.map(i => [`--${rel}`, `Content-Type: ${i.contentType}; name="${i.filename}"`, `Content-ID: <${i.cid}>`, `Content-Disposition: inline; filename="${i.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(i.buffer)].join('\r\n')),
+      `--${rel}--`,
+    ].join('\r\n');
+  }
   const parts = [
-    [`--${boundary}`, 'Content-Type: text/plain; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', b64lines(Buffer.from(text, 'utf8'))].join('\r\n'),
+    [`--${boundary}`, body].join('\r\n'),
     ...(attachment ? [[`--${boundary}`, `Content-Type: application/pdf; name="${attachment.filename}"`, `Content-Disposition: attachment; filename="${attachment.filename}"`, 'Content-Transfer-Encoding: base64', '', b64lines(attachment.buffer)].join('\r\n')] : []),
   ];
   return Buffer.from([...headers, '', ...parts, `--${boundary}--`, ''].join('\r\n'), 'utf8');
@@ -157,4 +215,4 @@ async function alreadySent(plate) {
     && key(`${e.subject} ${e.body}`).includes(tractor));
 }
 
-module.exports = { composeDispatch, composeBulkDispatch, buildMime, appendDraft, alreadySent, cargoName };
+module.exports = { composeDispatch, composeBulkDispatch, buildMime, withSignature, signatureHtml, appendDraft, alreadySent, cargoName };

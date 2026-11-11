@@ -77,6 +77,7 @@
     'Cc': 'Kopija',
     'Subject': 'Tema',
     'Text': 'Tekstas',
+    'Signature (added when sent)': 'Parašas (pridedamas siunčiant)',
     'Send email': 'Siųsti laišką',
     'Writing the email…': 'Rašomas laiškas…',
     'None — the PRK follows the loaded weight': 'Nėra — PRK bus pateiktas po pakrauto svorio',

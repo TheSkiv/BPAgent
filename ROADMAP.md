@@ -609,6 +609,19 @@ Send and the KIPIS MFA code.
   listing them. Fixed: the run now reads (read-only, universal search) the real status of any
   listed draft KIPIS no longer shows as Ruošiamas, records it, and reports it as "already used,
   kept". The two stale records were corrected by hand from KIPIS's answer.
+- [x] **S26. Dispatch emails carry the BPA signature — built 2026-11-11 (owner's request).** The
+  emails ended in a bare "Pagarbiai, UAB "BPA"". Now they end in the office's own Outlook
+  signature (taken from Gordey Sebastjanovic's, quoted in the terminal's reply threads) without
+  a person's name: "Pagarbiai,", the BPA logo, UAB "BPA", S.Daukanto str. 37, LT-92229 Klaipeda,
+  tel +370-46-355770, mobile +370-641-81754, e-mail terminal@bpa.lt, www.bpa.lt — Calibri,
+  links in Outlook blue. The email is now HTML with a plain-text copy; the logo
+  (`public/bpa-logo.png`, 123×45) is embedded (Content-ID), not linked; the PRK PDF stays a
+  normal attachment. The signature is added at Send (`dispatchEmail.withSignature`), so the
+  editable text no longer has the closing lines; the send window shows it under the text
+  ("Parašas (pridedamas siunčiant)"). Checked: a built message parses back with text + HTML +
+  inline logo + PDF and no personal name; the window shows it with the logo. Owner approved the
+  look in the send window (2026-11-11). Not yet seen in a recipient's mail client — the next
+  real Send is the first.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
