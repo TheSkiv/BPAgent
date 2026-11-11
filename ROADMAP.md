@@ -622,6 +622,39 @@ Send and the KIPIS MFA code.
   inline logo + PDF and no personal name; the window shows it with the logo. Owner approved the
   look in the send window (2026-11-11). Not yet seen in a recipient's mail client — the next
   real Send is the first.
+- [x] **S27. The release number on the važtaraštis before printing — built 2026-11-11 (owner's
+  request).** "For us and the client to know which release it belongs to." The važtaraštis comes
+  as a PDF with the order email (Agrokoncernas "Važtaraštis-N.pdf", Linas Agro
+  "LAV…PackSlip_….pdf"); without one the office issues its own CMR in Avilda (CMR: owner will
+  send examples — not built). Owner's decisions: stamp the PDF (new npm package **pdf-lib**
+  1.17.1, MIT, approved); one line below everything else; Helm prints "Release N", Yara all three
+  numbers (Invoice, Delivery, Contract). The release lists (`owners.fetchReleases`) now keep
+  those columns. `src/core/releaseStamp.js`: the order's release(s) from its recorded release
+  line (`loadsFrom.releaseKey`) or, unfiled, from company + cargo; own cargo has none. Before
+  stamping it reads the PDF (pdfjs-dist, already present via pdf-parse): a release already on it
+  — as a whole number token, dashes ignored (Linas Agro prints "Krovos numeris 2282853" for Helm
+  228285-3) — leaves it unchanged. Order window: per PDF attachment "✓ … already on it" + Print,
+  or "Print with Release N" (one button per release when the order could be on more than one —
+  Linas Agro's TSP line holds 228285-3 and 256589; the waybill decides, not a guess). In memory
+  only, opened in the browser for printing; nothing saved (like D10). Checked: MML743's
+  važtaraštis gets "Release 273870" under the last line; NGZ189's is found to carry 228285-3;
+  LLE718 (own cargo) gets none. **Limit:** the order window finds the source email only for
+  today's orders (`emailCache` is per day), so yesterday's trucks show no attachments.
+  From the owner's CMR examples (Avilda printouts, scanned): the office already types the release
+  into CMR box 5, Yara as "Inv 0620860510 / DL 697302240 / Kont 30289178". Hence (1) the
+  "already on it" check ignores leading zeros, (2) Yara's line is now written the office's way,
+  "Inv. … / DL … / Kont. …" (Helm stays "Release N"). Tested against that box-5 text.
+- [ ] **S28. PortSystem prints the CMR instead of Avilda — decided 2026-11-11, not built.** For a
+  truck with no važtaraštis attached, the office issues a CMR in Avilda, which prints straight to
+  paper. Owner: "print out the same style CMRs instead of Avilda — fill in all the data". Owner's
+  decisions: (a) sender / consignee / place of delivery / carrier come from a table filled once
+  **per release**; Agrokoncernas is the exception — new farmers' addresses come in the order
+  email, so PortSystem pre-fills from the email; the operator always checks before printing;
+  (b) the corner number is free-form — initials + date + series, e.g. D111101 / A111102;
+  (c) Avilda keeps a register of issued CMRs, so PortSystem keeps its own; (d) box 10 (customs
+  statistical number, e.g. 31052090) from a table per product; (e) new npm package
+  @pdf-lib/fontkit approved, to print Lithuanian letters in Arial. Layout to match the owner's
+  examples (`Y:\Scaner_Agensy\CMR templates.pdf`, 27 boxes, A4).
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

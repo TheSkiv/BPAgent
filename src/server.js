@@ -1264,6 +1264,47 @@ app.get('/order-email', (req, res) => {
   res.json(data);
 });
 
+// The release on the waybill (owner, 2026-11-11). GET /order/releases: the order's possible
+// releases and, for each PDF attachment of its email, the release it already shows (if any).
+// GET /order/waybill: that PDF ready to print — with the chosen release added, or unchanged when
+// it already shows one. In memory only; nothing is saved on the PC.
+const releaseStamp = require('./core/releaseStamp');
+app.get('/order/releases', async (req, res) => {
+  const { id, messageId } = req.query;
+  const order = id && orderStore.getOrder(String(id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  try {
+    const { own, releases } = await releaseStamp.releasesFor(order);
+    const checks = {};
+    for (const a of String(req.query.attachments || '').split('|').filter(x => /\.pdf$/i.test(x))) {
+      try {
+        const found = await releaseStamp.checkWaybill(await fetchAttachmentBytes(messageId, a), releases);
+        checks[a] = found ? found.id : null;
+      } catch (err) { checks[a] = { error: err.message }; }
+    }
+    res.json({ status: 'ok', own, releases: releases.map(r => ({ id: r.id, text: r.text, vessel: r.vessel, remainingKg: r.remainingKg })), checks });
+  } catch (err) {
+    res.json({ status: 'error', message: err.message });
+  }
+});
+
+app.get('/order/waybill', async (req, res) => {
+  const { id, messageId, attachmentId, release } = req.query;
+  const order = id && orderStore.getOrder(String(id));
+  if (!order) return res.status(404).send('Order not found');
+  if (!messageId || !/\.pdf$/i.test(String(attachmentId || ''))) return res.status(400).send('A PDF attachment is needed');
+  try {
+    const { releases } = await releaseStamp.releasesFor(order);
+    const r = await releaseStamp.prepareWaybill(await fetchAttachmentBytes(messageId, attachmentId), releases, String(release || ''));
+    if (r.stamped) console.log(`Waybill: ${order.plate} ${attachmentId} — ${r.stamped.text} added for printing`);
+    const safe = String(attachmentId).replace(/[^a-zA-Z0-9._-]/g, '_');
+    res.setHeader('Content-Disposition', `inline; filename="${safe}"`);
+    res.type('application/pdf').send(r.buffer);
+  } catch (err) {
+    res.status(500).send(`Could not prepare the waybill: ${err.message}`);
+  }
+});
+
 const ATTACHMENT_CONTENT_TYPES = {
   pdf:  'application/pdf',
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

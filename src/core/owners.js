@@ -64,7 +64,7 @@ function fetchJson(url) {
 
 let _releases = null, _releasesAt = 0;
 
-// Every seller's release rows: { seller, buyer, product, vessel, remainingKg, bulk }.
+// Every seller's release rows: { numbers, seller, buyer, product, vessel, remainingKg, bulk }.
 // All-or-nothing, like the stock reports: a missing seller would make its buyers look release-less.
 async function fetchReleases() {
   if (_releases && Date.now() - _releasesAt < RELEASES_TTL_MS) return _releases;
@@ -76,8 +76,12 @@ async function fetchReleases() {
     const [headers, ...rest] = rows;
     const col = name => headers.findIndex(h => String(h).trim().toLowerCase() === name.toLowerCase());
     const c = { buyer: col('Gavėjas'), product: col('Produktas'), vessel: col('Laivas'), netto: col('Likutis Netto'), bags: headers.findIndex(h => /^likutis (b\.b\.|vnt\.)$/i.test(String(h).trim())) };
+    // The release's own numbers, printed on the waybill (owner, 2026-11-11): Helm has one
+    // ("Release"); Yara has three (Invoice, Delivery, Contract) — all three are printed.
+    const numberCols = ['Release', 'Invoice', 'Delivery', 'Contract'].map(label => ({ label, i: col(label) })).filter(n => n.i >= 0);
     return rest
       .map(r => ({
+        numbers:     numberCols.map(n => ({ label: n.label, value: String(r[n.i] || '').trim() })).filter(n => n.value),
         seller:      s.name,
         buyer:       String(r[c.buyer] || '').trim(),
         product:     String(r[c.product] || '').trim(),

@@ -82,6 +82,7 @@
       <div><label>Email</label><div id="modalSubject" style="font-weight:600"></div><div class="muted" id="modalFrom" style="font-size:12px"></div></div>
       <div class="mailbody" id="modalBodyText"></div>
       <div id="modalAttachments" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+      <div id="modalRelease" class="release-box" style="display:none"></div>
       <div class="grid2">
         <div><label for="modalCargoInput">Cargo</label><input id="modalCargoInput" /></div>
         <div><label for="modalWeightInput">Weight, kg</label><input id="modalWeightInput" inputmode="numeric" /></div>
@@ -620,6 +621,7 @@
       $('modalFrom').textContent = '';
       $('modalBodyText').textContent = t('Loading the email…');
       $('modalAttachments').innerHTML = '';
+      $('modalRelease').style.display = 'none'; $('modalRelease').innerHTML = '';
       $('modalCargoInput').value = o.cargo || '';
       $('modalWeightInput').value = o.weight || '';
       $('modalGrossWeightInput').value = o.grossWeight || '';
@@ -638,7 +640,40 @@
         $('modalBodyText').textContent = (d.body || '').trim() || t('(empty email)');
         $('modalAttachments').innerHTML = (d.attachments || []).map(a =>
           `<a class="btn small" target="_blank" rel="noopener" href="/download-attachment?messageId=${encodeURIComponent(d.messageId)}&attachmentId=${encodeURIComponent(a.attachmentId)}&filename=${encodeURIComponent(a.filename || 'attachment')}">${esc(a.filename || t('attachment'))}</a>`).join('');
+        loadReleases(o, d);
       } catch (err) { $('modalBodyText').textContent = t('Network error: {msg}', { msg: err.message }); }
+    }
+
+    // The release on each waybill PDF: already printed on it, or a button that opens it for
+    // printing with the release added (one button per release when the order could be either).
+    async function loadReleases(o, d) {
+      const box = $('modalRelease');
+      const pdfs = (d.attachments || []).filter(a => /\.pdf$/i.test(a.filename || a.attachmentId || ''));
+      box.style.display = 'none'; box.innerHTML = '';
+      if (!pdfs.length) return;
+      box.style.display = '';
+      box.innerHTML = `<label>${t('Release')}</label><div class="muted">${t('Checking the waybill…')}</div>`;
+      try {
+        const q = new URLSearchParams({ id: o.id, messageId: d.messageId, attachments: pdfs.map(a => a.attachmentId).join('|') });
+        const r = await getJson('/order/releases?' + q);
+        if (currentOrder !== o) return;
+        if (r.status !== 'ok') { box.innerHTML = `<label>${t('Release')}</label><div class="err">${esc(t(r.message))}</div>`; return; }
+        const url = (a, rel) => '/order/waybill?' + new URLSearchParams({ id: o.id, messageId: d.messageId, attachmentId: a.attachmentId, release: rel || '' });
+        const name = a => esc(a.filename || a.attachmentId);
+        const rows = pdfs.map(a => {
+          const c = r.checks[a.attachmentId];
+          if (c && c.error) return `<div class="release-row"><span>${name(a)}</span><span class="err">${esc(c.error)}</span></div>`;
+          if (c) {
+            const rel = r.releases.find(x => x.id === c);
+            return `<div class="release-row"><span>${name(a)}</span><span class="ok">✓ ${esc(t('{release} is already on it', { release: rel ? rel.text : '' }))}</span><a class="btn small" target="_blank" rel="noopener" href="${url(a)}">${t('Print')}</a></div>`;
+          }
+          if (r.own) return `<div class="release-row"><span>${name(a)}</span><span class="muted">${t('Own cargo — no release')}</span></div>`;
+          if (!r.releases.length) return `<div class="release-row"><span>${name(a)}</span><span class="warn">${t('No release found for this order')}</span></div>`;
+          const buttons = r.releases.map(rel => `<a class="btn primary small" target="_blank" rel="noopener" href="${url(a, rel.id)}" title="${esc(`${rel.vessel} · ${Math.round(rel.remainingKg / 1000)} t ${t('left')}`)}">${esc(t('Print with {release}', { release: rel.text }))}</a>`).join('');
+          return `<div class="release-row"><span>${name(a)}</span>${r.releases.length > 1 ? `<span class="warn">${t('Which release? Pick one:')}</span>` : ''}${buttons}</div>`;
+        });
+        box.innerHTML = `<label>${t('Release')}</label>` + rows.join('');
+      } catch (err) { box.innerHTML = `<label>${t('Release')}</label><div class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</div>`; }
     }
     $('modalSaveBtn').addEventListener('click', async () => {
       if (!currentOrder) return;
