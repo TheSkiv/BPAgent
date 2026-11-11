@@ -3,7 +3,6 @@ const express       = require('express');
 const path          = require('path');
 const { openKipis, getPage, probeSession, sessionStatus } = require('./core/browser');
 const kipisLoad     = require('../KIPIS_skills/PRK/kipisLoad');
-const kipisTest     = require('./actions/kipisTest');
 const gmailRoute    = require('./routes/gmailRoute');
 const { markDone, isDone } = require('./core/doneTracker');
 const { todayString } = require('./core/dateManager');
@@ -117,10 +116,18 @@ app.get('/kipis/status', async (req, res) => {
   res.json(s);
 });
 
+// One login at a time: the button and the automatic opening share it (two at once would both
+// type into the same login page).
+let kipisOpening = null;
+function openKipisOnce() {
+  if (!kipisOpening) kipisOpening = openKipis().finally(() => { kipisOpening = null; });
+  return kipisOpening;
+}
+
 app.post('/open-kipis', async (req, res) => {
   console.log('Received request: open-kipis');
   try {
-    await openKipis();
+    await openKipisOnce();
     res.json({ status: 'ok' });
   } catch (err) {
     console.error('open-kipis failed:', err.message);
@@ -446,7 +453,7 @@ function listedPrkFor(order, listed) {
 
 // ── A12: filing without a click ──────────────────────────────────────────────
 // Mail intake stays manual (RECHECK, D1); filing runs by itself: right after each RECHECK, and
-// every 15 minutes during the shift (08:00–18:00) for anything that became ready in between
+// every minute during the shift (08:00–18:00, shiftTick) for anything that became ready in between
 // (e.g. a sender the operator confirmed). Skips quietly when there is nothing ready, when another
 // KIPIS job is running (the next tick catches up) or when KIPIS is not logged in.
 const AUTO_FILE_HOURS = [8, 18];
@@ -656,10 +663,39 @@ async function autoRound(reason) {
 
 const inShift = () => { const h = new Date().getHours(); return h >= AUTO_FILE_HOURS[0] && h < AUTO_FILE_HOURS[1]; };
 
-setInterval(() => {
-  if (!inShift()) return;
-  autoRound('shift timer').catch(err => console.error('Auto round:', err.message));
-}, 15 * 60 * 1000);
+// The shift tick, once a minute 08:00–18:00. It used to be a round every 15 minutes: after a KIPIS
+// login, or while the operator was using the KIPIS window, a ready truck waited up to 15 minutes
+// (seen 2026-11-11). Now:
+//   - KIPIS closed or logged out → open it and type the login, so only the MFA code is left for
+//     a person (KIPIS_AUTO_OPEN=false in .env turns this off);
+//   - something ready → file it (a no-op when nothing is ready or KIPIS is busy);
+//   - drafts waiting for Pateikti → read the PRK list at most every WATCH_EVERY_MS.
+const KIPIS_AUTO_OPEN = process.env.KIPIS_AUTO_OPEN !== 'false';
+const WATCH_EVERY_MS  = 5 * 60 * 1000;
+let ticking = false, lastWatchRun = 0;
+async function shiftTick() {
+  if (!inShift() || ticking) return;
+  ticking = true;
+  try {
+    if (KIPIS_AUTO_OPEN && !kipisOpening && !isRunning && (!kipisOpen() || sessionStatus().state === 'login')) {
+      console.log('KIPIS is not logged in — opening the login; waiting for the MFA code');
+      openKipisOnce().catch(err => console.error('Automatic KIPIS login:', err.message));
+      return;
+    }
+    retryStopped();
+    await autoFile('shift timer');
+    if (Date.now() - lastWatchRun >= WATCH_EVERY_MS) {
+      const w = await runWatch('shift timer', true);
+      if (w && !w.skipped) lastWatchRun = Date.now();
+    }
+  } catch (err) {
+    console.error('Shift tick:', err.message);
+  } finally {
+    ticking = false;
+  }
+}
+setInterval(shiftTick, 60 * 1000);
+setTimeout(shiftTick, 10 * 1000);   // and right after start
 
 // Mail is checked by the server itself (operator, 2026-11-10 — reverses D1): every
 // MAIL_CHECK_MINUTES (default 5; 0 turns it off), round the clock, because a check reads today's
@@ -1217,24 +1253,8 @@ app.post('/set-cargo', (req, res) => {
   }
 });
 
-app.post('/run', async (req, res) => {
-  const { action, value } = req.body;
-  if (!action || !value) return res.json({ status: 'error', message: 'Missing action or value' });
-
-  console.log(`Received request: ${action} | ${value}`);
-
-  try {
-    switch (action) {
-      case 'kipisLoad': await kipisLoad.run({ plate: value }); break;
-      case 'kipisTest': await kipisTest.run({ value }); break;
-      default: throw new Error(`Unknown action: ${action}`);
-    }
-    res.json({ status: 'ok' });
-  } catch (err) {
-    console.error(`Action "${action}" failed:`, err.message);
-    res.json({ status: 'error', message: err.message });
-  }
-});
+// The legacy POST /run (ran kipisLoad with no session or busy check) was removed 2026-11-11 —
+// nothing called it. Filing goes through /run-prk and the queue.
 
 const PORT = 3001;
 app.listen(PORT, () => {

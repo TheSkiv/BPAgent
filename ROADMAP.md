@@ -490,17 +490,41 @@ Send and the KIPIS MFA code.
   yesterday". An order id starts with its day, and the order store now finds the day file from
   the id (`dateOf`), so Send email and Mark done work on them. Not carried: yesterday's trucks
   that never got a PRK, and bulk trucks.
-- [ ] **S7. Spot Pateikti sooner** — the watch runs every 15 min, 08–18 only.
+- [x] **S7. Faster rounds — built 2026-11-11.** The 15-minute round is now a one-minute
+  `shiftTick` (08:00–18:00): a ready truck is filed within a minute of KIPIS being free (seen
+  live: the round ran one minute after login), and the Pateikti watch reads the PRK list every
+  5 minutes while drafts wait. Before, a truck waited up to 15 minutes after a KIPIS login.
 - [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
 - [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
-- [ ] **S10. Open KIPIS at server start**, alert on logout — only the MFA code stays human.
+- [x] **S10. KIPIS opened by the server — built 2026-11-11.** During the shift, if the KIPIS
+  window is closed or logged out, `shiftTick` opens it and types the login; only the MFA code is
+  left for a person (`KIPIS_AUTO_OPEN=false` in `.env` turns it off). One login at a time
+  (`openKipisOnce`, shared with the button). Seen live after a restart: KIPIS came back logged in
+  with no code asked. Not yet seen: a real logout with the MFA prompt.
 - [x] **S11. Start with Windows, restart after a crash (A14)** — built 2026-11-11, see A14.
 - [ ] **S12. Driver check-in and plate change (A16 + A20).**
 - [ ] **S13. Trust a whole company domain** instead of one address at a time — operator's
   decision (sender addresses can be forged).
-- [ ] **S14. Clean-up:** remove the unguarded legacy `POST /run`; file from the order record
-  instead of the Excel row.
+- [~] **S14. Clean-up.** Legacy `POST /run` removed 2026-11-11. Still open: file from the order
+  record instead of the Excel row.
 - [ ] **S15. Browser login for staff (D5).**
+
+#### Found in the live run of 2026-11-11 — operator decisions needed
+- [ ] **S16. A truck ordered again the next day is matched to yesterday's PRK.** MOB272//PS118
+  loaded on 2026-11-10 (PRK 261110-002973, Užbaigtas) and was ordered again on 2026-11-11 at
+  10:04. The list check (A5, `listedPrkFor`) looks back 2 days, found yesterday's finished PRK
+  and closed today's order as "already filed" — no PRK was made. The lot check (Rule 6,
+  `isRecentDoc`, also 2 days) would do the same. Proposed rule: a document from an **earlier
+  day** that is finished (PRK Atliktas/Užbaigtas/Anuliuotas, or a VZT/KDA) belongs to the
+  earlier trip and does not block a newer order. This changes Rule 6 in `KIPIS_skills/RULES.md`
+  — the operator decides. Until then: check same-plate repeat orders by hand.
+- [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
+  `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
+  Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
+  2026-11-11). Option: set `submitted` instead, so the email step stays visible.
+- [ ] **S18. Orders that arrive while the server is down are filed by people, then show as
+  ready.** Worked correctly on 2026-11-11 (6 trucks, all found in KIPIS and not duplicated), but
+  the dashboard said "ready" for them until the first round ran.
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

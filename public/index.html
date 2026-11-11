@@ -39,11 +39,11 @@
         </div>
         <div class="auto-row">
           <div class="head">Filing PRK drafts <button class="btn small" id="fileAllBtn" title="Files every ready truck now, oldest first">File all now</button></div>
-          <div class="line" id="autoFileLine">When new trucks arrive and every 15 min, 08–18.</div>
+          <div class="line" id="autoFileLine">Within a minute of a truck being ready, 08–18.</div>
         </div>
         <div class="auto-row">
           <div class="head">Spotting your Pateikti <button class="btn small" id="watchBtn" title="Reads KIPIS's PRK list for drafts you have submitted">Check now</button></div>
-          <div class="line" id="watchLine">Every 15 min, 08–18.</div>
+          <div class="line" id="watchLine">Every 5 min, 08–18.</div>
         </div>
         <div class="auto-row">
           <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
@@ -489,7 +489,8 @@
         const missed = r.missed || [];
         $('missedBox').innerHTML = missed.length
           ? `<div class="line"><span class="warn">Check by hand — has plates, not read as an order:</span></div>`
-            + missed.map(x => `<div class="line">${esc(x.subject)} <span class="muted">— ${esc(x.from)} (${esc((x.plates || []).join(', '))})</span></div>`).join('')
+            + [...missed.reduce((m, x) => { const k = x.subject + '|' + x.from; m.set(k, { ...x, n: (m.get(k)?.n || 0) + 1 }); return m; }, new Map()).values()]
+                .map(x => `<div class="line">${esc(x.subject)}${x.n > 1 ? ` ×${x.n}` : ''} <span class="muted">— ${esc(x.from)} (${esc((x.plates || []).join(', '))})</span></div>`).join('')
             + `<button class="btn small" id="missedSeenBtn">I have checked them</button>`
           : '';
         if (missed.length) $('missedSeenBtn').addEventListener('click', async () => { await postJson('/gmail/missed/clear'); loadMail(); });
