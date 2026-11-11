@@ -503,7 +503,9 @@ Send and the KIPIS MFA code.
   Send.
   **Operator, 2026-11-11: the emails are usually sent from Outlook today; the goal is to send
   them from the dashboard.** So the dashboard's Send has to be the quicker way.
-- [~] **S20. Send email appears right after Pateikti — built 2026-11-11, not yet seen live.** The
+- [x] **S20. Send email appears right after Pateikti — built 2026-11-11. Seen live the same day:
+  MOB272//PS118 moved to submitted by the read "after your Pateikti" and its PDF was in memory
+  within two minutes (S8 seen live too).** The
   Send button used to appear only after the next PRK-list read (up to 5 minutes, plus the
   3-minute wait while the operator uses the KIPIS window) — long enough to send from Outlook
   instead. The page guard now notes the operator's own Pateikti click (`__kipisPateiktiAt`;

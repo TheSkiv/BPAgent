@@ -679,7 +679,7 @@ async function prepareDispatches() {
     .filter(o => o.state === 'submitted' && !o.bulk && !o.dispatchSent && o.docs?.PRK?.number
       && dispatchPdfs.get(o.id)?.number !== o.docs.PRK.number)
     .slice(0, 3);
-  if (!waiting.length || await autoBlocked()) return;
+  if (!waiting.length || await autoBlocked(AFTER_PATEIKTI_QUIET_MS)) return;   // the operator has just pressed Pateikti: a short wait is enough
   isRunning = true;
   try {
     const page = getPage();
