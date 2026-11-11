@@ -550,6 +550,14 @@ Send and the KIPIS MFA code.
   (`BENZ//JZG061//HP913//LP-154702`, 2026-11-11). Run against all 941 plate tokens stored since
   July: only non-plates were dropped. Not changed: the model still decides what is a truck row;
   a row with no truck number is simply not an order until an email names the truck.
+- [x] **S22. The dispatch-email window shows the text at once — built 2026-11-11.** The operator
+  saw an empty window for 5–10 s after "Send email" / "Order loading" and thought the email
+  was being written by AI. It is not (the text is a template); the wait was the PRK PDF fetched
+  from KIPIS (about 8 s when not already in memory, e.g. after a restart) plus the inbox check
+  for a hand-sent copy (about 1.3 s). `GET /dispatch/preview?quick=1` now returns the text
+  without either (about 0.1 s); the dashboard shows it, says it is getting the PDF, then asks
+  again for the PDF and the warnings. Send stays off until that second step is done. Timed on
+  MOB272//PS118 and NCB196//LR111; the owner confirmed it in the browser (2026-11-11).
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

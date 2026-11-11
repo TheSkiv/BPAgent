@@ -547,6 +547,9 @@ async function bulkVessel(order) {
 
 app.get('/dispatch/preview', async (req, res) => {
   const { id, date } = req.query;
+  // quick=1 returns the text at once, without the KIPIS PDF fetch and the inbox check (seconds),
+  // so the dialog never sits empty; the dashboard then asks again for the rest.
+  const quick = req.query.quick === '1';
   const { order, error } = dispatchOrder(id, date);
   if (error) return res.status(404).json({ error });
   if (order.bulk) {
@@ -557,7 +560,7 @@ app.get('/dispatch/preview', async (req, res) => {
       if (v.vessels.length > 1) mail.missing.push(`check the vessel (${v.vessels.join(', ')})`);
       if (v.why) mail.missing.push(`vessel not found — ${v.why}`);
       let sentByHand = false;
-      try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
+      if (!quick) try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
       return res.json({
         status: 'ok', bulk: true, id: order.id, date: fileDate, plate: order.plate, prk: null,
         terminal: mail.terminal, recipients: BULK_DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
@@ -570,7 +573,7 @@ app.get('/dispatch/preview', async (req, res) => {
   }
   const number = order.docs.PRK.number;
   try {
-    if (!dispatchPdfs.has(order.id) || dispatchPdfs.get(order.id).number !== number) {
+    if (!quick && (!dispatchPdfs.has(order.id) || dispatchPdfs.get(order.id).number !== number)) {
       if (isRunning) return res.json({ status: 'error', message: 'Another KIPIS job is running — try again in a moment.' });
       const notReady = await kipisNotReady();
       if (notReady) return res.json({ status: 'error', message: notReady });
@@ -587,13 +590,14 @@ app.get('/dispatch/preview', async (req, res) => {
     const fileDate = date || orderStore.dateOf(order.id) || todayString();
     const mail = dispatchEmail.composeDispatch(order, fileDate, getBagKg(order.cargo));
     let sentByHand = false;
-    try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
-    const pdf = dispatchPdfs.get(order.id);
+    if (!quick) try { sentByHand = await dispatchEmail.alreadySent(order.plate); } catch { /* inbox unreachable: no warning */ }
+    const cached = dispatchPdfs.get(order.id);
+    const pdf = cached && cached.number === number ? cached : null;
     res.json({
-      status: 'ok', id: order.id, date: fileDate, plate: order.plate, prk: number,
+      status: 'ok', quick, id: order.id, date: fileDate, plate: order.plate, prk: number,
       terminal: mail.terminal, recipients: DISPATCH_RECIPIENTS, cc: DISPATCH_CC,
       subject: mail.subject, text: mail.text.replace(/\r\n/g, '\n'), missing: mail.missing,
-      pdf: { filename: pdf.filename, bytes: pdf.buffer.length },
+      pdf: pdf && { filename: pdf.filename, bytes: pdf.buffer.length },
       sentByHand, sent: order.dispatchSent || null,
     });
   } catch (err) {

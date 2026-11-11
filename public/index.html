@@ -636,39 +636,58 @@
     $('dispatchCancel').addEventListener('click', () => $('dispatchModal').classList.remove('open'));
     $('dispatchModal').addEventListener('click', e => { if (e.target === $('dispatchModal')) $('dispatchModal').classList.remove('open'); });
 
+    let dispatchSeq = 0;
+    function dispatchWarnings(r) {
+      const warns = [];
+      if (r.sent) warns.push(`Already sent from here at ${hhmm(r.sent.at)}.`);
+      if (r.sentByHand) warns.push('An email for this truck already went to the terminal today — check before sending again.');
+      if (r.missing?.length) warns.push(`Missing: ${r.missing.join(', ')} — add it to the text.`);
+      $('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${esc(w)}</div>`).join('');
+    }
+    function showDispatchPdf(r) {
+      if (r.pdf) {
+        $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
+        $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
+      } else {
+        $('dispatchPdf').textContent = r.bulk ? 'None — the PRK follows the loaded weight' : 'Getting the PRK PDF from KIPIS…';
+        $('dispatchPdf').removeAttribute('href');
+      }
+    }
+    // Two steps: the text appears at once; the PDF from KIPIS and the check for an email already
+    // sent by hand take a few seconds, and Send stays off until they are done.
     async function openDispatch(id) {
+      const seq = ++dispatchSeq;
       dispatchCurrent = null;
       $('dispatchModal').classList.add('open');
       $('dispatchTitle').textContent = 'Dispatch email';
       $('dispatchWarn').innerHTML = '';
-      $('dispatchStatus').textContent = 'Preparing the email…';
+      $('dispatchStatus').textContent = 'Writing the email…';
       $('dispatchSend').disabled = true;
       ['dispatchTo', 'dispatchCc', 'dispatchPdf'].forEach(x => { $(x).textContent = ''; });
       $('dispatchSubject').value = ''; $('dispatchText').value = '';
       try {
+        const q = await getJson('/dispatch/preview?quick=1&id=' + encodeURIComponent(id));
+        if (seq !== dispatchSeq) return;
+        if (q.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(q.message || q.error)}</span>`; return; }
+        $('dispatchTitle').innerHTML = `${q.bulk ? 'Loading order' : 'Dispatch email'} · <span class="mono">${esc(q.plate)}</span>`;
+        $('dispatchTerminal').value = q.terminal;
+        $('dispatchSubject').value = q.subject;
+        $('dispatchText').value = q.text;
+        dispatchCurrent = q;
+        showRecipients();
+        showDispatchPdf(q);
+        dispatchWarnings(q);
+        $('dispatchStatus').innerHTML = `<span class="muted">${q.bulk ? 'Checking whether this truck was already emailed today…' : 'Getting the PRK PDF from KIPIS and checking the inbox — Send turns on in a few seconds. You can read and edit the text meanwhile.'}</span>`;
+
         const r = await getJson('/dispatch/preview?id=' + encodeURIComponent(id));
+        if (seq !== dispatchSeq) return;
         if (r.status !== 'ok') { $('dispatchStatus').innerHTML = `<span class="err">${esc(r.message || r.error)}</span>`; return; }
         dispatchCurrent = r;
-        $('dispatchTitle').innerHTML = `${r.bulk ? 'Loading order' : 'Dispatch email'} · <span class="mono">${esc(r.plate)}</span>`;
-        $('dispatchTerminal').value = r.terminal;
-        $('dispatchSubject').value = r.subject;
-        $('dispatchText').value = r.text;
-        if (r.pdf) {
-          $('dispatchPdf').textContent = `${r.pdf.filename} (${Math.round(r.pdf.bytes / 1024)} KB)`;
-          $('dispatchPdf').href = '/dispatch/pdf?id=' + encodeURIComponent(r.id);
-        } else {
-          $('dispatchPdf').textContent = 'None — the PRK follows the loaded weight';
-          $('dispatchPdf').removeAttribute('href');
-        }
-        showRecipients();
-        const warns = [];
-        if (r.sent) warns.push(`Already sent from here at ${hhmm(r.sent.at)}.`);
-        if (r.sentByHand) warns.push('An email for this truck already went to the terminal today — check before sending again.');
-        if (r.missing?.length) warns.push(`Missing: ${r.missing.join(', ')} — add it to the text.`);
-        $('dispatchWarn').innerHTML = warns.map(w => `<div class="warn">${esc(w)}</div>`).join('');
+        showDispatchPdf(r);
+        dispatchWarnings(r);
         $('dispatchStatus').textContent = '';
         $('dispatchSend').disabled = !!r.sent;
-      } catch (err) { $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
+      } catch (err) { if (seq === dispatchSeq) $('dispatchStatus').innerHTML = `<span class="err">Network error: ${esc(err.message)}</span>`; }
     }
     $('dispatchSend').addEventListener('click', async () => {
       const r = dispatchCurrent;
