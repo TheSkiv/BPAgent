@@ -573,6 +573,23 @@ Send and the KIPIS MFA code.
   smaller letter-spacing on the step names, side column 300 → 320 px, balanced wrapping on
   status labels, and shorter LT titles/buttons in "Runs by itself" (e.g. "Juodraščių šalinimas",
   "Šalinti visus"). Measured at 1366 and 1920 px in LT and EN; owner confirmed it in the browser (2026-11-11).
+- [x] **S24. A closed truck came back as a second order — fixed 2026-11-11.** UHB sends an
+  updated table for the day that still lists trucks already ordered. The operator closed
+  NCB196//LR111 (`Mark done`) and a second NCB196 order appeared at once. Cause:
+  `orderStore.syncFromExcel` (run on every `/pipeline` load) links each Excel row to the
+  *latest* cached email naming the plate (the updated table), so its key differed from the
+  order's, and once the order was closed the "open truck blocks a repeat" rule no longer held.
+  The Excel has one row per plate per day, so the sync now skips any plate that already has a
+  record today. Checked: a `/pipeline` load after the restart created nothing. The duplicate
+  (2026-11-11-022) was closed with Mark done at the owner's request.
+  **Owner's decision (2026-11-11): same sender + same subject = same truck.** An updated table
+  that arrives *after* a truck is closed no longer makes a second order: `ensureOrder` returns
+  the closed record when the sender address matches and the subject matches once
+  Re:/Fw:/Fwd:/AW:/SV:/ATS:/PERS: and leading punctuation are dropped. A different subject from
+  the same sender, or another sender, still counts as a new trip. Run against all 16 day files:
+  of 25 same-day repeats, none that the rule now merges ever got two PRKs. Caveat: Rotogran keeps
+  one thread ("Re: MOP imonei Rotogran") all day, so a real second trip of the same truck in that
+  thread would be missed; none in the data so far.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

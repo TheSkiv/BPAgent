@@ -59,6 +59,10 @@ function identityKey(plate, messageId, cargo) {
   return `${normalizePlate(plate)}|${messageId || 'nomsg'}|${messageId ? '' : String(cargo || '').toLowerCase()}`;
 }
 
+const senderAddress = from => (String(from || '').match(/<([^>]+)>/) || [, from || ''])[1].trim().toLowerCase();
+// "RE: Fw: : Release 291568  DAP" and "Release 291568 DAP" are one thread.
+const threadSubject = s => String(s || '').replace(/^(\s*(re|fw|fwd|aw|sv|ats|pers)\s*:|\s*[:\-–—]+)+/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
 function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received, messageId, subject, state }) {
   if (!plate) return null;
   const db = load();
@@ -70,6 +74,14 @@ function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received
   // trip and get its own record.
   const activeExisting = db.orders.find(o => o.plateNorm === normalizePlate(plate) && !CLOSED_STATES.includes(o.state));
   if (activeExisting) return activeExisting;
+
+  // A closed truck named again by the same sender under the same subject is an updated order
+  // table, not a second trip (owner's rule, 2026-11-11: UHB re-sends "Release 291568 DAP …" with
+  // the trucks already ordered still in it). A different subject still counts as a new trip.
+  const sameThread = subject && db.orders.find(o => o.plateNorm === normalizePlate(plate)
+    && senderAddress(o.email?.from) === senderAddress(sender)
+    && threadSubject(o.email?.subject) === threadSubject(subject));
+  if (sameThread) return sameThread;
 
   const key = identityKey(plate, messageId, cargo);
   const existing = db.orders.find(o => o.key === key);
@@ -267,6 +279,10 @@ function prkNumbersFiled({ minAgeDays = 0, maxAgeDays = 30 } = {}) {
 
 // Creates a record for every row in today's orders Excel that does not have one yet, linking
 // the cached source email where available. Lets the store reflect the existing pipeline.
+// The Excel holds one row per plate per day, so a plate with any record today (open or closed)
+// is already reflected. The cached email is the latest one naming the plate — an updated
+// order table — so keying on it re-created a truck the operator had just closed
+// (NCB196//LR111, 2026-11-11).
 function syncFromExcel() {
   const fp = todayFilePath();
   if (!fs.existsSync(fp)) return 0;
@@ -277,6 +293,7 @@ function syncFromExcel() {
   for (const r of rows) {
     const plate = r['Plate'];
     if (!plate) continue;
+    if (load().orders.some(o => o.plateNorm === normalizePlate(plate))) continue;
     const before = load().orders.length;
     const email  = getEmailData(plate) || {};
     ensureOrder({
