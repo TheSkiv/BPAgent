@@ -442,13 +442,20 @@ async function fileAllReady(actor) {
 // A5: a PRK in KIPIS's list for this order's plate (the list's transport column may carry several
 // trucks, so "contains"). A PRK already recorded on another order of the same plate is that
 // trip's (a same-day second trip), not this one's.
+// Rule 6 (operator, 2026-11-11): a PRK from an earlier day than the order that is already finished
+// or annulled is the truck's earlier trip — it loaded and left, and this order is a new one
+// (MOB272//PS118, ordered again at 10:04, was matched to yesterday's Užbaigtas PRK and closed
+// without a PRK).
+const PRK_OVER = /^(atliktas|u[žz]baigtas|anuliuotas)/i;
 function listedPrkFor(order, listed) {
   const key = orderStore.normalizePlate(order.plate);
   if (!key) return null;
-  const otherTrips = new Set(orderStore.listOrders()
+  const orderDay = orderStore.dateOf(order.id) || todayString();
+  const otherTrips = new Set([...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))]
     .filter(o => o.id !== order.id && o.plateNorm === key && o.docs?.PRK?.number)
     .map(o => o.docs.PRK.number));
-  return listed.find(d => d.plateNorm.includes(key) && !otherTrips.has(d.number)) || null;
+  return listed.find(d => d.plateNorm.includes(key) && !otherTrips.has(d.number)
+    && !(d.created < orderDay && PRK_OVER.test(String(d.status || '').trim()))) || null;
 }
 
 // ── A12: filing without a click ──────────────────────────────────────────────

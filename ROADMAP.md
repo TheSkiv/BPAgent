@@ -509,15 +509,16 @@ Send and the KIPIS MFA code.
   record instead of the Excel row.
 - [ ] **S15. Browser login for staff (D5).**
 
-#### Found in the live run of 2026-11-11 — operator decisions needed
-- [ ] **S16. A truck ordered again the next day is matched to yesterday's PRK.** MOB272//PS118
-  loaded on 2026-11-10 (PRK 261110-002973, Užbaigtas) and was ordered again on 2026-11-11 at
-  10:04. The list check (A5, `listedPrkFor`) looks back 2 days, found yesterday's finished PRK
-  and closed today's order as "already filed" — no PRK was made. The lot check (Rule 6,
-  `isRecentDoc`, also 2 days) would do the same. Proposed rule: a document from an **earlier
-  day** that is finished (PRK Atliktas/Užbaigtas/Anuliuotas, or a VZT/KDA) belongs to the
-  earlier trip and does not block a newer order. This changes Rule 6 in `KIPIS_skills/RULES.md`
-  — the operator decides. Until then: check same-plate repeat orders by hand.
+#### Found in the live run of 2026-11-11
+- [x] **S16. Earlier trips no longer block a new order — built 2026-11-11 (operator's
+  decision, Rule 6 amended in `KIPIS_skills/RULES.md`).** MOB272//PS118 loaded on 2026-11-10
+  (PRK 261110-002973, Užbaigtas) and was ordered again on 2026-11-11; the 2-day look-back
+  matched yesterday's PRK and closed today's order with no PRK. Now a document dated before the
+  order's own day that shows the truck already loaded (a VZT/KDA, or a PRK that is Atliktas /
+  Užbaigtas / Anuliuotas) is the earlier trip: `listedPrkFor` in `server.js` (list check) and
+  `earlierTripDoc` in `navigateToCargo.js` (lot check). Same-day documents and earlier-day PRKs
+  still in Ruošiamas / Pateiktas / Patvirtintas block as before. Seen live: the order was
+  reopened and filed by the next round — draft 261111-002125-PRK saved.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
@@ -525,6 +526,10 @@ Send and the KIPIS MFA code.
 - [ ] **S18. Orders that arrive while the server is down are filed by people, then show as
   ready.** Worked correctly on 2026-11-11 (6 trucks, all found in KIPIS and not duplicated), but
   the dashboard said "ready" for them until the first round ran.
+- [ ] **S19. The server and its restart window vanished once** (2026-11-11, about 10:26, half a
+  minute after a start; no "stopped" line in `server.log`, so the whole window was closed or
+  killed, not a crash). Cause unknown. If it repeats: run it as a scheduled task instead of a
+  console window, which cannot be closed by accident (needs administrator rights).
 
 ### To do — the rest of the target workflow (after A1–A14)
 - [ ] **A15. Specific missing-info prompts** (step 2). Every block reason becomes an action the

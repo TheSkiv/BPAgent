@@ -67,6 +67,14 @@ Never double-file. Before creating a document for a truck, check whether one alr
 In KIPIS's Kroviniai table a truck already filed shows as `Autotransportas <plate>` with a recent
 last document of **any** type — PRK, or VZT/KDA once it is submitted and loaded.
 
+**Earlier trips do not count (operator, 2026-11-11).** A document dated *before the order's own
+day* that shows the truck already loaded — a VZT/KDA, or a PRK that is Atliktas / Užbaigtas /
+Anuliuotas — belongs to the truck's earlier trip and does not block a newer order. A document
+from the order's own day, and an earlier-day PRK that is still Ruošiamas / Pateiktas /
+Patvirtintas (pre-made for this truck), still block. Accepted cost: an order re-sent the day
+after loading gets an unneeded `Ruošiamas` draft, which a person sees before Pateikti and the
+2-day cleanup deletes.
+
 ## RULE 7 — Deleting documents: `Šalinti` yes, `Anuliuoti` never
 
 Removing a document is destructive and gets its own boundary, mirroring Rule 1:

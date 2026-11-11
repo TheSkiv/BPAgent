@@ -165,6 +165,17 @@ function isRecentDoc(lastDoc) {
   return ageDays >= 0 && ageDays <= RECENT_DAYS;
 }
 
+// Rule 6 (operator, 2026-11-11): a document dated before the order's own day that shows the truck
+// already loaded — a VZT/KDA, or a PRK that is Atliktas / Užbaigtas / Anuliuotas — is the truck's
+// earlier trip, not this order. `orderDay` is YYYY-MM-DD; without it nothing counts as earlier.
+function earlierTripDoc(lastDoc, orderDay) {
+  const m = String(lastDoc || '').match(/\b(\d{2})(\d{2})(\d{2})-\d{6}-([A-Z]{2,4})\b/);
+  if (!m || !orderDay) return false;
+  if (`20${m[1]}-${m[2]}-${m[3]}` >= orderDay) return false;
+  const status = (String(lastDoc).match(/\(([^)]+)\)/) || [null, ''])[1].trim();
+  return /^(VZT|KDA)$/.test(m[4]) || /^(atliktas|u[žz]baigtas|anuliuotas)/i.test(status);
+}
+
 function parseKg(raw) {
   const part = raw.includes('/') ? raw.split('/').pop() : raw;
   const digits = part.replace(/[^\d]/g, '');
@@ -322,7 +333,10 @@ async function navigateToCargo(page, data = {}) {
     // KDA (LNF355//NR385 had "261110-001994-VZT (Patvirtintas)", filed by hand, seen 2026-11-10;
     // the old PRK-only check missed it). Older documents are the same truck's earlier trips.
     // Checked across every vessel of this cargo: a hand-filed load may be on another lot.
-    const existing = cargoRows.find(r => /autotransportas/i.test(r.dest) && plateKey(r.dest).includes(plateKey(data.plate)) && isRecentDoc(r.lastDoc));
+    // Not the truck's earlier trip: a finished document from before this order's day (see
+    // earlierTripDoc). The order id starts with its day.
+    const orderDay = (String(data.order?.id || '').match(/^(\d{4}-\d{2}-\d{2})-/) || [])[1];
+    const existing = cargoRows.find(r => /autotransportas/i.test(r.dest) && plateKey(r.dest).includes(plateKey(data.plate)) && isRecentDoc(r.lastDoc) && !earlierTripDoc(r.lastDoc, orderDay));
     if (existing) {
       console.log(`PRK already exists for ${data.plate}: ${existing.lastDoc} (lot ${existing.lot}) — not filing another`);
       return { submitted: false, existingPrk: existing.lastDoc, lot: existing.lot };
