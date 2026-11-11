@@ -244,6 +244,7 @@ app.get('/pipeline', (req, res) => {
       docs:   o.docs,
       dispatchSent: o.dispatchSent || null,
       printedAt: o.printedAt || null,
+      loadedKg: o.loadedKg || null,
       createdAt: o.createdAt || '',
       lastFailure: o.lastFailure || null,
       carried: orderStore.dateOf(o.id) === yesterday,
@@ -409,7 +410,7 @@ async function fileAllReady(actor) {
   let listed = null;   // A5: the PRKs KIPIS already has for the last 2 days, read once per batch
   for (;;) {
     const next = orderStore.listOrders()
-      .filter(o => o.state === 'ready' && !o.bulk && !tried.has(o.id))
+      .filter(o => orderStore.isFileable(o) && !tried.has(o.id))
       .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[0];
     if (!next) break;
     const notReady = await kipisNotReady();
@@ -484,7 +485,7 @@ async function autoBlocked(quietMs = OPERATOR_QUIET_MS) {
 async function autoFile(reason) {
   if (isRunning) return;
   orderStore.syncFromExcel();   // RECHECK writes new orders to today's Excel first
-  const ready = orderStore.listOrders().some(o => o.state === 'ready' && !o.bulk);
+  const ready = orderStore.listOrders().some(orderStore.isFileable);
   if (!ready) return;
   const blocked = await autoBlocked();
   if (blocked) {
@@ -1549,6 +1550,24 @@ app.post('/set-cargo', (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// S9: a bulk truck's loaded weight, as the terminal reported it. It becomes the net and gross
+// weight (order + today's Excel row, which the PRK filler reads), the truck goes back in line and a
+// filing round starts at once — the PRK draft follows without another click (Pateikti stays human).
+app.post('/order/loaded-weight', (req, res) => {
+  const order = req.body?.id && orderStore.getOrder(String(req.body.id));
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!order.bulk) return res.status(400).json({ error: 'Only bulk trucks get their weight after loading' });
+  if (order.docs?.PRK?.number) return res.status(400).json({ error: `This truck already has PRK ${order.docs.PRK.number}` });
+  const kg = Math.round(Number(String(req.body.kg ?? '').replace(/[\s,]/g, '').replace(/t$/i, '')));
+  if (!(kg >= 1000 && kg <= 60000)) return res.status(400).json({ error: 'The loaded weight must be in kg, between 1 000 and 60 000' });
+  const inExcel = orderStore.dateOf(order.id) === todayString() && updateOrderFields(order.plate, { weight: String(kg), grossWeight: String(kg) });
+  if (!inExcel) return res.json({ status: 'error', message: `The weight was not saved: ${order.plate} is not in today's orders file, so its PRK cannot be filed automatically — file it by hand in KIPIS.` });
+  orderStore.setLoadedWeight(order.id, kg);
+  console.log(`Loaded weight: ${order.plate} ${kg} kg — PRK next`);
+  setTimeout(() => autoRound('loaded weight entered').catch(err => console.error('Auto round:', err.message)), 500);
+  res.json({ status: 'ok', kg });
 });
 
 // The legacy POST /run (ran kipisLoad with no session or busy check) was removed 2026-11-11 —

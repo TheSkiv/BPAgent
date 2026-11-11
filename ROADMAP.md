@@ -516,7 +516,24 @@ Send and the KIPIS MFA code.
   soon as the KIPIS window has been still for 30 seconds, then fetches the PDF (S8). Expected:
   Send email on the dashboard one to two minutes after Pateikti. Guard tested on a blank page:
   automation's click blocked, the operator's click goes through and is noted.
-- [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
+- [x] **S9. Bulk trucks: file the PRK by itself once the weight is entered — built 2026-11-11.**
+  Owner: "after the Gate pass step there is no next step where it gets the loaded weight from the
+  user and continues with automatic PRK, then prints the needed docs." Bulk route on the desk:
+  Order · Gate pass · **Weight** · **PRK** · Print · Done. Once the loading is ordered (email sent
+  from the dashboard, or the terminal's gate-pass copy) the truck is in "Needs you" with
+  **Enter the loaded weight**: a kg box + **File PRK** (Enter works too). `POST
+  /order/loaded-weight` writes it as net **and** gross (bulk has no bags — the filer would
+  otherwise add 1 kg per 600 kg) to the order and to today's Excel row the filer reads, sets
+  `loadedKg`, puts the truck back in line (`setLoadedWeight` → `ready`) and starts a round. The
+  queue now uses one rule, `orderStore.isFileable`: ready, and for bulk only with `loadedKg` — a
+  weight typed earlier in "Fix order" never files a PRK before loading. Then as for bagged: draft
+  → the operator's Pateikti → **Print** (PRK × 2, one for the driver, + CMR/važtaraštis) → Done.
+  The dispatch email step is not repeated for bulk (the loading order was the email).
+  **Limits:** the weight is refused for a truck not in today's orders file (yesterday's bulk truck
+  — its PRK must be filed by hand); while the operator works in the KIPIS window the automatic
+  round waits (3 min rule) — the shift tick or "File now" files it.
+  Checked: rules on throwaway data (7 cases); the endpoint refuses 5 kg and a bagged truck;
+  NRN729//OZ416 shows the weight step on the desk. Not yet run end to end on a real loaded truck.
 - [x] **S10. KIPIS opened by the server — built 2026-11-11.** During the shift, if the KIPIS
   window is closed or logged out, `shiftTick` opens it and types the login; only the MFA code is
   left for a person (`KIPIS_AUTO_OPEN=false` in `.env` turns it off). One login at a time

@@ -415,9 +415,32 @@ function applyToSender(sender, fn, date) {
 }
 
 // Next order the PRK worker should take: oldest ready, non-bulk. Bulk needs a weight first.
+// Can the queue file this order now? A bulk truck only once the operator has entered the weight it
+// was loaded with (S9) — a weight typed earlier must not file a PRK before the truck is loaded.
+const isFileable = o => o.state === 'ready' && (!o.bulk || !!o.loadedKg);
+
+// S9: the terminal reported a bulk truck's loaded weight and the operator entered it. It becomes
+// the order's net and gross weight (bulk has no bags), and the truck goes back in line for its PRK.
+function setLoadedWeight(id, kg, { date } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  order.weight = String(kg);
+  order.grossWeight = String(kg);
+  order.loadedKg = kg;
+  logHistory(order, 'operator', 'fields', `loaded weight ${kg} kg entered`);
+  if (!order.docs?.PRK?.number && ['gate_pass_ordered', 'ready', 'received', 'failed'].includes(order.state)) {
+    logHistory(order, 'operator', 'state', `${order.state} → ready — loaded weight known, PRK next`);
+    order.state = 'ready';
+  }
+  save(db, date);
+  return order;
+}
+
 function nextReadyNonBulk(date) {
   return listOrders(date)
-    .filter(o => o.state === 'ready' && !o.bulk)
+    .filter(isFileable)
     .sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''))[0] || null;
 }
 
@@ -427,5 +450,5 @@ module.exports = {
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
   nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchSent,
-  markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo, setPrinted,
+  markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo, setPrinted, isFileable, setLoadedWeight,
 };

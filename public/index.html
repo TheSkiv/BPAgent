@@ -171,7 +171,7 @@
 
     // ── Where each truck stands, and what it needs next ─────────────────
     const BAGGED = ['Order', 'Draft', 'Pateikti', 'Email', 'Print', 'Done'];
-    const BULK   = ['Order', 'Gate pass', 'Print', 'Done'];
+    const BULK   = ['Order', 'Gate pass', 'Weight', 'PRK', 'Print', 'Done'];
     // The Print step exists for trucks created from this moment (orderStore.PRINT_STEP_FROM).
     const PRINT_STEP_FROM = '2026-11-11T14:00:00Z';
     const printStep = o => !o.printedAt && (o.createdAt || '') >= PRINT_STEP_FROM;
@@ -181,10 +181,17 @@
       const prk = o.docs?.PRK?.number;
       if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: t('Cancelled') };
       // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
+      // Bulk (S9): loading ordered by email → the operator enters the loaded weight → the PRK draft
+      // files by itself → Pateikti (human) → print (PRK × 2) → done.
       if (o.bulk) {
-        if (o.state === 'done') return { group: 'done', route: BULK, stop: 3, label: t('Done') };
-        if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 2, label: t('Print the documents'), reason: t('PRK × 2 — one for the driver'), actions: ['print'] };
-        if (o.state === 'gate_pass_ordered' || o.dispatchSent) return { group: 'waiting', route: BULK, stop: 1, label: t('Loading ordered{time} — waiting for the loaded weight', { time: o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : '' }) };
+        const ordered = o.state === 'gate_pass_ordered' || !!o.dispatchSent;
+        if (o.state === 'done') return { group: 'done', route: BULK, stop: 5, label: t('Done') };
+        if (o.state === 'filing') return { group: 'system', route: BULK, stop: 3, label: t('Filing in KIPIS now…') };
+        if (o.state === 'failed') return { group: 'failed', route: BULK, stop: 3, label: t('Not filed'), reason: t(o.note || ''), actions: ['retry', 'open'] };
+        if (prk && o.state === 'drafted') return { group: 'needs', route: BULK, stop: 3, label: t('Check the draft in KIPIS and press Pateikti') };
+        if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 4, label: t('Print the documents'), reason: t('PRK × 2 — one for the driver'), actions: ['print'] };
+        if (o.state === 'ready' && o.loadedKg) return { group: 'system', route: BULK, stop: 3, label: t('Gets its PRK draft automatically'), reason: t('Loaded {kg} kg', { kg: Number(o.loadedKg).toLocaleString('lt-LT') }), actions: ['file'] };
+        if (ordered && !prk) return { group: 'needs', route: BULK, stop: 2, label: t('Enter the loaded weight'), reason: t('Loading ordered{time} — the terminal reports the weight after loading', { time: o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : '' }), actions: ['weight'] };
         return { group: 'needs', route: BULK, stop: 0, label: t('Order the loading by email'), actions: ['email'] };
       }
       switch (o.state) {
@@ -226,6 +233,7 @@
       const b = [];
       for (const a of st.actions || []) {
         if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? t('Order loading') : t('Send email')}</button>`);
+        if (a === 'weight') b.push(`<span class="weight-entry"><input class="weight-in" data-id="${esc(o.id)}" inputmode="numeric" placeholder="${esc(t('kg loaded'))}" aria-label="${esc(t('Loaded weight, kg'))}" /><button class="btn primary small" data-act="weight" data-id="${esc(o.id)}">${t('File PRK')}</button></span>`);
         if (a === 'print') b.push(`<button class="btn go small" data-act="print" data-id="${esc(o.id)}" title="${esc(t('CMR or važtaraštis: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print documents')}</button>`);
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
@@ -392,6 +400,7 @@
       if (act === 'open' && order) return openOrder(order);
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
       if (act === 'print') return printDocs(el.getAttribute('data-id'), el);
+      if (act === 'weight') return enterWeight(el.getAttribute('data-id'), el);
       if (act === 'file') return runPrk(el.getAttribute('data-plate'), el);
       if (act === 'done') {
         if (!confirm(t('Close {plate} by hand?', { plate: order ? order.plate : t('this truck') }))) return;
@@ -739,6 +748,23 @@
         } else $('modalStatus').innerHTML = `<span class="err">${esc(t(d.error || 'Not saved — order not found.'))}</span>`;
       } catch (err) { $('modalStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
       finally { $('modalSaveBtn').disabled = false; }
+    });
+
+    // S9: the bulk truck's loaded weight → the PRK draft files by itself (Pateikti stays yours).
+    async function enterWeight(id, btn) {
+      const input = btn.closest('.weight-entry').querySelector('.weight-in');
+      const kg = input.value.trim();
+      if (!kg) { input.focus(); return toast('err', t('Type the loaded weight in kg first.')); }
+      btn.disabled = true; input.disabled = true;
+      try {
+        const r = await postJson('/order/loaded-weight', { id, kg });
+        if (r.status !== 'ok') { toast('err', t(r.message || r.error)); btn.disabled = false; input.disabled = false; return; }
+        toast('ok', t('{kg} kg saved — the PRK draft is being filed; check it in KIPIS and press Pateikti.', { kg: Number(r.kg).toLocaleString('lt-LT') }));
+        loadPipeline(); setTimeout(loadPipeline, 15000); setTimeout(loadPipeline, 60000);
+      } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); btn.disabled = false; input.disabled = false; }
+    }
+    $('trucks').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.target.classList.contains('weight-in')) e.target.closest('.weight-entry').querySelector('[data-act="weight"]').click();
     });
 
     // The Print step: the pack (CMR or važtaraštis + PRK, in the right number of copies) opens in a

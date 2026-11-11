@@ -141,6 +141,19 @@
     'Print pack': 'Spausdinti rinkinį',
     'No CMR yet': 'CMR dar nėra',
 
+    // ── Bulk: loaded weight → PRK ──
+    'Weight': 'Svoris',
+    'Enter the loaded weight': 'Įveskite pakrautą svorį',
+    'Loading ordered{time} — the terminal reports the weight after loading': 'Pakrovimas užsakytas{time} — terminalas praneš svorį po pakrovimo',
+    'kg loaded': 'pakrauta kg',
+    'Loaded weight, kg': 'Pakrautas svoris, kg',
+    'File PRK': 'Pildyti PRK',
+    'Loaded {kg} kg': 'Pakrauta {kg} kg',
+    'Type the loaded weight in kg first.': 'Pirmiausia įveskite pakrautą svorį kilogramais.',
+    '{kg} kg saved — the PRK draft is being filed; check it in KIPIS and press Pateikti.': '{kg} kg išsaugota — pildomas PRK juodraštis; patikrinkite jį KIPIS ir paspauskite „Pateikti“.',
+    'Only bulk trucks get their weight after loading': 'Svoris po pakrovimo įvedamas tik biriems kroviniams',
+    'The loaded weight must be in kg, between 1 000 and 60 000': 'Pakrautas svoris turi būti kilogramais, nuo 1 000 iki 60 000',
+
     // ── The Print step ──
     'Print the documents': 'Atspausdinkite dokumentus',
     'Print documents': 'Spausdinti dokumentus',
