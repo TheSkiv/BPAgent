@@ -97,9 +97,16 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
    **The operator's "Delete all now" button** also takes today's and yesterday's unsubmitted
    drafts (operator, 2026-11-10) — its confirmation says so, including that drafts for trucks
    still waiting for Pateikti go too.
+   **The operator's "Delete these" button for finished trucks** (operator, 2026-11-11) takes a
+   draft of any age, today's included, only when its order is `done` **and** the truck's
+   dispatch email is known to have gone out (sent from the dashboard, or the terminal's copy
+   closed the order). This is the case where a colleague filed their own PRK for a truck
+   PortSystem had already drafted. The order stays `done`; the KIPIS reason says the cargo was
+   filed on another PRK.
 4. **Approved in advance by the operator** (2026-11-10): the server runs this cleanup by itself
    once a day — no button to forget. The dashboard's *Run cleanup now* runs the same rule. Only
-   this cleanup and `POST /prk/delete` (one draft, by number) may click `Šalinti`.
+   this cleanup, the finished-trucks button (`POST /prk/cleanup-finished`, 2026-11-11) and
+   `POST /prk/delete` (one draft, by number) may click `Šalinti`.
 5. Every deletion is written to the audit log `data/prk_deletions.jsonl` (document, plate, order
    id, status before/after, timestamp); failures too.
 

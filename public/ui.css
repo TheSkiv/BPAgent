@@ -188,6 +188,8 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); outline: 
 .auto-row .line { font-size: 12px; color: var(--steel); margin-top: 3px; line-height: 1.45; text-wrap: pretty; }
 .auto-row .line .warn { color: var(--warn-ink); }
 .auto-row .line .err { color: var(--red); }
+.auto-row .finished-row { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; margin-top: 6px; }
+.auto-row .finished-row .btn { margin-left: auto; }
 .lots-link { display: flex; justify-content: space-between; align-items: center; text-decoration: none; color: var(--ink); font-weight: 600; }
 .lots-link .count { font-size: 12px; color: var(--steel); font-weight: 500; }
 .lots-link.todo .count { color: var(--warn-ink); font-weight: 700; }

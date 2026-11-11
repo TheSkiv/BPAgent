@@ -10,6 +10,7 @@ const CLEANUP_MIN_AGE_DAYS = 2;
 
 const DRAFT_STATUS = 'Ruošiamas';
 const REASON = 'PortSystem: nepanaudotas juodraštis (sunkvežimis neatvyko)';
+const REASON_FINISHED = 'PortSystem: nepanaudotas juodraštis (krovinys įformintas kitu PRK)';
 
 // "Prašymas krovai: 261110-003786-PRK, Ruošiamas, Saugojimo vieta -> Autotransportas"
 async function readDocHeader(page) {
@@ -66,7 +67,7 @@ async function openFromList(page, number, listOpts, what = 'the PRK list') {
 // (…:_id4598:0:_id4599 = Pateikti, …:1:… = Šalinti) and their _id numbers change per session, so:
 // read the visible Pateikti's name, derive the :1: sibling, and click it only if its label is
 // exactly "Šalinti". Same for the confirmation dialog. Anything unexpected → throw, nothing clicked.
-async function deleteDraft(page, number) {
+async function deleteDraft(page, number, reasonText = REASON) {
   const before = await openFromDraftList(page, number);
   if (!before || before.number !== number) throw new Error(`${number}: the list link did not open it (page shows ${before ? before.number : 'no PRK'}) — not deleted`);
   if (before.status !== DRAFT_STATUS) throw new Error(`${number}: status is "${before.status}", not ${DRAFT_STATUS} — not deleted`);
@@ -89,7 +90,7 @@ async function deleteDraft(page, number) {
   const confirm = page.locator(`input[type="submit"][name^="${prefix}old:"][value="Šalinti"]`);
   await confirm.waitFor({ state: 'visible', timeout: 10000 });
   const reason = page.locator(`textarea[name^="${prefix}old:"]`);
-  if (await reason.count() && await reason.first().isVisible()) await reason.first().fill(REASON);
+  if (await reason.count() && await reason.first().isVisible()) await reason.first().fill(reasonText);
   await assertNotPateikti(confirm);
   await confirm.click();
   await page.waitForLoadState('networkidle');
@@ -109,16 +110,17 @@ function audit(entry) {
 
 // One of PortSystem's own drafts (Rule 7 condition 2: its number is in `ours`, from
 // orderStore.prkNumbersFiled). Deletes, logs, closes the order; throws (logged) on any doubt.
-async function deleteOurDraft(page, number, ours, by) {
+// finished: the truck was loaded on another PRK (a colleague's) — the order stays done.
+async function deleteOurDraft(page, number, ours, by, { finished = false } = {}) {
   const orderStore = require('../../src/core/orderStore');
   ours = ours || orderStore.prkNumbersFiled();
   const o = ours.get(number);
   if (!o) throw new Error(`${number} was not saved by PortSystem — not deleted (RULES.md Rule 7)`);
   try {
-    const r = await deleteDraft(page, number);
+    const r = await deleteDraft(page, number, finished ? REASON_FINISHED : REASON);
     audit({ action: 'Šalinti', number, plate: o.plate, orderId: o.orderId, orderDate: o.date, statusBefore: r.statusBefore, statusAfter: r.statusAfter, by });
     orderStore.attachDocument(o.orderId, { type: 'PRK', number, status: 'Ištrintas (Šalinti)' }, { actor: 'operator', date: o.date });
-    orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${number} deleted (Šalinti) — not used`, date: o.date });
+    if (!finished) orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${number} deleted (Šalinti) — not used`, date: o.date });
     console.log(`PRK delete: ${number} (${o.plate}) deleted — ${by}`);
     return { number, plate: o.plate };
   } catch (err) {
@@ -167,4 +169,55 @@ async function sweepDrafts(page, by = 'daily cleanup', { minAgeDays = CLEANUP_MI
   };
 }
 
-module.exports = { openDocument, openFromDraftList, openFromList, waitForHeader, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };
+// PortSystem's drafts whose truck is already finished: the order is done and its dispatch email
+// is known to have gone out (operator, 2026-11-11 — colleagues often file their own PRK for a
+// truck PortSystem already drafted; the terminal's copy of their email closes our order and our
+// Ruošiamas draft is left over). Any age, today's included.
+function finishedDrafts() {
+  const orderStore = require('../../src/core/orderStore');
+  const out = new Map();
+  for (const [n, o] of orderStore.prkNumbersFiled({ minAgeDays: 0 })) {
+    if (o.state === 'done' && o.emailed) out.set(n, o);
+  }
+  return out;
+}
+
+// The operator's "Delete finished" button. Same safety as the sweep: KIPIS's Ruošiamas list is
+// the authority for what is still a draft, each document's header is checked again right before
+// Šalinti, every deletion is logged, and the first failure stops the run.
+async function sweepFinished(page, by = 'dashboard: delete finished') {
+  const { readFullPrkList, clearListFilters } = require('./exportPrkList');
+  const orderStore = require('../../src/core/orderStore');
+  const ours = finishedDrafts();
+  const { drafts } = await readFullPrkList({ limit: 500, statuses: [DRAFT_STATUS] });
+  const targets = drafts.filter(d => ours.has(d.number));
+  console.log(`PRK cleanup (finished trucks): ${drafts.length} ${DRAFT_STATUS} draft(s) in KIPIS, ${targets.length} of ours for finished trucks`);
+
+  // A draft our records still call Ruošiamas but KIPIS no longer lists as one was used: a
+  // colleague submitted our draft itself (JJJ792, NHA730 on 2026-11-11: Atliktas, Užbaigtas).
+  // The order had closed before the Pateikti watch saw it, so the recorded status went stale and
+  // the dashboard kept offering it. Read its real status (read-only) and record it.
+  const listed = new Set(drafts.map(d => d.number));
+  const used = [];
+  for (const [n, o] of ours) {
+    if (listed.has(n) || o.kipisStatus !== DRAFT_STATUS) continue;
+    const header = await openDocument(page, n).catch(() => null);
+    if (!header || header.number !== n || header.status === DRAFT_STATUS) continue;
+    orderStore.attachDocument(o.orderId, { type: 'PRK', number: n, status: header.status }, { actor: 'kipis', date: o.date });
+    used.push({ number: n, plate: o.plate, status: header.status });
+  }
+
+  const deleted = [], failed = [];
+  for (const d of targets) {
+    try {
+      deleted.push(await deleteOurDraft(page, d.number, ours, by, { finished: true }));
+    } catch (err) {
+      failed.push({ number: d.number, plate: ours.get(d.number).plate, error: err.message });
+      break;
+    }
+  }
+  await clearListFilters();
+  return { deleted, failed, used, remaining: targets.length - deleted.length - failed.length };
+}
+
+module.exports = { openDocument, openFromDraftList, openFromList, waitForHeader, readDocHeader, deleteDraft, deleteOurDraft, sweepDrafts, finishedDrafts, sweepFinished, audit, DRAFT_STATUS, CLEANUP_MIN_AGE_DAYS };

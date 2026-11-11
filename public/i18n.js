@@ -215,6 +215,13 @@
     'Not done — {msg}': 'Neatlikta — {msg}',
     'Not run — {msg}': 'Nepaleista — {msg}',
     'Reading KIPIS and deleting…': 'Skaitomas KIPIS ir šalinama…',
+    'Delete these': 'Šalinti šiuos',
+    "Deletes PortSystem's unsubmitted drafts for trucks already finished on another PRK and emailed to the terminal. Colleagues' PRKs are never touched.": 'Pašalina nepateiktus PortSystem juodraščius sunkvežimių, kurie jau įforminti kitu PRK ir kurių laiškas išsiųstas terminalui. Kolegų PRK niekada neliečiami.',
+    'Finished on another PRK and emailed, our draft left over: {list}': 'Įforminta kitu PRK ir išsiųsta, liko mūsų juodraštis: {list}',
+    "Delete these PortSystem drafts in KIPIS?\n\n{list}\n\nEach truck was already finished on another PRK and its email went to the terminal. Only our unsubmitted (Ruošiamas) drafts are deleted; colleagues' PRKs are never touched. This cannot be undone.":
+      'Pašalinti šiuos PortSystem juodraščius KIPIS sistemoje?\n\n{list}\n\nKiekvienas sunkvežimis jau įformintas kitu PRK, o jo laiškas išsiųstas terminalui. Šalinami tik mūsų nepateikti (Ruošiamas) juodraščiai; kolegų PRK niekada neliečiami. To atšaukti negalima.',
+    '{n} deleted': 'pašalinta {n}',
+    '{n} already used in KIPIS, kept ({list})': 'jau panaudota KIPIS, palikta: {n} ({list})',
     '1 lot to confirm': '1 partiją patvirtinti',
     '{n} lots to confirm': 'partijų patvirtinti: {n}',
     '1 company to set': '1 įmonę nustatyti',

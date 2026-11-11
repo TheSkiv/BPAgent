@@ -590,6 +590,25 @@ Send and the KIPIS MFA code.
   of 25 same-day repeats, none that the rule now merges ever got two PRKs. Caveat: Rotogran keeps
   one thread ("Re: MOP imonei Rotogran") all day, so a real second trip of the same truck in that
   thread would be missed; none in the data so far.
+- [x] **S25. Delete our leftover drafts for trucks finished on another PRK — built 2026-11-11
+  (owner's request).** Colleagues often file their own PRK for a truck PortSystem already
+  drafted; the terminal's copy of their dispatch email closes our order (`drafted → done — PRK
+  confirmed by terminal@bpa.lt`) and our `Ruošiamas` draft is left in KIPIS until the 2-day
+  cleanup. The "Juodraščių šalinimas" row now lists those trucks with a **Delete these** button
+  (confirmation lists plate + PRK). Gates: PortSystem saved the draft; order `done`; email
+  proven (dashboard Send or terminal copy); KIPIS's Ruošiamas list and the document header
+  still say Ruošiamas right before Šalinti. Any age, today's included. The order stays `done`
+  (not `cancelled`); audit log as for every Šalinti; KIPIS reason "nepanaudotas juodraštis
+  (krovinys įformintas kitu PRK)". Rule 7 amended. Code: `prkDelete.finishedDrafts` /
+  `sweepFinished`, `GET /prk/finished`, `POST /prk/cleanup-finished`, `prkNumbersFiled` now
+  returns `emailed` and the recorded KIPIS status. First list: JJJ792//ZN358, NHA730//ZN525
+  (2026-11-10), JMR442//HF039 (2026-11-11). **First run (owner, 2026-11-11):** JMR442's draft
+  deleted (audit log, order stays done). JJJ792's and NHA730's were not in KIPIS's Ruošiamas
+  list: a colleague had submitted *our* drafts (Atliktas / Užbaigtas), but the orders had
+  closed before the Pateikti watch saw it, so our records still said Ruošiamas and the line kept
+  listing them. Fixed: the run now reads (read-only, universal search) the real status of any
+  listed draft KIPIS no longer shows as Ruošiamas, records it, and reports it as "already used,
+  kept". The two stale records were corrected by hand from KIPIS's answer.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

@@ -894,6 +894,33 @@ app.post('/prk/cleanup', async (req, res) => {
   res.json(await runCleanup('dashboard: run now', { minAgeDays: 0 }));
 });
 
+// "Delete finished": PortSystem's drafts for trucks already finished on another PRK and emailed
+// (RULES.md Rule 7, operator 2026-11-11). GET lists them from the order files (no KIPIS read; the
+// recorded status may be stale, the run checks KIPIS); POST deletes them.
+app.get('/prk/finished', (req, res) => {
+  const list = [...prkDelete.finishedDrafts()]
+    .filter(([, o]) => o.kipisStatus === prkDelete.DRAFT_STATUS)
+    .map(([number, o]) => ({ number, plate: o.plate, orderId: o.orderId }));
+  res.json({ drafts: list });
+});
+
+app.post('/prk/cleanup-finished', async (req, res) => {
+  if (isRunning) return res.json({ status: 'busy', message: 'Another KIPIS job is running.' });
+  const notReady = await kipisNotReady();
+  if (notReady) return res.json({ status: 'error', message: notReady });
+  isRunning = true;
+  try {
+    const page = getPage();
+    const r = await withAutomation(page, () => prkDelete.sweepFinished(page, 'dashboard: delete finished'));
+    res.json({ status: r.failed.length ? 'stopped' : 'ok', ...r });
+  } catch (err) {
+    console.error('PRK cleanup (finished trucks) failed:', err.message);
+    res.json({ status: 'error', message: err.message });
+  } finally {
+    isRunning = false;
+  }
+});
+
 // One of PortSystem's own Ruošiamas drafts, by number — same gates as the sweep (Rule 7).
 app.post('/prk/delete', async (req, res) => {
   const n = String(req.body?.number || '').trim();

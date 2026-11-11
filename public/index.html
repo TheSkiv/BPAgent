@@ -49,6 +49,10 @@
         <div class="auto-row">
           <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
           <div class="line" id="sweepLine">By itself once a day: drafts 2+ days old. The button: all of ours, today's too.</div>
+          <div class="line finished-row" id="finishedRow" style="display:none">
+            <span id="finishedLine"></span>
+            <button class="btn small danger" id="finishedBtn" title="Deletes PortSystem's unsubmitted drafts for trucks already finished on another PRK and emailed to the terminal. Colleagues' PRKs are never touched.">Delete these</button>
+          </div>
         </div>
       </section>
 
@@ -549,6 +553,33 @@
       loadPipeline();
     });
 
+    // Leftover drafts: our draft for a truck a colleague already finished on their own PRK.
+    let finished = [];
+    async function loadFinished() {
+      try {
+        finished = (await getJson('/prk/finished')).drafts || [];
+        $('finishedRow').style.display = finished.length ? '' : 'none';
+        $('finishedLine').innerHTML = `<span class="warn">${esc(t('Finished on another PRK and emailed, our draft left over: {list}', { list: finished.map(d => d.plate).join(', ') }))}</span>`;
+      } catch { /* keep */ }
+    }
+    $('finishedBtn').addEventListener('click', async () => {
+      if (!finished.length) return;
+      const list = finished.map(d => `${d.plate} — ${d.number}`).join('\n');
+      if (!confirm(t('Delete these PortSystem drafts in KIPIS?\n\n{list}\n\nEach truck was already finished on another PRK and its email went to the terminal. Only our unsubmitted (Ruošiamas) drafts are deleted; colleagues\' PRKs are never touched. This cannot be undone.', { list }))) return;
+      $('finishedBtn').disabled = true;
+      $('finishedLine').textContent = t('Reading KIPIS and deleting…');
+      let r = null;
+      try { r = await postJson('/prk/cleanup-finished'); } catch (err) { r = { status: 'error', message: err.message }; }
+      $('finishedBtn').disabled = false;
+      if (r.status === 'ok' || r.status === 'stopped') {
+        const parts = [t('{n} deleted', { n: r.deleted.length }) + (r.deleted.length ? ` (${r.deleted.map(d => d.plate).join(', ')})` : '')];
+        if (r.used?.length) parts.push(t('{n} already used in KIPIS, kept ({list})', { n: r.used.length, list: r.used.map(d => `${d.plate} ${d.status}`).join(', ') }));
+        if (r.failed.length) parts.push(t('stopped at {plate}', { plate: r.failed[0].plate }) + ': ' + r.failed[0].error);
+        toast(r.failed.length ? 'warn' : 'ok', parts.join(' — '), !!r.failed.length);
+      } else toast('err', t(r.message));
+      loadFinished(); loadPipeline();
+    });
+
     async function loadLots() {
       try {
         const { attention } = await getJson('/lots/data');
@@ -714,8 +745,8 @@
 
     // ── Start, and keep a dashboard left open current ────────────────────
     loadPipeline(); loadConfirmations(); loadKipisSession(); checkMail();
-    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots();
-    setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); }, 60 * 1000);
+    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots(); loadFinished();
+    setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); loadFinished(); }, 60 * 1000);
     setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadWatch(); }, 60 * 1000);
   </script>
 </body>

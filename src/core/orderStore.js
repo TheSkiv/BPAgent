@@ -271,7 +271,10 @@ function prkNumbersFiled({ minAgeDays = 0, maxAgeDays = 30 } = {}) {
     for (const o of load(date).orders) {
       const n = o.docs?.PRK?.number;
       const savedByUs = n && (o.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(n));
-      if (savedByUs) out.set(n, { date, orderId: o.id, plate: o.plate, state: o.state });
+      // emailed: the truck's dispatch email is known to have gone out — sent from the dashboard,
+      // or the terminal's copy closed the order (often after a colleague filed their own PRK).
+      const emailed = !!o.dispatchSent || (o.history || []).some(h => h.actor === 'terminal' && /PRK confirmed by terminal@bpa\.lt/.test(h.detail || ''));
+      if (savedByUs) out.set(n, { date, orderId: o.id, plate: o.plate, state: o.state, emailed, kipisStatus: o.docs.PRK.status || '' });
     }
   }
   return out;
