@@ -670,6 +670,32 @@ async function autoRound(reason) {
 
 const inShift = () => { const h = new Date().getHours(); return h >= AUTO_FILE_HOURS[0] && h < AUTO_FILE_HOURS[1]; };
 
+// S8: once Pateikti is seen, the dispatch email is made ready — the PRK PDF is fetched from KIPIS
+// into memory (never to disk, D10), so the operator's Send email opens at once and does not wait
+// for the KIPIS window. Sending stays the operator's click (D11). A few per tick; a PDF that
+// could not be fetched is tried again next tick, and the preview still fetches on demand.
+async function prepareDispatches() {
+  const waiting = [...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))]
+    .filter(o => o.state === 'submitted' && !o.bulk && !o.dispatchSent && o.docs?.PRK?.number
+      && dispatchPdfs.get(o.id)?.number !== o.docs.PRK.number)
+    .slice(0, 3);
+  if (!waiting.length || await autoBlocked()) return;
+  isRunning = true;
+  try {
+    const page = getPage();
+    for (const o of waiting) {
+      const number = o.docs.PRK.number;
+      const pdf = await withAutomation(page, () => prkPdf.fetchPrkPdf(page, number));
+      dispatchPdfs.set(o.id, { number, filename: pdf.filename, buffer: pdf.buffer });
+      console.log(`Dispatch email ready: ${o.plate} ${number} (PDF in memory, waiting for Send)`);
+    }
+  } catch (err) {
+    console.error('Preparing a dispatch email failed:', err.message);
+  } finally {
+    isRunning = false;
+  }
+}
+
 // The shift tick, once a minute 08:00–18:00. It used to be a round every 15 minutes: after a KIPIS
 // login, or while the operator was using the KIPIS window, a ready truck waited up to 15 minutes
 // (seen 2026-11-11). Now:
@@ -695,6 +721,7 @@ async function shiftTick() {
       const w = await runWatch('shift timer', true);
       if (w && !w.skipped) lastWatchRun = Date.now();
     }
+    await prepareDispatches();
   } catch (err) {
     console.error('Shift tick:', err.message);
   } finally {

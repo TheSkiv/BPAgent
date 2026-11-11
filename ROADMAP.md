@@ -494,7 +494,13 @@ Send and the KIPIS MFA code.
   `shiftTick` (08:00–18:00): a ready truck is filed within a minute of KIPIS being free (seen
   live: the round ran one minute after login), and the Pateikti watch reads the PRK list every
   5 minutes while drafts wait. Before, a truck waited up to 15 minutes after a KIPIS login.
-- [ ] **S8. Prepare the dispatch email when Pateikti is seen**, so only Send is left (D11 stays).
+- [~] **S8. Dispatch email made ready when Pateikti is seen — built 2026-11-11, not yet seen
+  live.** `prepareDispatches` in the shift tick fetches the PRK PDF of every `submitted` truck
+  into memory (never to disk, D10), so Send email opens at once without waiting for the KIPIS
+  window. Sending stays the operator's click (D11). No truck was in `submitted` to test it on.
+  Seen the same day: JMR442//HF039 went order 10:40 → draft 10:41 → Pateikti and the email sent
+  by hand from the mail program → closed by the terminal's copy 10:50, without the dashboard's
+  Send. If the office keeps sending by hand, this step is rarely used.
 - [ ] **S9. Bulk trucks: file the PRK by itself once the weight is entered.**
 - [x] **S10. KIPIS opened by the server — built 2026-11-11.** During the shift, if the KIPIS
   window is closed or logged out, `shiftTick` opens it and types the login; only the MFA code is
