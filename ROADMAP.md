@@ -540,6 +540,16 @@ Send and the KIPIS MFA code.
   `earlierTripDoc` in `navigateToCargo.js` (lot check). Same-day documents and earlier-day PRKs
   still in Ruošiamas / Pateiktas / Patvirtintas block as before. Seen live: the order was
   reopened and filed by the next round — draft 261111-002125-PRK saved.
+- [x] **S21. Things that are not plates no longer become trucks — built 2026-11-11.** UHB's
+  "Release 291568" loading table had a second row with no truck yet, only an ID number; the
+  model returned `02513238` as that truck's plates and it showed as a second bulk truck (operator
+  spotted it). `aiExtract.normalizeOrders` now keeps a token only if it has letters and digits
+  (Cyrillic allowed — Ukrainian plates), is 4–10 characters, has fewer than 6 digits, and is not
+  a container number; "JMV 187" written with a space is joined back first. Also dropped now:
+  `LP-154702`-style document numbers and `BENZ`, which rode along as extra plates
+  (`BENZ//JZG061//HP913//LP-154702`, 2026-11-11). Run against all 941 plate tokens stored since
+  July: only non-plates were dropped. Not changed: the model still decides what is a truck row;
+  a row with no truck number is simply not an order until an email names the truck.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

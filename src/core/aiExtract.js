@@ -46,16 +46,42 @@ Return exactly this JSON shape:
 // The model is told never to include a vehicle make as a plate (see systemPrompt) but
 // occasionally does anyway — strip the common ones defensively rather than let a bogus token
 // like "DAF" ride along in the plate string (breaks dedup/PRK filing downstream).
-const VEHICLE_MAKES = new Set(['DAF', 'VOLVO', 'MAN', 'SCANIA', 'RENAULT', 'MERCEDES', 'IVECO', 'MAZ']);
+const VEHICLE_MAKES = new Set(['DAF', 'VOLVO', 'MAN', 'SCANIA', 'RENAULT', 'MERCEDES', 'IVECO', 'MAZ', 'BENZ', 'MB']);
+
+// A licence plate has letters and digits. UHB's loading table had a second row with no truck yet,
+// only an ID/passport number, and the model returned "02513238" as that truck's plates
+// (2026-11-11) — it showed on the dashboard as a second bulk truck. A token of digits only or
+// letters only is never a plate, and neither is a container number (4 letters + 7 digits:
+// MSNU2642503); an order left without a plate is dropped. Letters may be Cyrillic — Ukrainian
+// trucks are written "АХ4530НО". Checked against every plate stored since July 2026.
+const PLATE_SHAPE = /^(?=.*\p{L})(?=.*\d)[\p{L}\d-]{4,10}$/u;
+const CONTAINER_NO = /^[A-Z]{4}\d{7}$/;
+function looksLikePlate(p) {
+  // 6+ digits is a document number, not a plate ("LP-154702" rode along as a third plate, 2026-11-11).
+  if (PLATE_SHAPE.test(p) && !CONTAINER_NO.test(p) && (p.match(/\d/g) || []).length < 6) return true;
+  console.warn(`AI extraction: "${p}" is not a licence plate — dropped`);
+  return false;
+}
+
+// "JMV 187" written with a space arrives as two tokens — put a short letter group and the digit
+// group after it back together before the shape check, or the plate would be dropped.
+function joinSplitPlates(tokens) {
+  const out = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (/^\p{L}{1,3}$/u.test(tokens[i]) && /^\d{2,5}$/.test(tokens[i + 1] || '')) { out.push(tokens[i] + tokens[i + 1]); i++; }
+    else out.push(tokens[i]);
+  }
+  return out;
+}
 
 function normalizeOrders(orders) {
   if (!Array.isArray(orders)) return [];
   return orders.map(o => ({
-    plates: (Array.isArray(o.plates) ? o.plates : [])
+    plates: joinSplitPlates((Array.isArray(o.plates) ? o.plates : [])
       .flatMap(p => String(p).toUpperCase().split(/[\\/\s]+/))
       .map(p => p.trim())
       .filter(Boolean)
-      .filter(p => !VEHICLE_MAKES.has(p)),
+      .filter(p => !VEHICLE_MAKES.has(p))).filter(looksLikePlate),
     driver: o.driver ? String(o.driver).trim() : '',
     cargo:  o.cargo  ? String(o.cargo).trim()  : '',
     weight: Number.isFinite(o.weight) ? Math.round(o.weight) : (parseInt(o.weight, 10) || ''),
