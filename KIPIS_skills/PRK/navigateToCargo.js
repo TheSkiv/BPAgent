@@ -366,6 +366,8 @@ async function navigateToCargo(page, data = {}) {
     loadsFrom = {
       owner: source.owner, source: source.source, vessel: choice.pick.vessel, lot: choice.pick.lot, grossKg: total,
       releaseKey: (source.releases || []).find(r => r.vessel === choice.pick.vessel)?.key || null,
+      // The release number, so our own release book can count what is left (releaseBook.usedKg).
+      releaseNo: (source.releases || []).find(r => r.vessel === choice.pick.vessel)?.no || null,
     };
 
     const checkbox = tableRows.nth(choice.pick.i).locator('input[type="checkbox"]');

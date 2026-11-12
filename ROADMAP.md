@@ -807,6 +807,28 @@ Send and the KIPIS MFA code.
   rule / one truck per plate), 1 cancelled. Checked on the real JCV034 email against a copy of the
   day file: cancelled with the reason in its history, nothing else touched, a second run changes
   nothing. Steps 2 and 3 not started.
+- [x] **S34. Our own release book; new Helm buyers — built 2026-11-12 (owner's request).** Balticfert
+  (KPN387//NH791, MAP 11-52, "Release 293226") failed: "matches no buyer in the Helm/Yara release
+  lists" — Helm's new release 293226 (Baltic Fert, UAB, 216 t) was in Helm's email of 2026-11-11
+  19:28 but not yet in Helm's list on the stock server, and the Lots page could only offer buyers
+  from that list. Helm also wrote: "From now all loadings for Lithuanian customers will be done via
+  Helm AG". Built `src/core/releaseBook.js` + `config/releases.json` (written by the running system,
+  not tracked, like lots.json):
+  - Helm's release emails (subject exactly "Release <nr>", sender domain helmag.com — replies and
+    clients' orders are not announcements) are read at intake into the book: customer, number,
+    quantity, product, packing ("In 600 kg bb"; none = bulk), origin, from-date. Not truck orders.
+    The four of the last 60 days were imported (256589, 273645, 291568, 293226).
+  - `owners.fetchReleases` = the stock server's list (cached, still the authority for "left") +
+    book releases it does not have. Book "left" = quantity − gross of PortSystem PRKs that recorded
+    the release number (`loadsFrom.releaseNo`, new — `releaseBook.usedKg`, 90 days).
+  - A book release has no vessel (the emails name none): `resolveOrder` takes the vessels of the
+    seller's stock report holding the cargo with a truck's worth; set on the Lots page if needed.
+  - Lots page **Releases** section: number, seller, buyer, product, vessel, left, source; book rows
+    have a vessel picker and ✕; **Add a release** by hand. Buyers now include book buyers, so
+    Balticfert matched "Baltic Fert, UAB" by itself.
+  Checked: KPN387 resolves to Helm release 293226 on ADAROSE (216 t left). Still blocked by lot
+  260723-001481-L (ADAROSE, MAP 11-52 CE Fertilizers) — owner Helm suggested, not confirmed — the
+  owner confirms it on the Lots page.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

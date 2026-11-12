@@ -1287,6 +1287,7 @@ app.get('/lots/data', async (req, res) => {
     companies,
     buyers: [...new Set(releases.map(r => r.buyer))].sort(),
     releases,
+    stockVessels: [...new Set(stock.map(r => r.vessel).filter(Boolean))].sort(),
     warnings,
     attention: {
       lots:      vessels.filter(v => v.listed).reduce((n, v) => n + v.unconfirmed, 0),
@@ -1312,6 +1313,25 @@ app.post('/lots/company', (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// Our own release book (releaseBook.js): add / change a release by hand, set its vessel, remove it.
+app.post('/releases/save', (req, res) => {
+  try {
+    const b = req.body || {};
+    const r = require('./core/releaseBook').saveRelease({
+      nr: b.nr, seller: b.seller, buyer: b.buyer, product: b.product,
+      quantityKg: b.quantityT !== undefined && b.quantityT !== '' ? Number(String(b.quantityT).replace(',', '.')) * 1000 : undefined,
+      bulk: b.bulk, vessel: b.vessel,
+    });
+    res.json({ status: 'ok', release: r });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+app.post('/releases/remove', (req, res) => {
+  require('./core/releaseBook').removeRelease(String(req.body?.nr || ''));
+  res.json({ status: 'ok' });
 });
 
 app.post('/lots/remove', (req, res) => {

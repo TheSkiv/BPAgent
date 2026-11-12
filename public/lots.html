@@ -91,12 +91,24 @@
   </section>
 
   <section class="card">
-    <details>
-      <summary>Releases (Helm release'ai, Yara perdavimai)</summary>
-      <table style="margin-top:10px">
-        <thead><tr><th>Seller</th><th>Buyer</th><th>Product</th><th>Vessel</th><th class="num">Left</th></tr></thead>
-        <tbody id="releases"></tbody>
-      </table>
+    <h2>Releases</h2>
+    <p class="hint" data-i18n="lots.hint.releases">Helm's and Yara's lists from the stock server, plus our own: Helm's "Release …" emails are read in by themselves, and you can add one by hand. A release from an email names no vessel — PortSystem takes it from the seller's stock report; set it here when the cargo is on more than one vessel.</p>
+    <table style="margin-top:10px">
+      <thead><tr><th>Release</th><th>Seller</th><th>Buyer</th><th>Product</th><th>Vessel</th><th class="num">Left</th><th>Source</th><th></th></tr></thead>
+      <tbody id="releases"></tbody>
+    </table>
+    <details style="margin-top:12px">
+      <summary>Add a release</summary>
+      <div class="row-actions" style="margin-top:10px">
+        <input id="relNr" placeholder="Release no." style="width:110px" />
+        <select id="relSeller"></select>
+        <input id="relBuyer" placeholder="Buyer, e.g. Baltic Fert, UAB" style="width:200px" />
+        <input id="relProduct" placeholder="Product, e.g. MAP 11-52" style="width:160px" />
+        <input id="relQty" placeholder="Tonnes" inputmode="decimal" style="width:80px" />
+        <label style="display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" id="relBulk" style="width:auto" /> bulk</label>
+        <button id="relAdd">Add</button>
+        <span id="relStatus" class="hint"></span>
+      </div>
     </details>
   </section>
 </main>
@@ -174,9 +186,16 @@
         ? `<details style="margin-top:12px"><summary>${t('Other vessels ({n}) — not in the stock or release lists', { n: other.length })}</summary>${other.map(vesselCard).join('')}</details>`
         : '');
     document.getElementById('companies').innerHTML = data.companies.map(companyRow).join('');
-    document.getElementById('releases').innerHTML = data.releases.map(r => `<tr>
-      <td>${esc(r.seller)}</td><td>${esc(r.buyer)}</td><td>${esc(r.product)}</td><td>${esc(r.vessel)}</td>
-      <td class="num">${tonnes(r.remainingKg)}${r.bulk ? t(' bulk') : ''}</td></tr>`).join('');
+    const relNo = r => (r.numbers || []).map(n => n.value).join(' / ');
+    const vesselCell = r => !r.fromBook ? esc(r.vessel)
+      : `<select class="rel-vessel" data-nr="${esc(relNo(r))}"><option value="">${t('— from stock —')}</option>`
+        + [...new Set([...(data.stockVessels || []), ...(r.vessel ? [r.vessel] : [])])].map(v => `<option${v === r.vessel ? ' selected' : ''}>${esc(v)}</option>`).join('') + `</select>`;
+    document.getElementById('releases').innerHTML = data.releases.map(r => `<tr${r.fromBook ? ' class="book"' : ''}>
+      <td class="mono">${esc(relNo(r))}</td><td>${esc(r.seller)}</td><td>${esc(r.buyer)}</td><td>${esc(r.product)}</td><td>${vesselCell(r)}</td>
+      <td class="num">${tonnes(r.remainingKg)}${r.fromBook ? ` <span class="hint">/ ${tonnes(r.quantityKg)}</span>` : ''}${r.bulk ? t(' bulk') : ''}</td>
+      <td class="hint">${r.fromBook ? esc(t(r.source === 'email' ? 'email' : 'by hand')) : t('stock list')}</td>
+      <td>${r.fromBook ? `<button class="plain rel-remove" data-nr="${esc(relNo(r))}" title="${esc(t('Remove this release from our list'))}">✕</button>` : ''}</td></tr>`).join('');
+    document.getElementById('relSeller').innerHTML = data.sellers.map(s => `<option>${esc(s)}</option>`).join('');
   }
 
   document.getElementById('vessels').addEventListener('change', e => {
@@ -217,6 +236,28 @@
       receiverCountry: tr.querySelector('input.country').value,
     });
     if (r.error) { status.textContent = t(r.error); status.className = 'hint company-status err'; return; }
+    await load();
+  });
+
+  // Our own releases: the vessel (changing it saves it), remove, add by hand.
+  document.getElementById('releases').addEventListener('change', async e => {
+    if (!e.target.matches('select.rel-vessel')) return;
+    await post('/releases/save', { nr: e.target.dataset.nr, vessel: e.target.value });
+    await load();
+  });
+  document.getElementById('releases').addEventListener('click', async e => {
+    if (!e.target.matches('button.rel-remove')) return;
+    if (!confirm(t('Remove release {nr} from our list? If Helm sends its email again it comes back.', { nr: e.target.dataset.nr }))) return;
+    await post('/releases/remove', { nr: e.target.dataset.nr });
+    await load();
+  });
+  document.getElementById('relAdd').addEventListener('click', async () => {
+    const v = id => document.getElementById(id).value.trim();
+    const status = document.getElementById('relStatus');
+    const r = await post('/releases/save', { nr: v('relNr'), seller: v('relSeller'), buyer: v('relBuyer'), product: v('relProduct'), quantityT: v('relQty'), bulk: document.getElementById('relBulk').checked });
+    if (r.error) { status.className = 'hint err'; status.textContent = t(r.error); return; }
+    status.className = 'hint ok'; status.textContent = t('Release {nr} added.', { nr: r.release.nr });
+    ['relNr', 'relBuyer', 'relProduct', 'relQty'].forEach(id => { document.getElementById(id).value = ''; });
     await load();
   });
 

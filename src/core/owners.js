@@ -67,6 +67,25 @@ let _releases = null, _releasesAt = 0;
 // Every seller's release rows: { numbers, seller, buyer, product, vessel, remainingKg, bulk }.
 // All-or-nothing, like the stock reports: a missing seller would make its buyers look release-less.
 async function fetchReleases() {
+  return [...await fetchListedReleases(), ...bookReleases(_releases || [])];
+}
+
+// Our own release book (releaseBook.js, from Helm's release emails and the Lots page) — a release
+// the stock server's list does not have yet. What is left = its quantity − PortSystem's PRKs on it.
+// A release with no vessel (the emails name none) gets it from the seller's stock report when
+// filing (resolveOrder).
+function bookReleases(listed) {
+  const { list, usedKg } = require('./releaseBook');
+  const known = new Set(listed.flatMap(r => r.numbers.map(n => n.value)));
+  return list().filter(b => !known.has(b.nr)).map(b => ({
+    numbers: [{ label: 'Release', value: b.nr }],
+    seller: b.seller, buyer: b.buyer, product: b.product, vessel: b.vessel || '',
+    remainingKg: Math.max(0, (b.quantityKg || 0) - usedKg(b.nr)),
+    bulk: !!b.bulk, fromBook: true, quantityKg: b.quantityKg, from: b.from || '', source: b.source?.kind || '',
+  }));
+}
+
+async function fetchListedReleases() {
   if (_releases && Date.now() - _releasesAt < RELEASES_TTL_MS) return _releases;
   const { sellers } = loadConfig();
   const lists = await Promise.all(sellers.filter(s => s.releases).map(async s => {
@@ -149,7 +168,23 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf, pendingKgFor
     // One balance per seller+buyer+vessel+product: Linas Agro has two TSP lines on OSLO CARRIER 2
     // (one used up, one with 1 878 t) — our drafts must come off their sum once, not off each.
     const merged = new Map();
-    for (const r of releases.filter(x => x.buyer === buyer && releaseMatches(cargo, x.product))) {
+    let candidates = releases.filter(x => x.buyer === buyer && releaseMatches(cargo, x.product));
+    // A release from our book without a vessel (Helm's emails name none): the vessels in the
+    // seller's stock report that hold this cargo with at least a truck's worth.
+    if (candidates.some(r => !r.vessel)) {
+      let stockRows = [];
+      try { stockRows = await fetchStockRows(); } catch (err) { return { stop: `stock reports unreachable (${err.message})` }; }
+      candidates = candidates.flatMap(r => {
+        if (r.vessel) return [r];
+        const s = loadConfig().sellers.find(x => x.name === r.seller);
+        const perVessel = new Map();
+        for (const row of matchingRows(cargo, stockRows.filter(x => x.report === (s && s.stockReport)))) perVessel.set(row.vessel, (perVessel.get(row.vessel) || 0) + row.netto);
+        const vessels = [...perVessel].filter(([, kg]) => kg >= grossKg * 0.9).map(([v]) => v);
+        return vessels.map(vessel => ({ ...r, vessel }));
+      });
+      if (!candidates.length) return { stop: `${buyer}'s release for ${cargo} names no vessel and the seller's stock report has no ${cargo} with a truck left — set the vessel for the release on the Lots page` };
+    }
+    for (const r of candidates) {
       const k = releaseKey(r);
       if (merged.has(k)) merged.get(k).remainingKg += r.remainingKg;
       else merged.set(k, { ...r });
@@ -164,7 +199,7 @@ async function resolveOrder({ company, cargo, grossKg }, ownLotsOf, pendingKgFor
       const vessels = [...new Set(open.map(r => r.vessel))];
       return {
         owner: sellers[0], vessels, source: 'release',
-        releases: open.map(r => ({ key: releaseKey(r), vessel: r.vessel })),
+        releases: open.map(r => ({ key: releaseKey(r), vessel: r.vessel, no: r.numbers?.[0]?.value || null })),
         note: `${buyer}'s ${sellers[0]} release (${open.map(show).join(', ')})`,
       };
     }

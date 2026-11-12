@@ -46,6 +46,7 @@ const { appendOrderRow, removeNotCheckRows, refreshCargo, updateOrderCargo, upda
 const { classifySender, addToCheck, isConfirmed } = require('../core/senders');
 const { markDone, isDone, normalizePlate } = require('../core/doneTracker');
 const orderStore = require('../core/orderStore');
+const releaseBook = require('../core/releaseBook');
 const { ensureOrder } = orderStore;
 const { saveEmailData, getEmailData } = require('../core/emailCache');
 
@@ -248,6 +249,14 @@ async function pollAndProcessEmails({ max, query }) {
     const kept    = []; // { email, ri }
 
     for (const email of emails) {
+      // A seller's release announcement ("Release 293226" from @helmag.com) goes into our release
+      // book (releaseBook.js) — it is not a truck order.
+      const release = releaseBook.fromEmail(email);
+      if (release) {
+        results.push({ id: email.id, subject: email.subject, from: email.from, date: email.date, body: '', plates: [], driver: '', cargo: '',
+          status: 'ignored', skipReason: `Release ${release.nr} recorded (${release.buyer}, ${release.product}, ${release.quantityKg / 1000} t)` });
+        continue;
+      }
       const senderStatus = await classifySender(email.from);
       if (senderStatus === 'notcheck') {
         results.push({ id: email.id, subject: email.subject, from: email.from,
