@@ -247,6 +247,7 @@ app.get('/pipeline', (req, res) => {
       docs:   o.docs,
       dispatchSent: o.dispatchSent || null,
       printedAt: o.printedAt || null,
+      printedParts: o.printedParts || [],
       loadedKg: o.loadedKg || null,
       fromKipis: o.email?.from === 'KIPIS',
       createdAt: o.createdAt || '',
@@ -644,15 +645,21 @@ async function transportDocsFor(order, cmrPdf) {
 
 // CMR or važtaraštis × (Ro-Ro 5 / KKT 1), then PRK × (1, bulk 2), as one PDF. X-Pack-Note says
 // what is in it.
-async function sendPack(res, order, cmrPdf, terminal) {
+// part (S42): 'transport' — only the CMR / važtaraščiai; 'prk' — only the PRK; none — both.
+async function sendPack(res, order, cmrPdf, terminal, part = null) {
   const copies = cmr.copiesOf({ terminal, bulk: order.bulk });
-  const docs = await transportDocsFor(order, cmrPdf);
-  const prk = await prkPdfFor(order);
+  const docs = part === 'prk' ? { buffers: [], label: '' } : await transportDocsFor(order, cmrPdf);
+  const prk = part === 'transport' ? {} : await prkPdfFor(order);
+  if (part === 'transport' && !docs.buffers.length) return res.status(404).type('text/plain').send(`No CMR or važtaraštis for ${order.plate} — make the CMR in its window, then print again.`);
+  if (part === 'prk' && !prk.buffer) return res.status(404).type('text/plain').send(`No PRK to print for ${order.plate} (${prk.why}).`);
   if (!docs.buffers.length && !prk.buffer) return res.status(404).type('text/plain').send(`Nothing to print yet for ${order.plate}: no CMR or važtaraštis, and no PRK (${prk.why}).`);
   const pack = await cmr.printPack([...docs.buffers.map(b => ({ buffer: b, copies: copies.cmr })), { buffer: prk.buffer, copies: copies.prk }]);
-  const note = [docs.buffers.length ? `${docs.label} × ${copies.cmr}` : 'no CMR or važtaraštis', prk.buffer ? `PRK × ${copies.prk}` : `no PRK (${prk.why})`].join(', ');
+  const note = [
+    part !== 'prk' && (docs.buffers.length ? `${docs.label} × ${copies.cmr}` : 'no CMR or važtaraštis'),
+    part !== 'transport' && (prk.buffer ? `PRK × ${copies.prk}` : `no PRK (${prk.why})`),
+  ].filter(Boolean).join(', ');
   res.setHeader('X-Pack-Note', encodeURIComponent(note));
-  res.setHeader('Content-Disposition', `inline; filename="${order.plate.replace(/[^\w-]/g, '_')}.pdf"`);
+  res.setHeader('Content-Disposition', `inline; filename="${part === 'prk' ? 'PRK ' : ''}${order.plate.replace(/[^\w-]/g, '_')}.pdf"`);
   res.type('application/pdf').send(pack);
 }
 
@@ -1570,15 +1577,17 @@ app.get('/order/print-pack', async (req, res) => {
   const last = cmr.forOrder(order.id)[0];
   const cmrPdf = last ? await cmr.reprint(last.number) : null;
   const terminal = last?.terminal || require('./core/terminals').terminalFor({ vessel: order.loadsFrom?.vessel || '', cargo: order.cargo });
-  try { await sendPack(res, order, cmrPdf, terminal); } catch (err) { res.status(500).send(`Could not make the print pack: ${err.message}`); }
+  const part = ['transport', 'prk'].includes(req.query.part) ? req.query.part : null;
+  try { await sendPack(res, order, cmrPdf, terminal, part); } catch (err) { res.status(500).send(`Could not make the print pack: ${err.message}`); }
 });
 
 // The Print step: the operator opened the print pack from it → printed, and the truck is done.
 app.post('/order/printed', (req, res) => {
   const order = req.body?.id && orderStore.getOrder(String(req.body.id));
   if (!order) return res.status(404).json({ error: 'Order not found' });
-  orderStore.setPrinted(order.id, { what: String(req.body.what || '').slice(0, 200) || 'print pack opened' });
-  res.json({ status: 'ok' });
+  const part = ['transport', 'prk'].includes(req.body.part) ? req.body.part : null;
+  const after = orderStore.setPrinted(order.id, { what: String(req.body.what || '').slice(0, 200) || 'print pack opened', part });
+  res.json({ status: 'ok', printed: !!after?.printedAt, done: after?.state === 'done', parts: after?.printedParts || [] });
 });
 
 // The CMRs printed for one truck (its window lists them).

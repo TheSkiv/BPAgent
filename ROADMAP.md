@@ -936,6 +936,16 @@ Send and the KIPIS MFA code.
   now records such a draft as "not in KIPIS", or it would look for them every 10 minutes. That
   is safe because the full Ruošiamas list decides what is a draft. Nothing was deleted by
   PortSystem in that run.
+- [x] **S42. The PRK prints as its own PDF — 2026-11-12 (owner).** Owner: "in the PRINT stage I
+  need to be able to print not just the Vaztarastis, but the PRK as well in a separate PDF." The
+  Print step now has two buttons in place of "Print documents": **Važtaraštis / CMR** (Ro-Ro × 5,
+  KKT × 1) and **PRK** (× 1; bulk × 2). Each opens its own PDF (`/order/print-pack?part=transport`
+  / `part=prk`; the PRK file is named "PRK <plate>.pdf"). An opened part shows ✓. The truck is
+  done once every part it needs is opened (`orderStore.setPrinted` with `part`;
+  `order.printedParts`): bagged, both; bulk, the PRK. The truck window keeps "Print pack" (both
+  in one) and gains a "PRK" link. Checked: setPrinted by part on a copy (5 checks). Live on
+  KTU519: the PRK came back alone (2 pages) and the važtaraštis alone (1 page); the truck was
+  not changed.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

@@ -186,6 +186,13 @@
     'Preparing the documents — the PRK may take a few seconds from KIPIS…': 'Ruošiami dokumentai — PRK iš KIPIS gali užtrukti kelias sekundes…',
     'Open: {pack}. No CMR or važtaraštis for this truck — make the CMR in its window, then print again.': 'Atidaryta: {pack}. Šiam sunkvežimiui nėra CMR ar važtaraščio — sukurkite CMR jo lange ir spausdinkite dar kartą.',
     'Printing: {pack}. The truck is done.': 'Spausdinama: {pack}. Sunkvežimis atliktas.',
+    'Printing: {pack}. Print the other document too.': 'Spausdinama: {pack}. Atspausdinkite ir kitą dokumentą.',
+    'Važtaraštis / CMR': 'Važtaraštis / CMR',
+    'Ro-Ro 5 copies, KKT 1.': 'Ro-Ro 5 egz., KKT 1.',
+    '2 copies — one for the driver.': '2 egz. — vienas vairuotojui.',
+    '1 copy, for our archive.': '1 egz., mūsų archyvui.',
+    'Fetching the PRK from KIPIS — a few seconds…': 'PRK gaunamas iš KIPIS — kelios sekundės…',
+    'The PRK alone.': 'Tik PRK.',
     'To print': 'Spausdinti',
 
     // Menu links: short, so the top bar stays on one line

@@ -157,13 +157,19 @@ function needsPrinting(o) {
 }
 
 // Documents printed (the print pack opened from the Print step) → the truck is done.
-function setPrinted(id, { date, what = '' } = {}) {
+// part (S42, owner 2026-11-12: the PRK as its own PDF): 'transport' (CMR / važtaraštis) or 'prk'.
+// The truck counts as printed once every part it needs is opened — bagged: both; bulk: the PRK.
+// No part: the whole pack (the truck window's "Print pack").
+const PRINT_PARTS = o => (o.bulk ? ['prk'] : ['transport', 'prk']);
+function setPrinted(id, { date, what = '', part = null } = {}) {
   date = date || dateOf(id);
   const db    = load(date);
   const order = db.orders.find(o => o.id === id);
   if (!order) return null;
-  order.printedAt = new Date().toISOString();
   logHistory(order, 'operator', 'printed', what || 'documents printed');
+  if (part) order.printedParts = [...new Set([...(order.printedParts || []), part])];
+  if (part && !PRINT_PARTS(order).every(p => order.printedParts.includes(p))) { save(db, date); return order; }
+  order.printedAt = new Date().toISOString();
   // Printed after the email (or once a bulk truck's PRK exists): nothing is left — done, without
   // waiting for the terminal's copy of the email.
   const finished = order.state === 'to_print'

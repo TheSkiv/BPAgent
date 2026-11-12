@@ -242,7 +242,14 @@
       for (const a of st.actions || []) {
         if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? t('Order loading') : t('Send email')}</button>`);
         if (a === 'weight') b.push(`<span class="weight-entry"><input class="weight-in" data-id="${esc(o.id)}" inputmode="numeric" placeholder="${esc(t('kg loaded'))}" aria-label="${esc(t('Loaded weight, kg'))}" /><button class="btn primary small" data-act="weight" data-id="${esc(o.id)}">${t('File PRK')}</button></span>`);
-        if (a === 'print') b.push(`<button class="btn go small" data-act="print" data-id="${esc(o.id)}" title="${esc(t('CMR or važtaraštis: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print documents')}</button>`);
+        // S42 (owner, 2026-11-12): the transport document and the PRK print as separate PDFs. A
+        // bagged truck is done once both are opened; bulk once its PRK is (its CMR is optional).
+        if (a === 'print') {
+          const done = o.printedParts || [];
+          const pb = (part, label, title) => `<button class="btn ${done.includes(part) ? '' : 'go'} small" data-act="print" data-part="${part}" data-id="${esc(o.id)}" title="${esc(title)}">${done.includes(part) ? '✓ ' : ''}${label}</button>`;
+          b.push(pb('transport', t('Važtaraštis / CMR'), t('Ro-Ro 5 copies, KKT 1.')));
+          b.push(pb('prk', 'PRK', o.bulk ? t('2 copies — one for the driver.') : t('1 copy, for our archive.')));
+        }
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="retry" data-id="${esc(o.id)}" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
@@ -413,7 +420,7 @@
       const order = orders.find(o => o.id === el.getAttribute('data-id'));
       if (act === 'open' && order) return openOrder(order);
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
-      if (act === 'print') return printDocs(el.getAttribute('data-id'), el);
+      if (act === 'print') return printDocs(el.getAttribute('data-id'), el, el.getAttribute('data-part'));
       if (act === 'weight') return enterWeight(el.getAttribute('data-id'), el);
       if (act === 'retry') return retryTruck(order, el);
       if (act === 'cancel') {
@@ -820,23 +827,25 @@
       if (e.key === 'Enter' && e.target.classList.contains('weight-in')) e.target.closest('.weight-entry').querySelector('[data-act="weight"]').click();
     });
 
-    // The Print step: the pack (CMR or važtaraštis + PRK, in the right number of copies) opens in a
-    // new tab; with a transport document in it the truck counts as printed and is done.
-    async function printDocs(id, btn) {
+    // The Print step: one document (part 'transport' = CMR or važtaraštis, 'prk' = the PRK), in the
+    // right number of copies, opens as its own PDF in a new tab (S42). The truck is done once
+    // every part it needs is opened.
+    async function printDocs(id, btn, part) {
       const tab = window.open('', '_blank');   // opened during the click, so it is not blocked
       if (btn) btn.disabled = true;
-      toast('', t('Preparing the documents — the PRK may take a few seconds from KIPIS…'), true);
+      toast('', part === 'prk' ? t('Fetching the PRK from KIPIS — a few seconds…') : t('Preparing the documents — the PRK may take a few seconds from KIPIS…'), true);
       try {
-        const res = await fetch('/order/print-pack?id=' + encodeURIComponent(id));
+        const res = await fetch('/order/print-pack?id=' + encodeURIComponent(id) + (part ? '&part=' + part : ''));
         if (!res.ok) { if (tab) tab.close(); toast('err', t(await res.text())); return; }
         const note = decodeURIComponent(res.headers.get('X-Pack-Note') || '');
         const url = URL.createObjectURL(await res.blob());
         if (tab) tab.location = url; else window.open(url, '_blank');
-        if (/no CMR or važtaraštis/.test(note)) {
+        if (!part && /no CMR or važtaraštis/.test(note)) {
           toast('warn', t('Open: {pack}. No CMR or važtaraštis for this truck — make the CMR in its window, then print again.', { pack: note }), true);
         } else {
-          await postJson('/order/printed', { id, what: note });
-          toast('ok', t('Printing: {pack}. The truck is done.', { pack: note }));
+          const r = await postJson('/order/printed', { id, what: note, part });
+          toast('ok', r.done || r.printed ? t('Printing: {pack}. The truck is done.', { pack: note })
+            : t('Printing: {pack}. Print the other document too.', { pack: note }));
         }
       } catch (err) { if (tab) tab.close(); toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { if (btn) btn.disabled = false; loadPipeline(); }
@@ -849,7 +858,8 @@
       try {
         const { cmrs } = await getJson('/order/cmrs?id=' + encodeURIComponent(o.id));
         if (currentOrder !== o) return;
-        const pack = `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}" title="${esc(t('CMR: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print pack')}</a>`;
+        const pack = `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}" title="${esc(t('CMR: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print pack')}</a>`
+          + `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}&part=prk" title="${esc(t('The PRK alone.'))}">PRK</a>`;
         box.innerHTML = `<label>CMR</label><div class="release-row">`
           + (cmrs.length ? cmrs.map(c => `<a class="btn small" target="_blank" rel="noopener" href="/cmr/pdf?number=${encodeURIComponent(c.number)}">${esc(c.number)}</a><span class="muted">${esc(new Date(c.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }))}</span>`).join('')
             : `<span class="muted">${t('No CMR yet')}</span>`)
