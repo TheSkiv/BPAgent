@@ -946,6 +946,18 @@ Send and the KIPIS MFA code.
   in one) and gains a "PRK" link. Checked: setPrinted by part on a copy (5 checks). Live on
   KTU519: the PRK came back alone (2 pages) and the važtaraštis alone (1 page); the truck was
   not changed.
+- [x] **S43. One KIPIS check on the dashboard — 2026-11-12 (owner).** Owner: can "Spotting your
+  Pateikti" and "Matching KIPIS" be one, "I don't want to confuse the user with too many buttons."
+  Both read KIPIS's PRK list. The sync (`kipisSync.applyKipisList`) now also does the watch's two
+  moves: our draft Pateiktas / Patvirtintas → `submitted` (Email; Print for bulk), and annulled →
+  `cancelled`. It runs on the watch's triggers: about a minute after the operator's Pateikti
+  (30 s quiet in the window), and every 5 min (was 10), 08–18. `runWatch` and the shift tick's
+  watch step are gone. `prkWatch.js` is no longer called. `/prk/watch` answers with the sync.
+  The dashboard has one row, **Following KIPIS**, with one Check now. Its line sums up per truck
+  (submitted, loaded, annulled, on a colleague's PRK, our draft deleted); a failed deletion shows
+  in red. Its list is a superset of the watch's: every Ruošiamas draft plus all PRKs submitted
+  in the last 2 days. Dry run: 7 checks (and S41's 14) passed. Live: one run, 110 PRKs read, no
+  change needed.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

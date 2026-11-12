@@ -32,6 +32,17 @@ function applyKipisList(listed, { recordExistingPrk }) {
         orderStore.attachDocument(own.id, { type: 'PRK', number: doc.number, status }, { actor: 'kipis', date: orderStore.dateOf(own.id) });
         changed.push(`${own.plate}: ${doc.number} ${status}`);
       }
+      // S43 (owner, 2026-11-12: one KIPIS check, not two): what the Pateikti watch did — a draft
+      // that was submitted moves on to the dispatch email (Print for bulk).
+      if (PRK_SUBMITTED.test(status) && own.state === 'drafted') {
+        orderStore.setState(own.id, 'submitted', { actor: 'kipis', detail: `PRK ${doc.number} is ${status} in KIPIS`, date: orderStore.dateOf(own.id) });
+        changed.push(`${own.plate}: submitted`);
+      }
+      // …and a draft of ours annulled in KIPIS cancels its truck (as the watch did).
+      if (PRK_ANNULLED.test(status) && ['drafted', 'submitted'].includes(own.state) && own.email?.from !== 'KIPIS') {
+        orderStore.setState(own.id, 'cancelled', { actor: 'kipis', detail: `PRK ${doc.number} is ${status} in KIPIS`, date: orderStore.dateOf(own.id) });
+        changed.push(`${own.plate}: annulled`);
+      }
       if (PRK_LOADED.test(status) && !orderStore.CLOSED_STATES.includes(own.state) && own.state !== 'to_print') {
         orderStore.setState(own.id, 'done', { actor: 'kipis', detail: `PRK ${doc.number} is ${status} in KIPIS — loaded`, date: orderStore.dateOf(own.id) });
         changed.push(`${own.plate}: loaded`);

@@ -18,7 +18,6 @@ const lotRegistry = require('./core/lotRegistry');
 const { fetchStockRows } = require('./core/stockCache');
 const { searchLots, isOurStorage } = require('../KIPIS_skills/PRK/navigateToCargo');
 const { withAutomation, operatorActiveWithin, operatorPateiktiAt } = require('../KIPIS_skills/safePage');
-const prkWatch = require('../KIPIS_skills/PRK/prkWatch');
 const prkPdf   = require('../KIPIS_skills/PRK/prkPdf');
 const dispatchEmail = require('./core/dispatchEmail');
 const smtpSend = require('./core/smtpSend');
@@ -474,7 +473,6 @@ function listedPrkFor(order, listed) {
 const AUTO_FILE_HOURS = [8, 18];
 const OPERATOR_QUIET_MS = 3 * 60 * 1000;   // automatic jobs wait while the operator works in KIPIS
 let lastAutoFile = null;
-let lastWatch    = null;
 
 // An automatic job may drive the KIPIS window only when nothing else does, KIPIS is logged in,
 // and the operator has not clicked or typed in that window for a few minutes (it would pull the
@@ -509,28 +507,12 @@ async function autoFile(reason) {
   }
 }
 
-// A18: which of our drafts has the operator submitted? (`automatic` = respect autoBlocked)
-async function runWatch(reason, automatic, quietMs) {
-  const waiting = orderStore.prkNumbersFiled({ maxAgeDays: 1 });
-  if (![...waiting.values()].some(o => o.state === 'drafted' || o.state === 'submitted')) return lastWatch;
-  const blocked = automatic ? await autoBlocked(quietMs) : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
-  if (blocked) return (lastWatch = { at: new Date().toISOString(), reason, skipped: blocked });
-  isRunning = true;
-  try {
-    const page = getPage();
-    lastWatch = { at: new Date().toISOString(), reason, ...(await withAutomation(page, () => prkWatch.checkSubmitted())) };
-  } catch (err) {
-    lastWatch = { at: new Date().toISOString(), reason, error: err.message };
-    console.error('PRK watch failed:', err.message);
-  } finally {
-    isRunning = false;
-  }
-  return lastWatch;
-}
+// A18's Pateikti watch is part of the KIPIS sync since S43 (owner, 2026-11-12: one KIPIS check
+// on the dashboard, not two) — see syncWithKipis.
 
 // ── The desk matches KIPIS (owner, 2026-11-11) ───────────────────────────────
-// "If KIPIS has more PRKs, the dashboard should have the same number of trucks." Every 10 minutes
-// in the shift (and on the dashboard's button) KIPIS's PRK list of the last 2 days is read
+// "If KIPIS has more PRKs, the dashboard should have the same number of trucks." Every 5 minutes
+// in the shift, and a minute after the operator presses Pateikti (S43 — it took over the Pateikti watch) (and on the dashboard's button) KIPIS's PRK list of the last 2 days is read
 // (read-only) and the desk follows it:
 //   - a PRK on one of our trucks: its status is kept current; loaded (Atliktas/Užbaigtas) → done;
 //   - an open truck loaded on a PRK a person made (MTE728 on 261111-000640, 2026-11-11) → done;
@@ -538,13 +520,13 @@ async function runWatch(reason, automatic, quietMs) {
 //   - a PRK for a truck PortSystem has no email for is left alone — no truck is made from it
 //     (owner, 2026-11-12: "we don't pull PRKs from KIPIS if we don't have a matching email").
 // Only road transport counts — internal moves into a storage place are not trucks.
-const KIPIS_SYNC_EVERY_MS = 10 * 60 * 1000;
+const KIPIS_SYNC_EVERY_MS = 5 * 60 * 1000;   // S43: every 5 min (was 10), as the Pateikti watch it replaces
 let lastKipisSync = null;
 let lastKipisSyncRun = 0;   // the first shift tick after a start syncs, so stale PRK statuses never linger
 const { applyKipisList } = require('./core/kipisSync');
 
-async function syncWithKipis(reason, automatic) {
-  const blocked = automatic ? await autoBlocked() : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
+async function syncWithKipis(reason, automatic, quietMs) {
+  const blocked = automatic ? await autoBlocked(quietMs) : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
   if (blocked) return (lastKipisSync = { at: new Date().toISOString(), reason, skipped: blocked });
   isRunning = true;
   try {
@@ -793,7 +775,7 @@ function retryStopped() {
 async function autoRound(reason) {
   retryStopped();
   await autoFile(reason);
-  await runWatch(reason, true);
+  await syncWithKipis(reason, true);
 }
 
 const inShift = () => { const h = new Date().getHours(); return h >= AUTO_FILE_HOURS[0] && h < AUTO_FILE_HOURS[1]; };
@@ -830,11 +812,10 @@ async function prepareDispatches() {
 //   - KIPIS closed or logged out → open it and type the login, so only the MFA code is left for
 //     a person (KIPIS_AUTO_OPEN=false in .env turns this off);
 //   - something ready → file it (a no-op when nothing is ready or KIPIS is busy);
-//   - drafts waiting for Pateikti → read the PRK list at most every WATCH_EVERY_MS.
+//   - KIPIS's PRK list → the desk follows it, right after a Pateikti or every KIPIS_SYNC_EVERY_MS.
 const KIPIS_AUTO_OPEN = process.env.KIPIS_AUTO_OPEN !== 'false';
-const WATCH_EVERY_MS  = 5 * 60 * 1000;
 const AFTER_PATEIKTI_QUIET_MS = 30 * 1000;
-let ticking = false, lastWatchRun = 0, pateiktiSeen = 0;
+let ticking = false, pateiktiSeen = 0;
 async function shiftTick() {
   if (!inShift() || ticking) return;
   ticking = true;
@@ -851,11 +832,11 @@ async function shiftTick() {
     // two instead of after the next 5-minute read.
     const pateiktiAt = kipisOpen() ? await operatorPateiktiAt(getPage()) : 0;
     const justSubmitted = pateiktiAt > pateiktiSeen;
-    if (justSubmitted || Date.now() - lastWatchRun >= WATCH_EVERY_MS) {
-      const w = await runWatch(justSubmitted ? 'after your Pateikti' : 'shift timer', true, justSubmitted ? AFTER_PATEIKTI_QUIET_MS : undefined);
-      if (w && !w.skipped) { lastWatchRun = Date.now(); pateiktiSeen = pateiktiAt; }
+    // One KIPIS check (S43): right after your Pateikti, else every KIPIS_SYNC_EVERY_MS.
+    if (justSubmitted || Date.now() - lastKipisSyncRun >= KIPIS_SYNC_EVERY_MS) {
+      const w = await syncWithKipis(justSubmitted ? 'after your Pateikti' : 'shift timer', true, justSubmitted ? AFTER_PATEIKTI_QUIET_MS : undefined);
+      if (w && !w.skipped) pateiktiSeen = pateiktiAt;
     }
-    if (Date.now() - lastKipisSyncRun >= KIPIS_SYNC_EVERY_MS) await syncWithKipis('shift timer', true);
     await prepareDispatches();
   } catch (err) {
     console.error('Shift tick:', err.message);
@@ -909,9 +890,9 @@ app.get('/prk/recent', async (req, res) => {
   }
 });
 
-app.get('/prk/watch', (req, res) => res.json(lastWatch || {}));
-// Dashboard "Check submitted": the operator asks, so it runs even if they just used KIPIS.
-app.post('/prk/watch', async (req, res) => res.json((await runWatch('dashboard button', false)) || {}));
+// The old Pateikti-watch routes answer with the KIPIS sync (S43).
+app.get('/prk/watch', (req, res) => res.json(lastKipisSync || {}));
+app.post('/prk/watch', async (req, res) => res.json(await syncWithKipis('dashboard button', false)));
 
 app.get('/queue/auto', (req, res) => res.json(lastAutoFile || {}));
 

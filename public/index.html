@@ -42,12 +42,8 @@
           <div class="line" id="autoFileLine">Within a minute of a truck being ready, 08–18.</div>
         </div>
         <div class="auto-row">
-          <div class="head">Spotting your Pateikti <button class="btn small" id="watchBtn" title="Reads KIPIS's PRK list for drafts you have submitted">Check now</button></div>
-          <div class="line" id="watchLine">A minute after you press Pateikti, and every 5 min, 08–18.</div>
-        </div>
-        <div class="auto-row">
-          <div class="head">Matching KIPIS <button class="btn small" id="syncBtn" title="Reads KIPIS's PRK list of the last 2 days and brings the desk in line with it">Check now</button></div>
-          <div class="line" id="syncLine">Every 10 min, 08–18: the desk follows KIPIS's open PRKs.</div>
+          <div class="head">Following KIPIS <button class="btn small" id="syncBtn" title="Reads KIPIS's PRK list of the last 2 days: your Pateikti, loaded trucks, colleagues' PRKs">Check now</button></div>
+          <div class="line" id="syncLine">A minute after you press Pateikti, and every 5 min, 08–18.</div>
         </div>
         <div class="auto-row">
           <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
@@ -588,29 +584,31 @@
           : `${esc(t('Last run {time}: {n} saved', { time: hhmm(r.at), n: n('saved') }))}${n('blocked') + n('failed') ? `, <span class="warn">${esc(t('{n} not filed', { n: n('blocked') + n('failed') }))}</span>` : ''}${r.stoppedBecause ? ` — <span class="warn">${esc(t(r.stoppedBecause))}</span>` : ''}`;
       } catch { /* keep */ }
     }
-    async function loadWatch() {
-      try {
-        const r = await getJson('/prk/watch');
-        if (!r.at) return;
-        const moved = [...(r.submitted || []), ...(r.done || []), ...(r.cancelled || [])];
-        $('watchLine').innerHTML = (r.skipped || r.error)
-          ? `<span class="warn">${esc(t('{time}: skipped — {why}', { time: hhmm(r.at), why: t(r.skipped || r.error) }))}</span>`
-          : esc(t('Last check {time}: {what}', { time: hhmm(r.at), what: moved.length ? t('{plates} submitted', { plates: moved.map(x => x.plate).join(', ') }) : t('nothing new') }));
-      } catch { /* keep */ }
+    // One line for the KIPIS check (S43): per truck, what moved — submitted, loaded, annulled,
+    // on a colleague's PRK, our draft deleted. The full detail is in the truck's history.
+    function syncSummary(r) {
+      const by = new Map();
+      const add = (plate, what) => { if (!by.has(plate)) by.set(plate, new Set()); by.get(plate).add(what); };
+      for (const c of r.changed || []) {
+        const [plate, rest = ''] = c.split(/:\s(.*)/s);
+        if (/colleague/.test(rest)) add(plate, t("on a colleague's PRK"));
+        else if (/^submitted/.test(rest)) add(plate, t('submitted'));
+        else if (/^loaded/.test(rest)) add(plate, t('loaded'));
+        else if (/^annulled/.test(rest)) add(plate, t('annulled'));
+        else if (/made by a person/.test(rest)) add(plate, t('PRK made by a person'));
+      }
+      for (const d of r.deleted || []) add(d.plate, t('our draft deleted'));
+      const parts = [...by].map(([plate, w]) => `${plate} ${[...w].join(', ')}`);
+      return parts.length ? parts.join('; ') : t('no changes');
     }
-    $('watchBtn').addEventListener('click', async () => {
-      $('watchBtn').disabled = true;
-      $('watchLine').textContent = t('Reading the PRK list in KIPIS…');
-      try { await postJson('/prk/watch'); } catch { /* shown below */ }
-      $('watchBtn').disabled = false; loadWatch(); loadPipeline();
-    });
     async function loadSync() {
       try {
         const r = await getJson('/kipis/sync');
         if (!r.at) return;
         $('syncLine').innerHTML = (r.skipped || r.error)
           ? `<span class="warn">${esc(t('{time}: skipped — {why}', { time: hhmm(r.at), why: t(r.skipped || r.error) }))}</span>`
-          : esc(t('Last check {time}: {what}', { time: hhmm(r.at), what: r.changed?.length ? r.changed.join('; ') : t('no changes') }));
+          : esc(t('Last check {time}: {what}', { time: hhmm(r.at), what: syncSummary(r) }))
+            + (r.deleteFailed?.length ? ` <span class="warn">${esc(t('Could not delete: {list}', { list: r.deleteFailed.map(f => f.number).join(', ') }))}</span>` : '');
       } catch { /* keep */ }
     }
     $('syncBtn').addEventListener('click', async () => {
@@ -1035,9 +1033,9 @@
 
     // ── Start, and keep a dashboard left open current ────────────────────
     loadPipeline(); loadConfirmations(); loadKipisSession(); checkMail();
-    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots(); loadFinished(); loadSync();
+    loadMail(); loadAutoFile(); loadCleanup(); loadLots(); loadFinished(); loadSync();
     setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); loadFinished(); }, 60 * 1000);
-    setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadWatch(); loadSync(); }, 60 * 1000);
+    setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadSync(); }, 60 * 1000);
   </script>
 </body>
 </html>
