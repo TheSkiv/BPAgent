@@ -150,6 +150,9 @@ function activeOrderForPlate(plate, date) {
 const PRINT_STEP_FROM = '2026-11-11T14:00:00Z';
 function needsPrinting(o) {
   if (o.printedAt || (o.createdAt || '') < PRINT_STEP_FROM) return false;
+  // Closed while our own PRK is still a draft: a colleague finished the truck on their own PRK and
+  // sent the email by hand (EZV710, MOB412 on 2026-11-12) — nothing of ours to print.
+  if (o.docs?.PRK?.number && /ruošiamas/i.test(o.docs.PRK.status || '') && !o.dispatchSent) return false;
   return !!o.dispatchSent || (o.history || []).some(h => /PRK draft saved/.test(h.detail || ''));
 }
 

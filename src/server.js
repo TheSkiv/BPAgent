@@ -538,8 +538,8 @@ async function runWatch(reason, automatic, quietMs) {
 //   - a PRK on one of our trucks: its status is kept current; loaded (Atliktas/Užbaigtas) → done;
 //   - an open truck loaded on a PRK a person made (MTE728 on 261111-000640, 2026-11-11) → done;
 //     a person's open PRK for an open truck of ours without one → recorded on it;
-//   - an open PRK (Ruošiamas/Pateiktas/Patvirtintas) for a truck PortSystem does not have → a truck
-//     "from KIPIS" on the desk, closed when it loads, cancelled when annulled.
+//   - a PRK for a truck PortSystem has no email for is left alone — no truck is made from it
+//     (owner, 2026-11-12: "we don't pull PRKs from KIPIS if we don't have a matching email").
 // Only road transport counts — internal moves into a storage place are not trucks.
 const KIPIS_SYNC_EVERY_MS = 10 * 60 * 1000;
 let lastKipisSync = null;

@@ -863,6 +863,19 @@ Send and the KIPIS MFA code.
   klaidą", uncut quotes) → tightened to 4, all real cancellations in wording, of which only the
   Lapatinskas one would act (the others: our own office's "Atšauktas" to the terminal, MSC's
   container "Atšaukite PTA" — other senders / no truck thread).
+- [x] **S37. No trucks from KIPIS without an email; no Print for a truck a colleague finished —
+  fixed 2026-11-12 (owner).** Owner: "we don't pull PRKs from KIPIS if we don't have a matching
+  email" — reverses S32's "from KIPIS" trucks (which the owner had chosen on 2026-11-11 as "all
+  open PRKs"). `kipisSync` no longer creates trucks; it still keeps our own PRK statuses, closes a
+  truck of ours loaded on a colleague's PRK, records a colleague's PRK on our truck, and the desk
+  still shows our submitted-not-loaded trucks as waiting to load. The 12 trucks it had made were
+  cancelled (5 colleagues' PRKs of 2026-11-11, 4 more today, and 3 **duplicates of our own** 10 Nov
+  drafts LTK202/MTE728/NGZ189 — the sync only looked at the last two days of orders, a second
+  reason to drop it). Also: EZV710 and MOB412 had gone to `to_print` when the terminal's copy of a
+  colleague's hand-sent email closed them while our own PRK was still a draft — `needsPrinting`
+  now skips a truck whose own PRK is still Ruošiamas and whose email did not go from the
+  dashboard; the two were set done, their drafts now under "Delete these" (S25). Checked: sync run
+  after the restart, 0 changes, no truck from KIPIS; desk 6 trucks, all from emails.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
