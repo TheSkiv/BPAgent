@@ -790,6 +790,23 @@ Send and the KIPIS MFA code.
   changes); then live — 157 PRKs read, 32 corrections, desk 9 trucks = KIPIS's 9 open truck PRKs
   (KIPIS lists 11; NGZ189's and MTE728's unused drafts are not trucks). `/prk/recent` now also
   returns the list itself (read-only).
+- [x] **S33. A cancelled važtaraštis cancels its truck — built 2026-11-12.** Linas Agro's system sent
+  "Atšauktas (-i) krovinio gabenimo važtaraštis (-čiai)" for JCV034//OG708 (LAV00110374); the AI
+  read it as "not a truck order" and the truck stayed ready to file (cancelled by hand at the
+  owner's request). Owner asked whether AI should handle cancellations / plate changes and how
+  the industry builds this; agreed plan: (1) fixed rules for machine-generated emails, (2) an
+  evaluation set from stored emails, (3) then one-email-per-call extraction with a stronger model
+  and an *intent* field (new order / cancel / change plate / change weight / not an order) with
+  an evidence quote, acting automatically only when safe, else a card for the operator. No
+  multi-model "pyramid" (low volume, fixed task). **Step 1 built:** `gmailRoute.cancelForWaybill`:
+  a confirmed sender's "Atšauktas … važtaraštis" email is handled by a rule, not the AI — the
+  document number (LAV…, attachment name and text) and the plates ("…valstybinis numeris: X",
+  "…puspriekabės valstybinis numeris: Y") find the open truck from the same sender (today's and
+  yesterday's), which is cancelled; with an already submitted PRK it only gets a note (Anuliuoti is
+  a person's). Linas Agro's machine emails over 45 days: 72 new, 4 updated (covered by S32's swap
+  rule / one truck per plate), 1 cancelled. Checked on the real JCV034 email against a copy of the
+  day file: cancelled with the reason in its history, nothing else touched, a second run changes
+  nothing. Steps 2 and 3 not started.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

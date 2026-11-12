@@ -58,6 +58,44 @@ const waybillNumbers = atts => [...new Set((atts || [])
   .map(a => (String(a.filename || '').match(/^([A-Z]{2,4}\d{6,})PackSlip/i) || [])[1])
   .filter(Boolean).map(s => s.toUpperCase()))];
 const senderOf = from => (String(from || '').match(/<([^>]+)>/) || [, from || ''])[1].trim().toLowerCase();
+// A cancelled važtaraštis (owner, 2026-11-12: JCV034//OG708). Linas Agro's system sends
+// "Atšauktas (-i) krovinio gabenimo važtaraštis (-čiai)" with the document number (LAV…, in the
+// attachment name and the text) and the plates ("…valstybinis numeris: JCV034",
+// "Priekabos/puspriekabės valstybinis numeris: OG708"). A fixed rule, no AI: the open truck from
+// the same sender with that važtaraštis — or, without a cached one, those plates — is cancelled.
+// A truck whose PRK is already submitted only gets a note: annulling it (Anuliuoti) is a person's.
+const isCancelledWaybill = email => /^\s*Atšauktas\s*\(-i\)\s*krovinio gabenimo važtaraštis/i.test(email.subject || '');
+function cancelForWaybill(email) {
+  const text = `${email.body || ''}`;
+  const numbers = [...new Set([...waybillNumbers(email.attachments), ...(text.match(/\bLAV\d{6,}\b/gi) || []).map(s => s.toUpperCase())])];
+  const tractor = (text.match(/Transporto\s+priemon\S*\s+valstybinis\s+numeris:\s*([A-Z0-9]{4,10})/i) || [])[1] || '';
+  const trailer = (text.match(/puspriekab\S*\s+valstybinis\s+numeris:\s*([A-Z0-9]{4,10})/i) || [])[1] || '';
+  const plateKey = orderStore.normalizePlate(`${tractor}${trailer}`);
+  const done = [];
+  for (const day of [orderStore.daysAgo(0), orderStore.daysAgo(1)]) {
+    for (const o of orderStore.listOrders(day)) {
+      if (orderStore.CLOSED_STATES.includes(o.state) || senderOf(o.email?.from) !== senderOf(email.from)) continue;
+      const cachedNumbers = waybillNumbers((getEmailData(o.plate, day) || {}).attachments);
+      const byNumber = cachedNumbers.some(n => numbers.includes(n));
+      const byPlate = !cachedNumbers.length && plateKey && o.plateNorm === plateKey;
+      if (!byNumber && !byPlate) continue;
+      const why = `važtaraštis ${numbers.join(', ') || '(no number)'} cancelled by the sender ("${email.subject}")`;
+      const prk = o.docs?.PRK;
+      if (prk?.number && !/ruošiamas/i.test(prk.status || '')) {
+        orderStore.setState(o.id, o.state, { actor: 'intake', detail: `${why} — its PRK ${prk.number} is already submitted: a person decides (Anuliuoti)` });
+        console.warn(`Cancelled važtaraštis: ${o.plate} has submitted PRK ${prk.number} — left for the operator`);
+        done.push(`${o.plate}: PRK already submitted — check it`);
+        continue;
+      }
+      orderStore.setState(o.id, 'cancelled', { actor: 'intake', detail: `${why}${prk?.number ? ` — its draft ${prk.number} goes with the draft cleanup` : ''}` });
+      console.log(`Cancelled važtaraštis: ${o.plate} cancelled (${numbers.join(', ')})`);
+      done.push(`${o.plate}: cancelled`);
+    }
+  }
+  if (!done.length) console.log(`Cancelled važtaraštis ${numbers.join(', ')} (${tractor}/${trailer}): no open truck of ours — nothing to cancel`);
+  return done;
+}
+
 function replaceSwappedTrucks(tracked, email) {
   const numbers = waybillNumbers(email.attachments);
   if (!tracked || !numbers.length) return;
@@ -220,6 +258,14 @@ async function pollAndProcessEmails({ max, query }) {
       if (senderStatus === 'unknown') {
         await addToCheck(email.from, true); // red highlight — unreviewed
         console.log(`Unknown sender flagged for review: ${email.from}`);
+      }
+      // A cancelled važtaraštis is handled by a fixed rule, not read as an order. Only a confirmed
+      // sender's cancellation counts (senders are spoofable).
+      if (isCancelledWaybill(email) && isConfirmed(email.from)) {
+        const done = cancelForWaybill(email);
+        results.push({ id: email.id, subject: email.subject, from: email.from, date: email.date, body: '', plates: [], driver: '', cargo: '',
+          status: 'ignored', skipReason: `Cancelled važtaraštis — ${done.join('; ') || 'no open truck to cancel'}` });
+        continue;
       }
       const ri = results.push({ id: email.id, subject: email.subject, from: email.from,
         date: email.date, body: email.body, plates: [], driver: '', cargo: '',
@@ -507,3 +553,5 @@ router.post('/missed/clear', (req, res) => {
 
 module.exports = router;
 module.exports.checkMail = checkMail;
+module.exports.cancelForWaybill = cancelForWaybill;
+module.exports.isCancelledWaybill = isCancelledWaybill;
