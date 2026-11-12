@@ -184,11 +184,6 @@
     function stageOf(o) {
       const prk = o.docs?.PRK?.number;
       if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: t('Cancelled') };
-      // The desk matches KIPIS: a submitted PRK whose truck has not loaded yet stays here.
-      if (o.awaitingLoad) {
-        const route = o.bulk ? BULK : BAGGED;
-        return { group: 'waiting', route, stop: route.length - 1, label: t('Submitted — waiting for the truck to load'), reason: `${prk} ${o.docs?.PRK?.status || ''}` };
-      }
       // A PRK a person made in KIPIS for a truck PortSystem did not have.
       if (o.fromKipis) {
         if (o.state === 'drafted') return { group: 'needs', route: BAGGED, stop: 1, label: t('Draft made in KIPIS by a person — waiting for Pateikti'), reason: prk };

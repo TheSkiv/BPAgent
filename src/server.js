@@ -224,9 +224,6 @@ app.post('/prk/export', async (req, res) => {
   }
 });
 
-// Done on the email side, but the PRK is submitted and the truck has not loaded yet.
-const awaitingLoad = o => o.state === 'done' && !!o.docs?.PRK?.number && /^(pateiktas|patvirtintas)/i.test(o.docs.PRK.status || '');
-
 app.get('/pipeline', (req, res) => {
   try {
     orderStore.syncFromExcel();
@@ -235,10 +232,10 @@ app.get('/pipeline', (req, res) => {
     // for its dispatch email stay on the desk until they are finished.
     const yesterday = orderStore.daysAgo(1);
     const carried = orderStore.listOrders(yesterday)
-      .filter(o => (['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number) || o.state === 'to_print' || awaitingLoad(o));
-    // A truck whose PRK is submitted but not yet loaded stays on the desk (the desk matches KIPIS's
-    // open PRKs), even when the email side already counts it done.
-    for (let i = done.length - 1; i >= 0; i--) if (awaitingLoad(done[i])) queue.push(...done.splice(i, 1));
+      .filter(o => (['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number) || o.state === 'to_print');
+    // A done truck stays done, even while its PRK has not loaded yet (owner, 2026-11-12: the
+    // "waiting for the truck to load" rows of S32 were done trucks with nothing to act on) — the
+    // Truck log and the truck window show the PRK status.
     const shape = o => ({
       id:     o.id,
       plate:  o.plate,
@@ -251,7 +248,6 @@ app.get('/pipeline', (req, res) => {
       dispatchSent: o.dispatchSent || null,
       printedAt: o.printedAt || null,
       loadedKg: o.loadedKg || null,
-      awaitingLoad: awaitingLoad(o),
       fromKipis: o.email?.from === 'KIPIS',
       createdAt: o.createdAt || '',
       lastFailure: o.lastFailure || null,

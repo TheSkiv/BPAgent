@@ -876,6 +876,10 @@ Send and the KIPIS MFA code.
   now skips a truck whose own PRK is still Ruošiamas and whose email did not go from the
   dashboard; the two were set done, their drafts now under "Delete these" (S25). Checked: sync run
   after the restart, 0 changes, no truck from KIPIS; desk 6 trucks, all from emails.
+  **Also removed (owner, same day):** S32's "Submitted — waiting for the truck to load" rows. They
+  were done trucks (route at Done, no buttons) pulled back into Waiting while their PRK had not
+  loaded — all three were colleagues' trucks with nothing to act on. Done stays done; the PRK
+  status is in the Truck log and the truck window. The sync still keeps the statuses current.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
