@@ -8,8 +8,8 @@ const { markDone, isDone } = require('./core/doneTracker');
 const { todayString } = require('./core/dateManager');
 const { findCargoInText } = require('./core/cargoList');
 const { refreshCargo, updateOrderFields } = require('./core/ordersExcel');
-const { getEmailData }           = require('./core/emailCache');
-const { fetchAttachmentBytes }   = require('./core/imapMail');
+const { getEmailData, findByMessageId } = require('./core/emailCache');
+const { fetchAttachmentBytes, fetchMessage } = require('./core/imapMail');
 const orderStore = require('./core/orderStore');
 const { confirmSender, blockSender, parseAddress } = require('./core/senders');
 const senderCompanies = require('./core/senderCompanies');
@@ -621,7 +621,7 @@ async function prkPdfFor(order) {
 // { buffers: [Buffer], label } ; label '' when there is none.
 async function transportDocsFor(order, cmrPdf) {
   if (cmrPdf) return { buffers: [cmrPdf], label: 'CMR' };
-  const email = getEmailData(order.plate, orderStore.dateOf(order.id)) || {};
+  const email = (await orderEmail(order)) || {};
   const pdfs = (email.attachments || []).filter(a => /\.pdf$/i.test(a.filename || a.attachmentId || ''));
   if (!pdfs.length) return { buffers: [], label: '' };
   const { releases } = await releaseStamp.releasesFor(order).catch(() => ({ releases: [] }));
@@ -1403,8 +1403,28 @@ app.post('/refresh-cargo', (req, res) => {
   }
 });
 
-app.get('/order-email', (req, res) => {
-  const { plate } = req.query;
+// An order's own email: the email store of its day (by message id — the store is keyed by plate and
+// a later email for the same truck replaces that entry), else read from the mailbox by its id.
+// 85 trucks of the previous two days showed "not stored" when only today's store was searched
+// by plate (2026-11-12). Null for a truck from KIPIS (no email) or an email no longer in the inbox.
+async function orderEmail(order) {
+  const id = order.email?.messageId;
+  if (!id || order.email?.from === 'KIPIS' || /^kipis:/.test(id)) return null;
+  const stored = findByMessageId(id, orderStore.dateOf(order.id));
+  if (stored) return stored;
+  if (!/^\d+$/.test(String(id))) return null;
+  try { return await fetchMessage(id); } catch { return null; }
+}
+
+app.get('/order-email', async (req, res) => {
+  const { plate, id } = req.query;
+  const order = id && orderStore.getOrder(String(id));
+  if (order) {
+    if (order.email?.from === 'KIPIS') return res.status(404).json({ error: 'This truck came from KIPIS — a PRK a person made there; it has no email.' });
+    const data = await orderEmail(order);
+    if (!data) return res.status(404).json({ error: 'The source email is not stored for this truck.' });
+    return res.json(data);
+  }
   if (!plate) return res.status(400).json({ error: 'Missing plate' });
   const data = getEmailData(plate);
   if (!data) return res.status(404).json({ error: 'No email data for this plate' });
@@ -1463,7 +1483,7 @@ app.get('/cmr/draft', async (req, res) => {
   try {
     // Own cargo (Agrokoncernas' farmers): the place of delivery is in the email or on the
     // važtaraštis attached to it.
-    const email = getEmailData(order.plate) || {};
+    const email = (await orderEmail(order)) || {};
     let extraText = email.body || '';
     if (order.loadsFrom?.source === 'own' && !cmr.deliveryFromText(extraText)) {
       const { PDFParse } = require('pdf-parse');

@@ -201,7 +201,7 @@
         const ordered = o.state === 'gate_pass_ordered' || !!o.dispatchSent;
         if (o.state === 'done') return { group: 'done', route: BULK, stop: 5, label: t('Done') };
         if (o.state === 'filing') return { group: 'system', route: BULK, stop: 3, label: t('Filing in KIPIS now…') };
-        if (o.state === 'failed') return { group: 'failed', route: BULK, stop: 3, label: t('Not filed'), reason: t(o.note || ''), actions: ['retry', 'open'] };
+        if (o.state === 'failed') return { group: 'failed', route: BULK, stop: 3, label: t('Not filed'), reason: t(o.note || ''), actions: ['retry'] };
         if (prk && o.state === 'drafted') return { group: 'needs', route: BULK, stop: 3, label: t('Check the draft in KIPIS and press Pateikti') };
         if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 4, label: t('Print the documents'), reason: t('PRK × 2 — one for the driver'), actions: ['print'] };
         if (o.state === 'ready' && o.loadedKg) return { group: 'system', route: BULK, stop: 3, label: t('Gets its PRK draft automatically'), reason: t('Loaded {kg} kg', { kg: Number(o.loadedKg).toLocaleString('lt-LT') }), actions: ['file'] };
@@ -212,7 +212,7 @@
         case 'ready':     return { group: 'system', route: BAGGED, stop: 0, label: t('Gets its PRK draft automatically'), actions: ['file'] };
         case 'received':  return { group: 'waiting', route: BAGGED, stop: 0, label: t('New order') };
         case 'filing':    return { group: 'system', route: BAGGED, stop: 1, label: t('Filing in KIPIS now…') };
-        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: (o.lastFailure?.kind === 'transient' && o.lastFailure.autoRetries < 2 && !prk) ? t('Not filed — will be tried again automatically') : t('Not filed'), reason: t(o.note || ''), actions: ['retry', 'open'] };
+        case 'failed':    return { group: 'failed', route: BAGGED, stop: prk ? 1 : 0, label: (o.lastFailure?.kind === 'transient' && o.lastFailure.autoRetries < 2 && !prk) ? t('Not filed — will be tried again automatically') : t('Not filed'), reason: t(o.note || ''), actions: ['retry'] };
         case 'drafted':   return prk
           ? { group: 'needs', route: BAGGED, stop: 1, label: t('Check the draft in KIPIS and press Pateikti'), reason: /packaging not set/.test(o.note || '') ? t('Set Pakuotės rūšis to "43, Krepšys" by hand first — it could not be set automatically.') : '' }
           : { group: 'needs', route: BAGGED, stop: 1, label: t('Form filled but not saved — save it in KIPIS') };
@@ -250,11 +250,13 @@
         if (a === 'weight') b.push(`<span class="weight-entry"><input class="weight-in" data-id="${esc(o.id)}" inputmode="numeric" placeholder="${esc(t('kg loaded'))}" aria-label="${esc(t('Loaded weight, kg'))}" /><button class="btn primary small" data-act="weight" data-id="${esc(o.id)}">${t('File PRK')}</button></span>`);
         if (a === 'print') b.push(`<button class="btn go small" data-act="print" data-id="${esc(o.id)}" title="${esc(t('CMR or važtaraštis: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print documents')}</button>`);
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
-        if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
+        if (a === 'retry') b.push(`<button class="btn primary small" data-act="retry" data-id="${esc(o.id)}" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
       }
       if (!['done', 'cancelled'].includes(st.group) && !['done', 'cancelled'].includes(o.state)) {
-        b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
+        // A failed truck gets Try again and Cancel only (owner, 2026-11-12) — fixing the order is
+        // done by clicking its plate.
+        if (st.group !== 'failed') b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
         if (o.state !== 'filing') b.push(`<button class="btn quiet small cancel-btn" data-act="cancel" data-id="${esc(o.id)}" title="${t('Not a real truck order — remove it from the desk')}">${t('Cancel')}</button>`);
       }
       return b.join('');
@@ -419,6 +421,7 @@
       if (act === 'email') return openDispatch(el.getAttribute('data-id'));
       if (act === 'print') return printDocs(el.getAttribute('data-id'), el);
       if (act === 'weight') return enterWeight(el.getAttribute('data-id'), el);
+      if (act === 'retry') return retryTruck(order, el);
       if (act === 'cancel') {
         const plate = order ? order.plate : '';
         const draft = order?.docs?.PRK?.number;
@@ -731,8 +734,8 @@
       $('modalStatus').textContent = o.stage?.group === 'failed' && o.note ? t('Why it stopped: {note}', { note: t(o.note) }) : '';
       $('orderDialog').classList.add('open');
       try {
-        const res = await fetch('/order-email?plate=' + encodeURIComponent(o.plate));
-        if (res.status === 404) { $('modalBodyText').textContent = t('The source email is not stored for this truck.'); return; }
+        const res = await fetch('/order-email?' + new URLSearchParams({ id: o.id, plate: o.plate }));
+        if (res.status === 404) { const e = await res.json().catch(() => ({})); $('modalBodyText').textContent = t(e.error || 'The source email is not stored for this truck.'); return; }
         const d = await res.json();
         if (d.error) { $('modalBodyText').textContent = t(d.error); return; }
         $('modalSubject').textContent = d.subject || o.subject || '';
@@ -794,6 +797,29 @@
       } catch (err) { $('modalStatus').innerHTML = `<span class="err">${esc(t('Network error: {msg}', { msg: err.message }))}</span>`; }
       finally { $('modalSaveBtn').disabled = false; }
     });
+
+    // Try again on a failed truck. When it stopped only because a lot's owner is not confirmed, the
+    // operator confirms PortSystem's suggestion right here (KPN387//NH791 tried twice on lot
+    // 260723-001481-L, 2026-11-12) — the confirmation stays a person's decision.
+    async function retryTruck(o, btn) {
+      if (!o) return;
+      const lots = /owner not confirmed/.test(o.note || '') ? [...new Set((o.note.match(/\d{6}-\d{6}-L/g) || []))] : [];
+      if (lots.length) {
+        let data = null;
+        try { data = await getJson('/lots/data'); } catch { /* falls back to the Lots page */ }
+        const all = (data?.vessels || []).flatMap(v => v.lots.map(l => ({ ...l, vessel: v.vessel })));
+        const found = lots.map(n => all.find(l => l.lot === n));
+        if (found.some(l => !l || !(l.owner || l.suggested))) {
+          return toast('warn', t('Lot {lots} has no owner PortSystem can suggest — set it on the Lots page, then try again.', { lots: lots.join(', ') }), true);
+        }
+        const list = found.map(l => `${l.lot} (${l.vessel}, ${l.name}) → ${l.owner || l.suggested}`).join('\n');
+        if (!confirm(t('This truck stopped because a lot has no confirmed owner:\n\n{list}\n\nConfirm this owner and file the PRK?', { list }))) return;
+        const r = await postJson('/lots/confirm', { lots: found.map(l => ({ lot: l.lot, owner: l.owner || l.suggested, priority: l.priority ?? '' })) });
+        if (r.error) return toast('err', t(r.error));
+        loadLots();
+      }
+      return runPrk(o.plate, btn);
+    }
 
     // S9: the bulk truck's loaded weight → the PRK draft files by itself (Pateikti stays yours).
     async function enterWeight(id, btn) {

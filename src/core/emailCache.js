@@ -23,4 +23,17 @@ function getEmailData(plate, date) {
   return loadCache(date)[plate] || null;
 }
 
-module.exports = { saveEmailData, getEmailData };
+// An order's own email, found by its message id (the store is keyed by plate, so a later email for
+// the same truck — an updated order table, a second trip — replaces the entry under its plate).
+// Looks in the order's day and the days either side; null when none has it.
+function findByMessageId(messageId, date) {
+  if (!messageId) return null;
+  const day = d => { const x = new Date(`${date}T12:00:00`); x.setDate(x.getDate() + d); return x.toISOString().slice(0, 10); };
+  for (const d of date ? [date, day(-1), day(1)] : [undefined]) {
+    const hit = Object.values(loadCache(d)).find(e => String(e.messageId) === String(messageId));
+    if (hit) return hit;
+  }
+  return null;
+}
+
+module.exports = { saveEmailData, getEmailData, findByMessageId };

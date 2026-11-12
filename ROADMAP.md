@@ -829,6 +829,24 @@ Send and the KIPIS MFA code.
   Checked: KPN387 resolves to Helm release 293226 on ADAROSE (216 t left). Still blocked by lot
   260723-001481-L (ADAROSE, MAP 11-52 CE Fertilizers) — owner Helm suggested, not confirmed — the
   owner confirms it on the Lots page.
+- [x] **S35. Failed trucks: Try again + Cancel; Try again confirms a suggested lot owner; every
+  truck opens its own email — fixed 2026-11-12 (owner's report).**
+  - Balticfert's KPN387//NH791 kept failing after S34 — not the release any more (it resolved to
+    293226 on ADAROSE) but lot 260723-001481-L (ADAROSE, MAP 11-52) with no confirmed owner; the
+    fix was a detour to the Lots page that the truck row did not make clear. **Try again** on a
+    truck stopped only by "owner not confirmed" now shows the lot(s) with PortSystem's suggested
+    owner and asks "Confirm this owner and file the PRK?" — yes confirms (`/lots/confirm`) and files;
+    no suggestion → "set it on the Lots page". Still a person's confirmation.
+  - A failed truck shows only **Try again** and **Cancel** (owner: "too many buttons"); Fix order
+    and Mark done are gone from that row — the plate opens the order for fixing.
+  - "Not all emails are shown when pressing the plates": the window searched today's email store
+    by plate only. 85 trucks of the two previous days had their email under their own day, and 5
+    showed another email (the store is keyed by plate; a later email for the same truck replaces
+    the entry — MPF877, NCB196, …). Now `/order-email?id=` finds the order's own email by its
+    message id (`emailCache.findByMessageId`, its day ± 1), else reads that one message from the
+    mailbox (`imapMail.fetchMessage`, read-only); a truck from KIPIS says it has no email. The
+    print pack and the CMR draft use the same lookup (`orderEmail` in server.js). Checked: 101 of
+    101 trucks of the last 3 days open their own email (12 from KIPIS say so), in 2.4 s.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

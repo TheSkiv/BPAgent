@@ -211,6 +211,16 @@ async function fetchAttachmentText(messageId, attachmentId) {
   }
 }
 
+// One message by its UID, read-only — the truck window's last resort when the email store does not
+// have an order's email. Shaped like the email store's entries (body, attachments, messageId).
+async function fetchMessage(uid) {
+  return withClient(async client => {
+    await client.mailboxOpen('INBOX', { readOnly: true });
+    const [m] = await fetchMessagesByUid(client, [uid]);
+    return m ? { ...m, messageId: m.id } : null;
+  });
+}
+
 async function fetchAttachmentBytes(messageId, attachmentId) {
   return findAttachmentBuffer(messageId, attachmentId);
 }
@@ -218,5 +228,5 @@ async function fetchAttachmentBytes(messageId, attachmentId) {
 module.exports = {
   isAuthorized, checkConnection, withClient, PINNED_CERT_FINGERPRINT256,
   fetchRecentEmails, unmarkSeen, fetchEmailsMatching,
-  fetchAttachmentText, fetchAttachmentBytes,
+  fetchAttachmentText, fetchAttachmentBytes, fetchMessage,
 };
