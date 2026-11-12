@@ -847,6 +847,22 @@ Send and the KIPIS MFA code.
     mailbox (`imapMail.fetchMessage`, read-only); a truck from KIPIS says it has no email. The
     print pack and the CMR draft use the same lookup (`orderEmail` in server.js). Checked: 101 of
     101 trucks of the last 3 days open their own email (12 from KIPIS say so), in 2.4 s.
+- [x] **S36. An order withdrawn in a reply cancels its truck — built 2026-11-12 (owner's request).**
+  Baltic Agro (Lapatinskas) sent HDM755//NJ615 ("TSP 46 po 600 kg", also to forwarder@bpa.lt), then
+  six minutes later replied "Atsiprašau, laiškas ne jums"; the AI read the quoted original and
+  counted it a duplicate — the truck stayed (failed: no Baltic Agro release for TSP 46). Cancelled
+  by hand at the owner's request. Until the AI reads intent (S33 step 3), a fixed rule
+  (`gmailRoute.isWithdrawal` / `cancelWithdrawn`): a reply (RE:/ATS:/AW:/SV:) from the same,
+  confirmed sender, same thread (subject without prefixes), whose **own** text — cut at the
+  sign-off, a disclaimer or the quoted email — says "laiškas ne jums", "ne jums skirta",
+  "klaidingai išsiųsta", "atšaukiu/atšaukta", "nebereikia", "nebeatvyks", "not for you", "sent by
+  mistake", "please ignore/disregard" or "cancel(led)", cancels that thread's open trucks (a
+  submitted PRK only gets a note). Such a reply leaves the normal reading only if it actually
+  withdrew a truck. Checked on the real reply against a copy of the day file (HDM755 cancelled,
+  nothing else), and on 239 replies of 30 days: the first version matched 32 (disclaimers "per
+  klaidą", uncut quotes) → tightened to 4, all real cancellations in wording, of which only the
+  Lapatinskas one would act (the others: our own office's "Atšauktas" to the terminal, MSC's
+  container "Atšaukite PTA" — other senders / no truck thread).
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

@@ -97,6 +97,48 @@ function cancelForWaybill(email) {
   return done;
 }
 
+// An order withdrawn in a reply (owner, 2026-11-12): Baltic Agro sent HDM755//NJ615 ("TSP 46 po
+// 600 kg") and six minutes later replied "Atsiprašau, laiškas ne jums" — the AI read the reply's
+// quoted original and counted it a duplicate. Until the AI reads intent (ROADMAP S33 step 3), a
+// fixed rule: a reply ("RE:" / "ATS:") from the same, confirmed sender in the same thread (same
+// subject once the prefixes go), whose OWN text — not the quoted email — withdraws the order,
+// cancels that thread's open trucks; a submitted PRK only gets a note.
+// Disclaimer words ("gavote žinutę per klaidą", "received in error") are deliberately not here:
+// a 30-day scan matched them in 32 of 239 replies (2026-11-12).
+const WITHDRAWN = /(lai[šs]kas\s+(buvo\s+)?ne\s+jums|ne\s+jums\s+skirt|klaidingai\s+i[šs]si|at[šs]auki|at[šs]aukt|nebereik|nebeatvyks|nebeva[žz]iuos|not\s+for\s+you|sent\s+by\s+mistake|please\s+(ignore|disregard)|\bcancel(led)?\b)/i;
+const isReply = subject => /^\s*(re|ats|aw|sv)\s*:/i.test(subject || '');
+const threadOf = s => String(s || '').replace(/^(\s*(re|fw|fwd|aw|sv|ats|pers)\s*:|\s*[:\-–—]+)+/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+// The reply's own words: up to the sign-off, a disclaimer or the quoted email, whichever comes first.
+function ownText(body) {
+  const lines = String(body || '').split(/\r?\n/);
+  const end = /^\s*[*_]*\s*(From|Nuo|Sent|Išsiųsta|Siuntėjas|Kam|To)\s*[*_]*\s*:|^\s*-{2,}\s*(Original|Forwarded)|^\s*>|^\s*On .+ wrote:|^\s*(Pagarbiai|Su pagarba|Best regards|Kind regards|Regards|Ačiū|Dėkojame|Dėkui)\b|konfidencial|confidential|CAUTION|ATSARGIAI|Perspėjimas|Informuojame, kad/i;
+  const cut = lines.findIndex(l => end.test(l));
+  return (cut >= 0 ? lines.slice(0, cut) : lines).join('\n').slice(0, 800);
+}
+const isWithdrawal = email => isReply(email.subject) && WITHDRAWN.test(ownText(email.body));
+function cancelWithdrawn(email) {
+  const thread = threadOf(email.subject);
+  const done = [];
+  for (const day of [orderStore.daysAgo(0), orderStore.daysAgo(1)]) {
+    for (const o of orderStore.listOrders(day)) {
+      if (orderStore.CLOSED_STATES.includes(o.state) || senderOf(o.email?.from) !== senderOf(email.from)) continue;
+      if (threadOf(o.email?.subject) !== thread) continue;
+      const why = `withdrawn by the sender in a reply ("${ownText(email.body).replace(/\s+/g, ' ').trim().slice(0, 80)}")`;
+      const prk = o.docs?.PRK;
+      if (prk?.number && !/ruošiamas/i.test(prk.status || '')) {
+        orderStore.setState(o.id, o.state, { actor: 'intake', detail: `${why} — its PRK ${prk.number} is already submitted: a person decides (Anuliuoti)` });
+        done.push(`${o.plate}: PRK already submitted — check it`);
+        continue;
+      }
+      orderStore.setState(o.id, 'cancelled', { actor: 'intake', detail: `${why}${prk?.number ? ` — its draft ${prk.number} goes with the draft cleanup` : ''}` });
+      console.log(`Withdrawn order: ${o.plate} cancelled ("${email.subject}")`);
+      done.push(`${o.plate}: cancelled`);
+    }
+  }
+  if (!done.length) console.log(`Withdrawal reply "${email.subject}" from ${senderOf(email.from)}: no open truck in that thread`);
+  return done;
+}
+
 function replaceSwappedTrucks(tracked, email) {
   const numbers = waybillNumbers(email.attachments);
   if (!tracked || !numbers.length) return;
@@ -275,6 +317,16 @@ async function pollAndProcessEmails({ max, query }) {
         results.push({ id: email.id, subject: email.subject, from: email.from, date: email.date, body: '', plates: [], driver: '', cargo: '',
           status: 'ignored', skipReason: `Cancelled važtaraštis — ${done.join('; ') || 'no open truck to cancel'}` });
         continue;
+      }
+      // A reply withdrawing the order ("laiškas ne jums", "please ignore", …). It leaves the normal
+      // reading only when it actually withdrew a truck of ours — anything else is read as before.
+      if (isWithdrawal(email) && isConfirmed(email.from)) {
+        const done = cancelWithdrawn(email);
+        if (done.length) {
+          results.push({ id: email.id, subject: email.subject, from: email.from, date: email.date, body: '', plates: [], driver: '', cargo: '',
+            status: 'ignored', skipReason: `Order withdrawn in a reply — ${done.join('; ')}` });
+          continue;
+        }
       }
       const ri = results.push({ id: email.id, subject: email.subject, from: email.from,
         date: email.date, body: email.body, plates: [], driver: '', cargo: '',
@@ -564,3 +616,5 @@ module.exports = router;
 module.exports.checkMail = checkMail;
 module.exports.cancelForWaybill = cancelForWaybill;
 module.exports.isCancelledWaybill = isCancelledWaybill;
+module.exports.isWithdrawal = isWithdrawal;
+module.exports.cancelWithdrawn = cancelWithdrawn;
