@@ -56,9 +56,12 @@ function findRowByPlate(inputPlate, order = null) {
   return rows[0];
 }
 
+// Bagged (non-BULK) cargo. The first three lines are the owner's wording of 2026-11-12, kept
+// letter for letter; the BB rows of Instructions.xlsx carry the same text.
 const DEFAULT_INSTRUCTIONS =
-  'KRAUTI MAISUS TIK SU SVARIA BEI SVEIKA PAKUOTE!\n' +
-  'MAISUS REIKIA GERAI NUVALYTI!\n' +
+  'KRAUTI MAIŠUS TIK SU ŠVARIA BEI SVEIKA PAKUOTE, KRAUNASI v.n.t, BIG BAGAI!\n' +
+  'MAIŠUS REIKIA GERAI NUVALYTI!\n' +
+  'GRŪDOVEŽIUI akte nurodyti kiek maišų pakrauta aukštuose.\n' +
   'ISITIKINTIS, KAD PRIEKABOJE NERA PASALINIU ELEMENTU, KURIE GALI PAZEISTI KROVINI.';
 
 function isBulkRow(row) {
@@ -70,14 +73,20 @@ function getInstructions(row) {
   if (!cargo) throw new Error('Field "Cargo" not found in row');
   console.log('Cargo from orders:', cargo);
 
-  const instructions = readInstructions();
-  const match = instructions.find(r => cargoMatches(r['Cargo'] || '', cargo));
+  // Several rows can name the same cargo (GMOP is there as Bulk and as BB): take the row whose
+  // Cargo Type fits this truck, else a row with no type; the first match let bagged GMOP pick up the
+  // Bulk row's blank text.
+  const bulk = isBulkRow(row);
+  const typeOf = r => String(r['Cargo Type'] || '').trim().toLowerCase();
+  const fits = r => (bulk ? typeOf(r) === 'bulk' : typeOf(r) !== '' && typeOf(r) !== 'bulk');
+  const matching = readInstructions().filter(r => cargoMatches(r['Cargo'] || '', cargo));
+  const match = matching.find(fits) || matching.find(r => !typeOf(r));
   if (match) {
     console.log('Instructions found for cargo:', cargo);
     return match['Instructions'] || '';
   }
 
-  if (isBulkRow(row)) {
+  if (bulk) {
     console.log('BULK cargo — leaving instructions blank');
     return '';
   }
@@ -692,4 +701,4 @@ async function confirmSaved(page, timeout = 20000) {
   return { number: m[1], status };
 }
 
-module.exports = { navigateToCargo, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved, setBagPackaging, amendDraft };
+module.exports = { navigateToCargo, getInstructions, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved, setBagPackaging, amendDraft };

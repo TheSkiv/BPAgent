@@ -897,6 +897,15 @@ Send and the KIPIS MFA code.
   the name still wins; else urea (karbamid… / urea) = 500 kg; else 600. MML743's draft
   261111-004328 (2026-11-11, "Karbamidas") was filed with 600 kg bags (gross 18 531, 31 bags
   instead of 18 537, 37) — the owner checks/corrects it before Pateikti.
+- [x] **S39. New loading instructions for bagged cargo — 2026-11-12 (owner).** Owner: for BigBag
+  (non-BULK) cargo add "KRAUTI MAIŠUS TIK SU ŠVARIA BEI SVEIKA PAKUOTE, KRAUNASI v.n.t, BIG BAGAI!
+  MAIŠUS REIKIA GERAI NUVALYTI! GRŪDOVEŽIUI akte nurodyti kiek maišų pakrauta aukštuose." Now the
+  bagged text (`DEFAULT_INSTRUCTIONS` and the two BB rows of `Instructions/Instructions.xlsx`) is
+  those three lines word for word, then the old "ISITIKINTIS, KAD PRIEKABOJE NERA…" line. BULK stays
+  blank. Found on the way: the table has GMOP twice (Ferromar Bulk with no text, and BB), and the
+  first match won, so a bagged GMOP truck got blank instructions. The row whose Cargo Type fits
+  the truck now wins (then a row with no type). The xlsx was rewritten by the `xlsx` library
+  (cell formatting is not kept); the backup is in the session scratchpad.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

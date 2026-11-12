@@ -171,6 +171,7 @@ proposed deletion list.
 
 ## Instructions (step 17)
 
-1. Match in `Instructions.xlsx` → use that text.
+1. Match in `Instructions.xlsx` → use that text. Several rows for one cargo → the row whose
+   `Cargo Type` fits the truck (Bulk / BB), else a row with no type.
 2. No match + BULK → leave blank.
 3. No match + non-BULK → default bagged-goods text (`DEFAULT_INSTRUCTIONS`).
