@@ -212,7 +212,7 @@ async function recentPrks(days = 2) {
   const seen = new Map();
   for (const d of [...drafts, ...submitted]) if (d.created >= since && d.plateNorm) seen.set(d.number, d);
   await clearListFilters();
-  return [...seen.values()].map(d => ({ number: d.number, status: d.status, plateNorm: d.plateNorm, created: d.created }));
+  return [...seen.values()].map(d => ({ number: d.number, status: d.status, transport: d.transport, plate: d.plate, plateNorm: d.plateNorm, created: d.created }));
 }
 
 module.exports = { readPrkListFromDom, navigateToPrkList, openPrkList, readFullPrkList, clearListFilters, recentPrks };

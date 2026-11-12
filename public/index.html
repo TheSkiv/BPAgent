@@ -47,6 +47,10 @@
           <div class="line" id="watchLine">A minute after you press Pateikti, and every 5 min, 08–18.</div>
         </div>
         <div class="auto-row">
+          <div class="head">Matching KIPIS <button class="btn small" id="syncBtn" title="Reads KIPIS's PRK list of the last 2 days and brings the desk in line with it">Check now</button></div>
+          <div class="line" id="syncLine">Every 10 min, 08–18: the desk follows KIPIS's open PRKs.</div>
+        </div>
+        <div class="auto-row">
           <div class="head">Deleting unused drafts <button class="btn small danger" id="sweepBtn" title="Deletes every unsubmitted PortSystem draft now, today's included. Other people's drafts are never touched.">Delete all now</button></div>
           <div class="line" id="sweepLine">By itself once a day: drafts 2+ days old. The button: all of ours, today's too.</div>
           <div class="line finished-row" id="finishedRow" style="display:none">
@@ -180,6 +184,16 @@
     function stageOf(o) {
       const prk = o.docs?.PRK?.number;
       if (o.state === 'cancelled') return { group: 'cancelled', route: o.bulk ? BULK : BAGGED, stop: -1, label: t('Cancelled') };
+      // The desk matches KIPIS: a submitted PRK whose truck has not loaded yet stays here.
+      if (o.awaitingLoad) {
+        const route = o.bulk ? BULK : BAGGED;
+        return { group: 'waiting', route, stop: route.length - 1, label: t('Submitted — waiting for the truck to load'), reason: `${prk} ${o.docs?.PRK?.status || ''}` };
+      }
+      // A PRK a person made in KIPIS for a truck PortSystem did not have.
+      if (o.fromKipis) {
+        if (o.state === 'drafted') return { group: 'needs', route: BAGGED, stop: 1, label: t('Draft made in KIPIS by a person — waiting for Pateikti'), reason: prk };
+        if (o.state === 'submitted') return { group: 'waiting', route: BAGGED, stop: 2, label: t('Submitted in KIPIS — waiting for the truck to load'), reason: `${prk} ${o.docs?.PRK?.status || ''}` };
+      }
       // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
       // Bulk (S9): loading ordered by email → the operator enters the loaded weight → the PRK draft
       // files by itself → Pateikti (human) → print (PRK × 2) → done.
@@ -239,7 +253,7 @@
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="file" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
         if (a === 'open')  b.push(`<button class="btn small" data-act="open" data-id="${esc(o.id)}">${t('Fix order')}</button>`);
       }
-      if (!['done', 'cancelled'].includes(st.group)) {
+      if (!['done', 'cancelled'].includes(st.group) && !['done', 'cancelled'].includes(o.state)) {
         b.push(`<button class="btn quiet small" data-act="done" data-id="${esc(o.id)}" title="${t('Close this truck by hand')}">${t('Mark done')}</button>`);
         if (o.state !== 'filing') b.push(`<button class="btn quiet small cancel-btn" data-act="cancel" data-id="${esc(o.id)}" title="${t('Not a real truck order — remove it from the desk')}">${t('Cancel')}</button>`);
       }
@@ -249,7 +263,8 @@
     function truckHtml(o) {
       const st = o.stage;
       const cls = st.group === 'cancelled' ? 'done' : st.group;
-      const company = o.company
+      const company = o.fromKipis ? `<span class="muted">${t('from KIPIS — PRK made by a person')}</span>`
+        : o.company
         ? esc(o.company)
         : `<span class="unassigned" data-sender="${esc(o.sender)}" title="${t('Click to name this company')}">${esc((o.sender.match(/<([^>]+)>/) || [, o.sender])[1])}</span>`;
       const chips = [o.bulk && '<span class="chip bulk">BULK</span>', o.dup && `<span class="chip dup" title="${t('This plate has more than one order today')}">×2</span>`].filter(Boolean).join('');
@@ -599,6 +614,22 @@
       try { await postJson('/prk/watch'); } catch { /* shown below */ }
       $('watchBtn').disabled = false; loadWatch(); loadPipeline();
     });
+    async function loadSync() {
+      try {
+        const r = await getJson('/kipis/sync');
+        if (!r.at) return;
+        $('syncLine').innerHTML = (r.skipped || r.error)
+          ? `<span class="warn">${esc(t('{time}: skipped — {why}', { time: hhmm(r.at), why: t(r.skipped || r.error) }))}</span>`
+          : esc(t('Last check {time}: {what}', { time: hhmm(r.at), what: r.changed?.length ? r.changed.join('; ') : t('no changes') }));
+      } catch { /* keep */ }
+    }
+    $('syncBtn').addEventListener('click', async () => {
+      $('syncBtn').disabled = true;
+      $('syncLine').textContent = t('Reading KIPIS…');
+      try { await postJson('/kipis/sync'); } catch { /* shown below */ }
+      $('syncBtn').disabled = false; loadSync(); loadPipeline();
+    });
+
     async function loadCleanup() {
       try {
         const r = await getJson('/prk/cleanup');
@@ -986,9 +1017,9 @@
 
     // ── Start, and keep a dashboard left open current ────────────────────
     loadPipeline(); loadConfirmations(); loadKipisSession(); checkMail();
-    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots(); loadFinished();
+    loadMail(); loadAutoFile(); loadWatch(); loadCleanup(); loadLots(); loadFinished(); loadSync();
     setInterval(() => { loadPipeline(); loadConfirmations(); loadLots(); loadFinished(); }, 60 * 1000);
-    setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadWatch(); }, 60 * 1000);
+    setInterval(() => { loadKipisSession(); loadMail(); loadAutoFile(); loadWatch(); loadSync(); }, 60 * 1000);
   </script>
 </body>
 </html>

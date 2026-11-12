@@ -141,6 +141,19 @@
     'Print pack': 'Spausdinti rinkinį',
     'No CMR yet': 'CMR dar nėra',
 
+    // ── The desk matches KIPIS ──
+    'Submitted — waiting for the truck to load': 'Pateikta — laukiama, kol sunkvežimis pasikraus',
+    'Draft made in KIPIS by a person — waiting for Pateikti': 'Juodraštis sukurtas KIPIS žmogaus — laukia „Pateikti“',
+    'Submitted in KIPIS — waiting for the truck to load': 'Pateikta KIPIS — laukiama, kol sunkvežimis pasikraus',
+    'from KIPIS — PRK made by a person': 'iš KIPIS — PRK sukūrė žmogus',
+    'Matching KIPIS': 'Sutikrinimas su KIPIS',
+    "Reads KIPIS's PRK list of the last 2 days and brings the desk in line with it": 'Perskaito KIPIS PRK sąrašą už 2 dienas ir sutikrina pultą su juo',
+    "Every 10 min, 08–18: the desk follows KIPIS's open PRKs.": 'Kas 10 min., 08–18 val.: pultas sutikrinamas su atvirais KIPIS PRK.',
+    'Every 10 min, 08–18: the desk follows KIPIS\'s open PRKs.': 'Kas 10 min., 08–18 val.: pultas sutikrinamas su atvirais KIPIS PRK.',
+    'Last check {time}: {what}': 'Paskutinis patikrinimas {time}: {what}',
+    'no changes': 'pakeitimų nėra',
+    'Reading KIPIS…': 'Skaitomas KIPIS…',
+
     // ── Cancel a truck that is not a real order ──
     'Cancel': 'Atšaukti',
     'Not a real truck order — remove it from the desk': 'Ne tikras sunkvežimio užsakymas — pašalinti iš pulto',

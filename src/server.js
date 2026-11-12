@@ -224,6 +224,9 @@ app.post('/prk/export', async (req, res) => {
   }
 });
 
+// Done on the email side, but the PRK is submitted and the truck has not loaded yet.
+const awaitingLoad = o => o.state === 'done' && !!o.docs?.PRK?.number && /^(pateiktas|patvirtintas)/i.test(o.docs.PRK.status || '');
+
 app.get('/pipeline', (req, res) => {
   try {
     orderStore.syncFromExcel();
@@ -232,7 +235,10 @@ app.get('/pipeline', (req, res) => {
     // for its dispatch email stay on the desk until they are finished.
     const yesterday = orderStore.daysAgo(1);
     const carried = orderStore.listOrders(yesterday)
-      .filter(o => (['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number) || o.state === 'to_print');
+      .filter(o => (['drafted', 'submitted'].includes(o.state) && o.docs?.PRK?.number) || o.state === 'to_print' || awaitingLoad(o));
+    // A truck whose PRK is submitted but not yet loaded stays on the desk (the desk matches KIPIS's
+    // open PRKs), even when the email side already counts it done.
+    for (let i = done.length - 1; i >= 0; i--) if (awaitingLoad(done[i])) queue.push(...done.splice(i, 1));
     const shape = o => ({
       id:     o.id,
       plate:  o.plate,
@@ -245,6 +251,8 @@ app.get('/pipeline', (req, res) => {
       dispatchSent: o.dispatchSent || null,
       printedAt: o.printedAt || null,
       loadedKg: o.loadedKg || null,
+      awaitingLoad: awaitingLoad(o),
+      fromKipis: o.email?.from === 'KIPIS',
       createdAt: o.createdAt || '',
       lastFailure: o.lastFailure || null,
       carried: orderStore.dateOf(o.id) === yesterday,
@@ -523,6 +531,43 @@ async function runWatch(reason, automatic, quietMs) {
   return lastWatch;
 }
 
+// ── The desk matches KIPIS (owner, 2026-11-11) ───────────────────────────────
+// "If KIPIS has more PRKs, the dashboard should have the same number of trucks." Every 10 minutes
+// in the shift (and on the dashboard's button) KIPIS's PRK list of the last 2 days is read
+// (read-only) and the desk follows it:
+//   - a PRK on one of our trucks: its status is kept current; loaded (Atliktas/Užbaigtas) → done;
+//   - an open truck loaded on a PRK a person made (MTE728 on 261111-000640, 2026-11-11) → done;
+//     a person's open PRK for an open truck of ours without one → recorded on it;
+//   - an open PRK (Ruošiamas/Pateiktas/Patvirtintas) for a truck PortSystem does not have → a truck
+//     "from KIPIS" on the desk, closed when it loads, cancelled when annulled.
+// Only road transport counts — internal moves into a storage place are not trucks.
+const KIPIS_SYNC_EVERY_MS = 10 * 60 * 1000;
+let lastKipisSync = null;
+let lastKipisSyncRun = 0;   // the first shift tick after a start syncs, so stale PRK statuses never linger
+const { applyKipisList } = require('./core/kipisSync');
+
+async function syncWithKipis(reason, automatic) {
+  const blocked = automatic ? await autoBlocked() : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
+  if (blocked) return (lastKipisSync = { at: new Date().toISOString(), reason, skipped: blocked });
+  isRunning = true;
+  try {
+    const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
+    const listed = await withAutomation(getPage(), () => recentPrks(2));
+    const changed = applyKipisList(listed, { recordExistingPrk });
+    if (changed.length) console.log(`KIPIS sync (${reason}): ${changed.join('; ')}`);
+    lastKipisSync = { at: new Date().toISOString(), reason, read: listed.length, changed };
+  } catch (err) {
+    lastKipisSync = { at: new Date().toISOString(), reason, error: err.message };
+    console.error('KIPIS sync failed:', err.message);
+  } finally {
+    isRunning = false;
+    lastKipisSyncRun = Date.now();
+  }
+  return lastKipisSync;
+}
+app.get('/kipis/sync', (req, res) => res.json(lastKipisSync || {}));
+app.post('/kipis/sync', async (req, res) => res.json(await syncWithKipis('dashboard button', false)));
+
 // ── A19: the dispatch email, sent by the operator from the dashboard ─────────
 // The office reads terminal@bpa.lt over POP3, which never shows server-side Drafts (operator,
 // 2026-11-10), so the email is shown on the dashboard instead: a submitted order's *Email* button
@@ -798,6 +843,7 @@ async function shiftTick() {
       const w = await runWatch(justSubmitted ? 'after your Pateikti' : 'shift timer', true, justSubmitted ? AFTER_PATEIKTI_QUIET_MS : undefined);
       if (w && !w.skipped) { lastWatchRun = Date.now(); pateiktiSeen = pateiktiAt; }
     }
+    if (Date.now() - lastKipisSyncRun >= KIPIS_SYNC_EVERY_MS) await syncWithKipis('shift timer', true);
     await prepareDispatches();
   } catch (err) {
     console.error('Shift tick:', err.message);
@@ -843,7 +889,7 @@ app.get('/prk/recent', async (req, res) => {
     const listed = await withAutomation(getPage(), () => recentPrks(2));
     const orders = orderStore.listOrders().filter(o => !['cancelled', 'rejected'].includes(o.state))
       .map(o => ({ id: o.id, plate: o.plate, state: o.state, own: o.docs?.PRK?.number || null, listed: listedPrkFor(o, listed)?.number || null }));
-    res.json({ status: 'ok', count: listed.length, orders });
+    res.json({ status: 'ok', count: listed.length, orders, listed });
   } catch (err) {
     res.json({ status: 'error', message: err.message });
   } finally {

@@ -175,7 +175,8 @@ function setPrinted(id, { date, what = '' } = {}) {
 }
 
 // `date` (YYYY-MM-DD) addresses an earlier day's order file; default today.
-function setState(id, state, { actor = 'system', detail = '', date } = {}) {
+// noPrint: the truck was finished by someone else (loaded on a colleague's PRK) — no Print step.
+function setState(id, state, { actor = 'system', detail = '', date, noPrint = false } = {}) {
   if (!STATES.includes(state)) throw new Error(`Unknown order state: ${state}`);
   date = date || dateOf(id);
   const db    = load(date);
@@ -186,7 +187,7 @@ function setState(id, state, { actor = 'system', detail = '', date } = {}) {
   // itself — the terminal's copy of the email, KIPIS reporting the PRK loaded — stops at
   // "to_print" until its documents are printed. Only trucks PortSystem drove (it saved the PRK or
   // sent the email) and created since the step exists; the operator's own "Mark done" still closes.
-  if (state === 'done' && actor !== 'operator' && needsPrinting(order)) {
+  if (state === 'done' && actor !== 'operator' && !noPrint && needsPrinting(order)) {
     state = 'to_print';
     detail = `${detail ? detail + '; ' : ''}documents to print`;
     if (from === 'to_print') { save(db, date); return order; }

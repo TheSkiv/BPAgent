@@ -47,7 +47,38 @@ const { classifySender, addToCheck, isConfirmed } = require('../core/senders');
 const { markDone, isDone, normalizePlate } = require('../core/doneTracker');
 const orderStore = require('../core/orderStore');
 const { ensureOrder } = orderStore;
-const { saveEmailData }    = require('../core/emailCache');
+const { saveEmailData, getEmailData } = require('../core/emailCache');
+
+// A swapped truck (owner, 2026-11-11): Linas Agro sent važtaraštis LAV00110184 for NGZ189//ZG485,
+// then an *updated* LAV00110184 for LTK202//TK202 — same load, the truck changed — and both became
+// trucks. The document number is the start of the file name ("LAV00110184PackSlip_60182.pdf").
+// The same number from the same sender naming another, newer truck cancels the older one —
+// unless the older truck's PRK is already submitted (a live customs document: a person decides).
+const waybillNumbers = atts => [...new Set((atts || [])
+  .map(a => (String(a.filename || '').match(/^([A-Z]{2,4}\d{6,})PackSlip/i) || [])[1])
+  .filter(Boolean).map(s => s.toUpperCase()))];
+const senderOf = from => (String(from || '').match(/<([^>]+)>/) || [, from || ''])[1].trim().toLowerCase();
+function replaceSwappedTrucks(tracked, email) {
+  const numbers = waybillNumbers(email.attachments);
+  if (!tracked || !numbers.length) return;
+  for (const day of [orderStore.daysAgo(0), orderStore.daysAgo(1)]) {
+    for (const o of orderStore.listOrders(day)) {
+      if (o.id === tracked.id || o.plateNorm === tracked.plateNorm || orderStore.CLOSED_STATES.includes(o.state)) continue;
+      if ((o.createdAt || '') >= (tracked.createdAt || '')) continue;   // only an older truck is replaced
+      if (senderOf(o.email?.from) !== senderOf(email.from)) continue;
+      const shared = waybillNumbers((getEmailData(o.plate, day) || {}).attachments).find(n => numbers.includes(n));
+      if (!shared) continue;
+      const prk = o.docs?.PRK;
+      if (prk?.number && !/ruošiamas/i.test(prk.status || '')) {
+        orderStore.setState(o.id, o.state, { actor: 'intake', detail: `važtaraštis ${shared} was updated for ${tracked.plate} — this truck may be replaced; its PRK ${prk.number} is already submitted, so check it and cancel by hand` });
+        console.warn(`Truck swap: ${o.plate} → ${tracked.plate} on ${shared}, but ${prk.number} is submitted — left for the operator`);
+        continue;
+      }
+      orderStore.setState(o.id, 'cancelled', { actor: 'intake', detail: `replaced by ${tracked.plate} on the updated važtaraštis ${shared}${prk?.number ? ` — its draft ${prk.number} goes with the draft cleanup` : ''}` });
+      console.log(`Truck swap: ${o.plate} cancelled — ${tracked.plate} replaces it on važtaraštis ${shared}`);
+    }
+  }
+}
 const { syncCargo }        = require('../core/syncCargo');
 
 const { TERMINAL_EMAILS } = require('../core/terminals');
@@ -364,6 +395,8 @@ async function pollAndProcessEmails({ max, query }) {
               weight: !tracked.weight && !order.bulk && order.weight ? order.weight : undefined,
             });
           }
+          // Only a confirmed sender's email may replace another truck (senders are spoofable).
+          if (tracked && isConfirmed(email.from)) replaceSwappedTrucks(tracked, email);
         } catch (err) {
           result.status     = 'error';
           result.skipReason = err.message;

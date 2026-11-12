@@ -763,6 +763,33 @@ Send and the KIPIS MFA code.
   by hand — not a real truck order". Not re-created: the Excel sync skips a plate with any record
   today (S24) and a repeat of the same email thread finds the closed record. No undo yet.
   Checked: refuses an already-closed truck and an unknown id. NDR243 left for the owner to cancel.
+- [x] **S32. The desk matches KIPIS's open PRKs; a swapped truck replaces the old one — built
+  2026-11-11 (owner's request).** Owner: the trucks left for today did not come — were they added
+  for wrong reasons, and does the desk show as many trucks as KIPIS has PRKs? Found (read-only
+  check): NGZ189//ZG485 was a stale duplicate — Linas Agro sent važtaraštis LAV00110184 for it,
+  then an *updated* LAV00110184 for LTK202//TK202 (truck swapped) and PortSystem made a second
+  truck; MTE728//NT605 had loaded on a colleague's PRK 261111-000640 (Atliktas) unnoticed. KIPIS
+  had 10 open PRKs, the desk 4: our submitted-not-loaded PRKs (LLE718, HRK308) counted as done,
+  and colleagues' PRKs for trucks PortSystem never saw (BO9077ET, JML150, LOZ024, AC0878IB).
+  Owner's decisions → built:
+  - NGZ189 cancelled, MTE728 marked done (their drafts left for the cleanup).
+  - **Swapped truck** (`gmailRoute.replaceSwappedTrucks`): the same važtaraštis number (file name
+    "LAV…PackSlip") from the same, **confirmed** sender naming another, newer truck cancels the
+    older one; if its PRK is already submitted it only gets a history note for the operator.
+  - **KIPIS sync** (`src/core/kipisSync.js`, `syncWithKipis` in server.js): reads the PRK list of
+    the last 2 days (read-only) on the first shift tick after a start, then every 10 min 08–18, and
+    on "Matching KIPIS → Check now" in the side panel. Road transport only (storage moves are not
+    trucks). Our PRKs: status kept current, loaded → done. An open truck loaded on a person's PRK →
+    done (no Print step; all its open orders, as repeated bulk emails left NND844/LID098/MOU324
+    open twice). A person's open PRK for our truck without one → recorded. An open PRK for a truck
+    PortSystem never had → a truck "from KIPIS" (drafted / submitted), closed when it loads,
+    cancelled when annulled.
+  - **Desk**: a done truck whose PRK is Pateiktas/Patvirtintas (number known) stays in Waiting as
+    "Submitted — waiting for the truck to load" until KIPIS says loaded (today's and yesterday's).
+  Checked: dry run on a copy of the day files with the real KIPIS list (stable: second pass 0
+  changes); then live — 157 PRKs read, 32 corrections, desk 9 trucks = KIPIS's 9 open truck PRKs
+  (KIPIS lists 11; NGZ189's and MTE728's unused drafts are not trucks). `/prk/recent` now also
+  returns the list itself (read-only).
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
