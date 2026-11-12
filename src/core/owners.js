@@ -117,7 +117,11 @@ async function fetchListedReleases() {
 }
 
 const formulaOf = s => (String(s || '').match(/\d{1,2}-\d{1,2}-\d{1,2}/) || [null])[0];
-const words = s => (String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().match(/[a-z]{3,}/g) || []);
+// Lithuanian case endings dropped from longer words, so "karbamido" (of urea), "karbamidu",
+// "karbamidas" all compare as "karbamid" — MML743//SN216's "karbamido" missed Agrokoncernas' Helm
+// urea release on 2026-11-12 and fell through to "own cargo".
+const stem = w => (w.length >= 6 ? w.replace(/(iams|ioms|ams|oms|ims|ems|iai|ai|ei|ui|as|is|ys|us|os|es|o|a|u|e|i|y)$/, '') : w);
+const words = s => (String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().match(/[a-z]{3,}/g) || []).map(stem);
 
 // An order's cargo vs a release's product. Releases use short names ("AXAN N27-4", "TSP 46") that
 // the order's longer name contains, so the words may match either way — guarded by the NPK

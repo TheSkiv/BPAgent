@@ -690,13 +690,15 @@
 
     // ── The order dialog: source email, cargo, weight ────────────────────
     let currentOrder = null;
-    // The bag size from the cargo name, as the PRK run reads it: "(500)", "(600)", "po 600 kg";
-    // 600 when none is written. The suggested gross is only a hint — an empty field stays empty
-    // and the PRK computes it; a typed figure goes into the PRK as written.
+    // The bag size, as the PRK run reads it (getBagKg in navigateToCargo.js — keep the two alike):
+    // "(500)", "(600)", "po 600 kg" in the cargo name; else urea (Karbamidas) 500 kg; else 600.
+    // The suggested gross is only a hint — an empty field stays empty and the PRK computes it; a
+    // typed figure goes into the PRK as written.
     const bagKgOf = cargo => {
       const m = String(cargo || '').match(/\((\d{3,4})\)/) || String(cargo || '').match(/(\d{3,4})\s*kg\b/i);
       const kg = m ? Number(m[1]) : 0;
-      return kg >= 300 && kg <= 1500 ? kg : 600;
+      if (kg >= 300 && kg <= 1500) return kg;
+      return /karbamid|\burea\b/i.test(String(cargo || '')) ? 500 : 600;
     };
     const grossOf = (w, cargo) => Number(w) ? String(Number(w) + Math.round(Number(w) / bagKgOf(cargo))) : '';
     const grossHint = () => {

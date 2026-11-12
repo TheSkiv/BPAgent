@@ -86,14 +86,18 @@ function getInstructions(row) {
   return DEFAULT_INSTRUCTIONS;
 }
 
-// Bag size from the order's cargo text: "(500)", "(600)", "po 600 kg". 600 kg is the usual bag;
-// 500 kg is rare but real ("Karbamidas (500) gran.", operator 2026-11-09). No size written → 600.
+// Bag size from the order's cargo text: "(500)", "(600)", "po 600 kg". With no size written, the
+// product's usual bag: urea (Karbamidas) is packed in 500 kg bags (owner, 2026-11-12 — "karbamido"
+// on MML743 was counted as 600 kg bags); anything else 600 kg. The dashboard's truck window has the
+// same rule (bagKgOf in public/index.html).
 const DEFAULT_BAG_KG = 600;
+const PRODUCT_BAG_KG = [{ re: /karbamid|\burea\b/i, kg: 500 }];
 function getBagKg(cargo) {
   const text = String(cargo || '');
   const m = text.match(/\((\d{3,4})\)/) || text.match(/(\d{3,4})\s*kg\b/i);
   const kg = m ? Number(m[1]) : 0;
-  return kg >= 300 && kg <= 1500 ? kg : DEFAULT_BAG_KG;
+  if (kg >= 300 && kg <= 1500) return kg;
+  return (PRODUCT_BAG_KG.find(p => p.re.test(text)) || {}).kg || DEFAULT_BAG_KG;
 }
 
 function getWeight(row) {

@@ -880,6 +880,23 @@ Send and the KIPIS MFA code.
   were done trucks (route at Done, no buttons) pulled back into Waiting while their PRK had not
   loaded — all three were colleagues' trucks with nothing to act on. Done stays done; the PRK
   status is in the Truck log and the truck window. The sync still keeps the statuses current.
+- [x] **S38. Lithuanian case endings in cargo names — fixed 2026-11-12 (owner).** Owner: Agrokoncernas
+  has a Helm release for Karbamidas (Urea) (273870, HEINZ — on the stock server's
+  `stock_helm_sheet4`, which PortSystem already reads; `releasai.html` shows the same) — "we need
+  to catch this automatically". It was caught for "Karbamidas (500) gran." (MML745 → 273870) but
+  MML743//SN216's cargo was read as "karbamido" (genitive), which the name comparison did not
+  match, so it fell through to Agrokoncernas' own cargo and failed ("no lot of karbamido").
+  `owners.releaseMatches` now compares word stems with Lithuanian case endings dropped (words of
+  6+ letters: -as, -o, -ą, -u, -ui, -ai, …). Checked: the expected pairs; all 73 real cargo names of
+  30 days × every release product — exactly one match changed, the intended "karbamido" ↔
+  "Karbamidas (Urea)". MML743's today's order (a reply to yesterday's, whose draft
+  261111-004328 waits for Pateikti) left for the owner.
+  **Bag size (same day, owner: "Karbamidas (UREA) is packed in 500 kg"):** with no size in the
+  cargo name, `getBagKg` (PRK filler, dispatch email, CMR) and the truck window's `bagKgOf` took
+  600 kg — "karbamido" / "Karbamidas" got 600 kg bags (wrong gross and bag count). Now a size in
+  the name still wins; else urea (karbamid… / urea) = 500 kg; else 600. MML743's draft
+  261111-004328 (2026-11-11, "Karbamidas") was filed with 600 kg bags (gross 18 531, 31 bags
+  instead of 18 537, 37) — the owner checks/corrects it before Pateikti.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,
