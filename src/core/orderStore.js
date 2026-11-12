@@ -246,6 +246,32 @@ function attachDocument(id, { type, number = null, status = 'drafted' }, { actor
   return order;
 }
 
+// A colleague submitted their own PRK for a truck PortSystem had drafted (S41, owner 2026-11-12):
+// the order takes their PRK (the dispatch email and print use it) and keeps ours in `ourDraft`,
+// for the KIPIS sync to delete. setOurDraftStatus records what became of it.
+function supersedeDraft(id, { number, status }, { actor = 'kipis', date } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order || !order.docs?.PRK?.number || order.docs.PRK.number === number) return null;
+  const ours = order.docs.PRK;
+  order.ourDraft = { number: ours.number, status: ours.status, at: new Date().toISOString() };
+  order.docs.PRK = { number, status, at: new Date().toISOString() };
+  logHistory(order, actor, 'document', `PRK ${number} — ${status}: a colleague's PRK for this truck; our draft ${ours.number} is not needed and is deleted`);
+  save(db, date);
+  return order;
+}
+function setOurDraftStatus(id, status, { actor = 'kipis', date } = {}) {
+  date = date || dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order || !order.ourDraft) return null;
+  order.ourDraft.status = status;
+  logHistory(order, actor, 'document', `our draft ${order.ourDraft.number} — ${status}`);
+  save(db, date);
+  return order;
+}
+
 // What a filed order loads from — { owner, source, vessel, lot, grossKg, releaseKey } — so later
 // orders can see what is already promised from a release (ROADMAP A7).
 function setLoadsFrom(id, loadsFrom, { date } = {}) {
@@ -309,12 +335,16 @@ function prkNumbersFiled({ minAgeDays = 0, maxAgeDays = 30 } = {}) {
     const date = f.slice('orders_state_'.length, -'.json'.length);
     if (date > newest || date < oldest) continue;
     for (const o of load(date).orders) {
-      const n = o.docs?.PRK?.number;
-      const savedByUs = n && (o.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(n));
+      const savedByUs = n => n && (o.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(n));
       // emailed: the truck's dispatch email is known to have gone out — sent from the dashboard,
       // or the terminal's copy closed the order (often after a colleague filed their own PRK).
       const emailed = !!o.dispatchSent || (o.history || []).some(h => h.actor === 'terminal' && /PRK confirmed by terminal@bpa\.lt/.test(h.detail || ''));
-      if (savedByUs) out.set(n, { date, orderId: o.id, plate: o.plate, state: o.state, emailed, kipisStatus: o.docs.PRK.status || '' });
+      const n = o.docs?.PRK?.number;
+      if (savedByUs(n)) out.set(n, { date, orderId: o.id, plate: o.plate, state: o.state, emailed, kipisStatus: o.docs.PRK.status || '' });
+      // Our draft for a truck a colleague submitted on their own PRK (S41): the order now carries
+      // their PRK; ours is kept here only to be deleted (superseded — never moves the order).
+      const s = o.ourDraft?.number;
+      if (savedByUs(s)) out.set(s, { date, orderId: o.id, plate: o.plate, state: o.state, emailed, kipisStatus: o.ourDraft.status || '', superseded: true });
     }
   }
   return out;
@@ -453,6 +483,6 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, setLoadsFrom, pendingReleaseKg, setDispatchSent,
+  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, supersedeDraft, setOurDraftStatus, setLoadsFrom, pendingReleaseKg, setDispatchSent,
   markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo, setPrinted, isFileable, setLoadedWeight,
 };

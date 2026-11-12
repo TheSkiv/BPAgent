@@ -906,6 +906,36 @@ Send and the KIPIS MFA code.
   first match won, so a bagged GMOP truck got blank instructions. The row whose Cargo Type fits
   the truck now wins (then a row with no type). The xlsx was rewritten by the `xlsx` library
   (cell formatting is not kept); the backup is in the session scratchpad.
+- [x] **S40. "Check by hand" list removed — 2026-11-12 (owner: "completely useless").** The box under
+  Checking mail (and its warning toast and "I have checked them" button) listed emails that had
+  plate-like numbers but were still not read as an order after the one-at-a-time re-read (A32).
+  In 3 days it listed 6 emails, no missed order: UHB's "Dėl pakrautos produkcijos" loading
+  confirmations (×3), Helm's "Re: TSP" reply and an Autovesta container reply. The re-read itself
+  stays (it is what catches UHB-style tables). An email still not read is now only a warning in
+  `server.log`. Removed: `data/mail_missed_<date>.json`, `/gmail/missed/clear`, `missed` in
+  `/gmail/last`.
+- [x] **S41. Our draft goes by itself when a colleague submits their own PRK — 2026-11-12 (owner).**
+  Owner: "the cleaning up of drafts that were duplicated by user by hand should be automatic. If
+  you see the same plates with status after Pateikti — delete our own draft and move the truck
+  to the next stage." In the 10-minute KIPIS sync (`kipisSync.applyKipisList`): another PRK for
+  the plates, created on or after the order's day, Pateiktas / Patvirtintas / Atliktas /
+  Užbaigtas, and the truck's PRK is our own Ruošiamas draft. Then the order takes the
+  colleague's PRK (`orderStore.supersedeDraft`; ours kept in `order.ourDraft`). An open truck
+  goes to `submitted` (Email; Print for bulk), or done / to print if loaded. A done truck stays
+  done. The same sync then runs `prkDelete.sweepFinished`, which now takes these drafts plus
+  the S25 ones (done and emailed): no button needed. It runs only when there is something to
+  delete. Each draft is re-checked as Ruošiamas on its own page before Šalinti and logged in
+  `prk_deletions.jsonl`. A replaced draft never moves or cancels its truck, and its status goes
+  on `ourDraft`, never on the colleague's PRK. The Pateikti watch and the amend skip replaced
+  drafts. RULES.md Rule 7 amended. The "Delete these" button stays as a manual fallback.
+  A done truck counts too (MML745 had been closed with no email from here, so the S25 rule missed
+  it). Dry run on a copy of the order files: 14 checks passed. **Live, 2026-11-12 12:12:** the
+  first sync matched KTU519, MML745, EZV710 and MOB412 to a colleague's PRK (Patvirtintas,
+  Atliktas, Užbaigtas ×2). None of our four drafts was still in KIPIS: not in the full Ruošiamas
+  list, and opening them read-only found nothing, so a person had already deleted them. The sweep
+  now records such a draft as "not in KIPIS", or it would look for them every 10 minutes. That
+  is safe because the full Ruošiamas list decides what is a draft. Nothing was deleted by
+  PortSystem in that run.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

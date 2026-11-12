@@ -103,7 +103,15 @@ async function deleteDraft(page, number, reasonText = REASON) {
   return { number, statusBefore: before.status, statusAfter: after && after.number === number ? after.status : '(gone)' };
 }
 
-const AUDIT_PATH = path.resolve(__dirname, '../../data/prk_deletions.jsonl');
+// What KIPIS says about one of our drafts, on the order: its PRK, or — a superseded draft — the
+// `ourDraft` slot, so the colleague's PRK on the order is never overwritten.
+function recordStatus(o, number, status, actor = 'kipis') {
+  const orderStore = require('../../src/core/orderStore');
+  if (o.superseded) orderStore.setOurDraftStatus(o.orderId, status, { actor, date: o.date });
+  else orderStore.attachDocument(o.orderId, { type: 'PRK', number, status }, { actor, date: o.date });
+}
+
+const AUDIT_PATH =path.resolve(__dirname, '../../data/prk_deletions.jsonl');
 function audit(entry) {
   fs.appendFileSync(AUDIT_PATH, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n');
 }
@@ -117,10 +125,11 @@ async function deleteOurDraft(page, number, ours, by, { finished = false } = {})
   const o = ours.get(number);
   if (!o) throw new Error(`${number} was not saved by PortSystem — not deleted (RULES.md Rule 7)`);
   try {
-    const r = await deleteDraft(page, number, finished ? REASON_FINISHED : REASON);
-    audit({ action: 'Šalinti', number, plate: o.plate, orderId: o.orderId, orderDate: o.date, statusBefore: r.statusBefore, statusAfter: r.statusAfter, by });
-    orderStore.attachDocument(o.orderId, { type: 'PRK', number, status: 'Ištrintas (Šalinti)' }, { actor: 'operator', date: o.date });
-    if (!finished) orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${number} deleted (Šalinti) — not used`, date: o.date });
+    // superseded (S41): a colleague's PRK replaced it — the order carries theirs and never moves here.
+    const r = await deleteDraft(page, number, finished || o.superseded ? REASON_FINISHED : REASON);
+    audit({ action: 'Šalinti', number, plate: o.plate, orderId: o.orderId, orderDate: o.date, statusBefore: r.statusBefore, statusAfter: r.statusAfter, by, ...(o.superseded ? { superseded: true } : {}) });
+    recordStatus(o, number, 'Ištrintas (Šalinti)', 'operator');
+    if (!finished && !o.superseded) orderStore.setState(o.orderId, 'cancelled', { actor: 'operator', detail: `PRK draft ${number} deleted (Šalinti) — not used`, date: o.date });
     console.log(`PRK delete: ${number} (${o.plate}) deleted — ${by}`);
     return { number, plate: o.plate };
   } catch (err) {
@@ -177,7 +186,8 @@ function finishedDrafts() {
   const orderStore = require('../../src/core/orderStore');
   const out = new Map();
   for (const [n, o] of orderStore.prkNumbersFiled({ minAgeDays: 0 })) {
-    if (o.state === 'done' && o.emailed) out.set(n, o);
+    // superseded (S41): a colleague's submitted PRK replaced our draft — any state of the truck.
+    if (o.superseded || (o.state === 'done' && o.emailed)) out.set(n, o);
   }
   return out;
 }
@@ -202,8 +212,16 @@ async function sweepFinished(page, by = 'dashboard: delete finished') {
   for (const [n, o] of ours) {
     if (listed.has(n) || o.kipisStatus !== DRAFT_STATUS) continue;
     const header = await openDocument(page, n).catch(() => null);
-    if (!header || header.number !== n || header.status === DRAFT_STATUS) continue;
-    orderStore.attachDocument(o.orderId, { type: 'PRK', number: n, status: header.status }, { actor: 'kipis', date: o.date });
+    // Not in KIPIS's full Ruošiamas list, and its page does not open: a person deleted it
+    // (KTU519, MML745, EZV710, MOB412 on 2026-11-12). Recorded, so the sync stops looking — the list
+    // is the authority for what is a draft, so this can only ever skip a document that is not one.
+    if (!header || header.number !== n) {
+      recordStatus(o, n, 'not in KIPIS (deleted by a person?)');
+      used.push({ number: n, plate: o.plate, status: 'not in KIPIS' });
+      continue;
+    }
+    if (header.status === DRAFT_STATUS) continue;
+    recordStatus(o, n, header.status);
     used.push({ number: n, plate: o.plate, status: header.status });
   }
 

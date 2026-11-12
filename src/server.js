@@ -548,10 +548,19 @@ async function syncWithKipis(reason, automatic) {
   isRunning = true;
   try {
     const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
-    const listed = await withAutomation(getPage(), () => recentPrks(2));
+    const page = getPage();
+    const listed = await withAutomation(page, () => recentPrks(2));
     const changed = applyKipisList(listed, { recordExistingPrk });
     if (changed.length) console.log(`KIPIS sync (${reason}): ${changed.join('; ')}`);
-    lastKipisSync = { at: new Date().toISOString(), reason, read: listed.length, changed };
+    // S41 (owner, 2026-11-12): our drafts a colleague's PRK made unnecessary are deleted here, by
+    // themselves — replaced by a colleague's submitted PRK, or the truck done and emailed (the
+    // former "Delete these" button's case). Rule 7; each draft re-checked as Ruošiamas before Šalinti.
+    let cleanup = null;
+    if ([...prkDelete.finishedDrafts().values()].some(o => o.kipisStatus === prkDelete.DRAFT_STATUS)) {
+      cleanup = await withAutomation(page, () => prkDelete.sweepFinished(page, `KIPIS sync (${reason})`));
+      if (cleanup.deleted.length || cleanup.failed.length) console.log(`KIPIS sync: drafts deleted ${cleanup.deleted.map(d => `${d.plate} ${d.number}`).join(', ') || 'none'}${cleanup.failed.length ? `; FAILED ${cleanup.failed.map(f => `${f.number}: ${f.error}`).join('; ')}` : ''}`);
+    }
+    lastKipisSync = { at: new Date().toISOString(), reason, read: listed.length, changed, ...(cleanup ? { deleted: cleanup.deleted, deleteFailed: cleanup.failed } : {}) };
   } catch (err) {
     lastKipisSync = { at: new Date().toISOString(), reason, error: err.message };
     console.error('KIPIS sync failed:', err.message);
@@ -1103,7 +1112,7 @@ app.get('/prk/open', async (req, res) => {
 app.post('/prk/amend', async (req, res) => {
   const one = String(req.body?.prk || '').trim();
   const filed = orderStore.prkNumbersFiled({ maxAgeDays: 1 });
-  const targets = [...filed.entries()].filter(([n, o]) => one ? n === one : o.state === 'drafted');
+  const targets = [...filed.entries()].filter(([n, o]) => !o.superseded && (one ? n === one : o.state === 'drafted'));
   if (one && !targets.length) return res.json({ status: 'error', message: `${one} was not filed by PortSystem` });
   if (isRunning) return res.json({ status: 'error', message: 'Already running.' });
   const notReady = await kipisNotReady();

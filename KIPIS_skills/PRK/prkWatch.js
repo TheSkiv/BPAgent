@@ -26,7 +26,7 @@ async function checkSubmitted() {
 
   // Our drafts still waiting (and submitted ones, which can move on to done).
   const watched = [...orderStore.prkNumbersFiled({ maxAgeDays: 1 }).entries()]
-    .filter(([, o]) => o.state === 'drafted' || o.state === 'submitted');
+    .filter(([, o]) => !o.superseded && (o.state === 'drafted' || o.state === 'submitted'));   // a replaced draft (S41) never moves its truck
   const out = { submitted: [], done: [], cancelled: [], unchanged: 0, watched: watched.length };
   if (!watched.length) return out;
 

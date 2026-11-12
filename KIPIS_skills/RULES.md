@@ -103,10 +103,20 @@ Submitted / Pateiktas        →  Anuliuoti (annul)   ❌ HUMAN ONLY — a live 
    closed the order). This is the case where a colleague filed their own PRK for a truck
    PortSystem had already drafted. The order stays `done`; the KIPIS reason says the cargo was
    filed on another PRK.
+   **Automatic, a colleague's PRK for the same truck** (owner, 2026-11-12, S41: "If you see the
+   same plates with status after Pateikti was pressed — delete our own draft and move the truck
+   in the dashboard to the next stage"). The KIPIS sync (every 10 min in the shift) takes a draft
+   of any age, today's included, when KIPIS lists **another** PRK for the same plates, created on
+   or after the order's day, with a status after Pateikti (Pateiktas, Patvirtintas, Atliktas,
+   Užbaigtas). The order then carries the colleague's PRK. An open truck moves on: to Email, or
+   Print for bulk, or done / to print if already loaded. A done truck stays done. The sync also
+   deletes the finished-trucks button's drafts by itself. Our draft is still re-checked as
+   Ruošiamas right before `Šalinti`. The colleague's PRK is never touched.
 4. **Approved in advance by the operator** (2026-11-10): the server runs this cleanup by itself
    once a day — no button to forget. The dashboard's *Run cleanup now* runs the same rule. Only
-   this cleanup, the finished-trucks button (`POST /prk/cleanup-finished`, 2026-11-11) and
-   `POST /prk/delete` (one draft, by number) may click `Šalinti`.
+   this cleanup, the finished-trucks button (`POST /prk/cleanup-finished`, 2026-11-11), the KIPIS
+   sync's sweep of the same drafts (S41, 2026-11-12) and `POST /prk/delete` (one draft, by
+   number) may click `Šalinti`.
 5. Every deletion is written to the audit log `data/prk_deletions.jsonl` (document, plate, order
    id, status before/after, timestamp); failures too.
 
