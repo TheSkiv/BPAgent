@@ -329,14 +329,11 @@
     'nothing new': 'nieko naujo',
     "{n} closed by the terminal's copy": 'uždaryta pagal terminalo kopiją: {n}',
     '{n} cargo filled in': 'įrašyta krovinių: {n}',
-    'Check by hand — has plates but was not read as an order: {list}': 'Patikrinkite rankiniu būdu — yra numerių, bet neperskaityta kaip užsakymas: {list}',
     ' — filing them now.': ' — dabar pildomi.',
     'Every {n} min, day and night.': 'Kas {n} min., dieną ir naktį.',
     'Automatic check is off — use Check mail.': 'Automatinis tikrinimas išjungtas — naudokite „Tikrinti paštą“.',
     '{time}: check failed — {err}': '{time}: patikrinti nepavyko — {err}',
     'Last check {time}: {what}.': 'Paskutinis patikrinimas {time}: {what}.',
-    'Check by hand — has plates, not read as an order:': 'Patikrinkite rankiniu būdu — yra numerių, bet neperskaityta kaip užsakymas:',
-    'I have checked them': 'Patikrinau',
 
     // ── KIPIS ──
     'KIPIS logged in': 'KIPIS prisijungta',

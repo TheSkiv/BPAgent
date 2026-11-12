@@ -372,7 +372,8 @@ async function pollAndProcessEmails({ max, query }) {
     // DAP" emails "not a truck order" three times (2026-11-10) — their loading table listed
     // JSB303/IA973 and NEZ584/ZB927, which it finds every time when the email is read alone. So an
     // email the batch dropped, but whose text has plate-like numbers, is read again on its own.
-    // Still nothing → it is logged as a possibly missed truck, never silently ignored.
+    // Still nothing → a warning in the server log. (The dashboard's "Check by hand" list was
+    // removed 2026-11-12, S40: in 3 days it listed only confirmations and replies, no missed order.)
     if (AI_EXTRACT) {
       for (let k = 0; k < keptEmails.length; k++) {
         const ext = extractions[k];
@@ -537,8 +538,7 @@ async function pollAndProcessEmails({ max, query }) {
 
     console.log(`Gmail processed: ${results.length} new emails — ${saved} saved, ${skipped} duplicate, ${noplates} no plates, ${notOrder} not truck orders${missed ? ` (${missed} with plate-like numbers — check)` : ''}, ${ignored} from Not-Check senders; ${cargoFilled} cargo row(s) back-filled; ${prkMarked} plate(s) marked done from PRK confirmations`);
 
-    const missedSubjects = results.filter(r => r.possiblyMissed).map(r => r.subject || '(no subject)');
-    return { emails: results, summary: { total: results.length, saved, skipped, noplates, notOrder, missed, missedSubjects, cargoFilled, prkMarked } };
+    return { emails: results, summary: { total: results.length, saved, skipped, noplates, notOrder, missed, cargoFilled, prkMarked } };
 }
 
 // A poll (manual click or auto-timer) already in flight — the other must wait rather than
@@ -548,27 +548,6 @@ let pollInProgress = false;
 // The last check (button or timer), for the dashboard: { at, by, summary } or { at, by, error }.
 let lastCheck = null;
 
-// Emails that had plates in them but were not read as a truck order. A seen email is never read
-// again, so a toast alone would lose them once checks run unattended — they stay listed for the
-// day (data/mail_missed_<date>.json) until the operator has looked.
-const fs   = require('fs');
-const path = require('path');
-const { todayString } = require('../core/dateManager');
-const missedPath = () => path.resolve(__dirname, `../../data/mail_missed_${todayString()}.json`);
-function loadMissed() {
-  try { return JSON.parse(fs.readFileSync(missedPath(), 'utf8')); } catch { return []; }
-}
-function rememberMissed(emails) {
-  const fresh = emails.filter(r => r.possiblyMissed);
-  if (!fresh.length) return;
-  const list = loadMissed();
-  for (const r of fresh) {
-    if (list.some(x => x.id === r.id)) continue;
-    list.push({ id: r.id, subject: r.subject || '(no subject)', from: r.from || '', plates: r.possiblyMissed, at: new Date().toISOString() });
-  }
-  fs.writeFileSync(missedPath(), JSON.stringify(list, null, 2));
-}
-
 // One mail check, whoever asked (the Check mail button or the server's timer). Returns the
 // result, or null when a check is already running. Throws what the check throws.
 async function checkMail({ max = 100, query = 'in:inbox', by = 'button' } = {}) {
@@ -576,7 +555,6 @@ async function checkMail({ max = 100, query = 'in:inbox', by = 'button' } = {}) 
   pollInProgress = true;
   try {
     const result = await pollAndProcessEmails({ max, query });
-    rememberMissed(result.emails);
     lastCheck = { at: new Date().toISOString(), by, summary: result.summary };
     return result;
   } catch (err) {
@@ -603,14 +581,8 @@ router.get('/emails', async (req, res) => {
   }
 });
 
-// GET /gmail/last — the last check and today's possibly-missed emails
-router.get('/last', (req, res) => res.json({ ...(lastCheck || {}), missed: loadMissed() }));
-
-// POST /gmail/missed/clear — the operator has looked at them
-router.post('/missed/clear', (req, res) => {
-  try { fs.unlinkSync(missedPath()); } catch { /* nothing listed */ }
-  res.json({ status: 'ok' });
-});
+// GET /gmail/last — the last check
+router.get('/last', (req, res) => res.json(lastCheck || {}));
 
 module.exports = router;
 module.exports.checkMail = checkMail;

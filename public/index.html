@@ -36,7 +36,6 @@
         <div class="auto-row">
           <div class="head">Checking mail</div>
           <div class="line" id="mailLine">New order emails are read every few minutes.</div>
-          <div id="missedBox"></div>
         </div>
         <div class="auto-row">
           <div class="head">Filing PRK drafts <button class="btn small" id="fileAllBtn" title="Files every ready truck now, oldest first">File all now</button></div>
@@ -518,11 +517,6 @@
         const parts = [s.saved ? (s.saved === 1 ? t('1 new truck') : t('{n} new trucks', { n: s.saved })) : t('No new trucks')];
         if (s.prkMarked) parts.push(t("{n} closed by the terminal's copy", { n: s.prkMarked }));
         if (s.cargoFilled) parts.push(t('{n} cargo filled in', { n: s.cargoFilled }));
-        // An email with plates in it that was still not read as a truck order — say which.
-        if (s.missed) {
-          toast('warn', parts.join(' · ') + '. ' + t('Check by hand — has plates but was not read as an order: {list}', { list: (s.missedSubjects || []).join('; ') }), true);
-          return;
-        }
         toast(s.saved || s.prkMarked ? 'ok' : '', parts.join(' · ') + (s.saved ? t(' — filing them now.') : '.'));
       } catch (err) { toast('err', t('Network error: {msg}', { msg: err.message })); }
       finally { $('recheckBtn').disabled = false; loadPipeline(); loadConfirmations(); loadMail(); setTimeout(loadPipeline, 20000); }
@@ -575,15 +569,6 @@
           if (m.prkMarked) got.push(t("{n} closed by the terminal's copy", { n: m.prkMarked }));
           $('mailLine').innerHTML = `${esc(t('Last check {time}: {what}.', { time: hhmm(r.at), what: got.join(', ') }))} ${how}`;
         }
-        // Emails with plates in them that were not read as an order stay listed until looked at.
-        const missed = r.missed || [];
-        $('missedBox').innerHTML = missed.length
-          ? `<div class="line"><span class="warn">${t('Check by hand — has plates, not read as an order:')}</span></div>`
-            + [...missed.reduce((m, x) => { const k = x.subject + '|' + x.from; m.set(k, { ...x, n: (m.get(k)?.n || 0) + 1 }); return m; }, new Map()).values()]
-                .map(x => `<div class="line">${esc(x.subject)}${x.n > 1 ? ` ×${x.n}` : ''} <span class="muted">— ${esc(x.from)} (${esc((x.plates || []).join(', '))})</span></div>`).join('')
-            + `<button class="btn small" id="missedSeenBtn">${t('I have checked them')}</button>`
-          : '';
-        if (missed.length) $('missedSeenBtn').addEventListener('click', async () => { await postJson('/gmail/missed/clear'); loadMail(); });
       } catch { /* keep */ }
     }
     async function loadAutoFile() {
