@@ -117,6 +117,19 @@ input:focus, select:focus, textarea:focus { border-color: var(--blue); outline: 
 .empty { padding: 28px 18px; text-align: center; color: var(--steel); text-wrap: balance; }
 .empty strong { display: block; color: var(--ink); font-size: 15px; margin-bottom: 4px; }
 
+/* ── Bagged / bulk / all: one segmented switch above the tabs ───────── */
+.kinds { display: inline-flex; margin-bottom: 8px; border: 1px solid var(--hair); border-radius: 6px; overflow: hidden; background: var(--paper); }
+.kind {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 14px; border: 0; border-right: 1px solid var(--hair); background: transparent;
+  font: 600 13px var(--body); color: var(--steel);
+}
+.kind:last-child { border-right: 0; }
+.kind b { font: 700 14px var(--display); color: var(--ink); }
+.kind[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+.kind[aria-pressed="true"] b { color: var(--paper); }
+.kind-needs { font: 700 11px var(--mono); padding: 1px 6px; border-radius: 9px; background: var(--yellow); color: var(--ink); }
+
 /* ── Tabs with counts ───────────────────────────────────────────────── */
 .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
 .tab {

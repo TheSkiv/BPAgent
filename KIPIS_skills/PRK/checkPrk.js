@@ -56,7 +56,7 @@ You are given the expected order data and a snapshot of every visible field curr
 
 Check ONLY the fields this process fills:
 - The truck plate(s) appear as the transport (Į autotransportą) entry — given as a field labelled "Į autotransportą (saved transport row)" holding that row's text. The original-document-number field (Originalaus dokumento numeris) is deliberately left EMPTY — that is correct, never report it.
-- The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg). When the expected data has grossEnteredByOperator, the gross weight is the operator's own figure: check that the form shows exactly that grossWeight, and do not apply the formula to it.
+- The cargo/weight figures are consistent with the expected order (gross weight = order weight + number of bags; bags = order weight / bagKg, the bag size in kg). When the expected data has grossEnteredByOperator, the gross weight is the operator's own figure: check that the form shows exactly that grossWeight, and do not apply the formula to it. When the expected bags is 0 (BULK cargo), the number of places (Vietų skaičius) must be empty and the gross weight has no bags added.
 - The payer code and name match the expected ones.
 - The loading instructions field matches the expected instructions (empty is correct for BULK cargo with no match).
 - When the expected data has receiverCountry, the receiver's (Gavėjas) country (Valstybė) is that country. The receiver's code, name and address are left empty on purpose — never report them.

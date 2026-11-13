@@ -68,7 +68,69 @@ function isBulkRow(row) {
   return row['Bulk'] === '1' || row['Bulk'] === 1 || row['bulk'] === '1' || row['bulk'] === 1;
 }
 
-function getInstructions(row) {
+// The owner's bagged-cargo line (2026-11-12), one sentence per entry; "v.n.t" becomes the bag count.
+const BAG_LINES = [
+  'KRAUTI MAIŠUS TIK SU ŠVARIA BEI SVEIKA PAKUOTE, KRAUNASI v.n.t, BIG BAGAI!',
+  'MAIŠUS REIKIA GERAI NUVALYTI!',
+  'GRŪDOVEŽIUI akte nurodyti kiek maišų pakrauta aukštuose.',
+];
+
+// Compare text without case, diacritics, spacing or a trailing mark, so "ISITIKINTIS" and
+// "ĮSITIKINTI", or a line typed with two spaces, count as the same line.
+function lineKey(s) {
+  return String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+// The first BAG_LINE with any count ("v.n.t", "37", "37 vnt") in place of v.n.t.
+const BAG_LINE_RE = /KRAUTI\s+MAI[SŠ]US\s+TIK\s+SU\s+[SŠ]VARIA\s+BEI\s+SVEIKA\s+PAKUOTE,?\s*KRAUNASI\s+[^,!]*?,?\s*BIG\s*BAGAI!?/i;
+
+// Bagged cargo: the owner's line (with the bag count) first, then every other line of the
+// Instructions.xlsx text and of what the field already held, each line once.
+function composeBagInstructions(texts, bags) {
+  const count = bags > 0 ? String(bags) : 'v.n.t';
+  const first = BAG_LINES.map(l => l.replace('v.n.t', count));
+  const seen = new Set(BAG_LINES.map(lineKey));
+  const out = [...first];
+  for (const text of texts) {
+    // A line may hold several sentences; take out the owner's ones wherever they sit.
+    for (let line of String(text || '').split(/\r?\n/)) {
+      line = line.replace(BAG_LINE_RE, '');
+      for (const l of BAG_LINES.slice(1)) {
+        const re = new RegExp(l.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'i');
+        line = line.replace(re, '');
+      }
+      line = line.trim();
+      if (!line) continue;
+      const key = lineKey(line);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(line);
+    }
+  }
+  return out.join('\n');
+}
+
+// `existing` is what KIPIS already shows in the field (kept and merged, never overwritten).
+function getInstructions(row, bags = 0, existing = '') {
+  const base = getBaseInstructions(row);
+  if (isBulkRow(row)) return mergeLines([existing, base]);
+  return composeBagInstructions([base, existing], bags);
+}
+
+// Lines of several texts, each once, in order (BULK: no bag line is added).
+function mergeLines(texts) {
+  const seen = new Set();
+  const out = [];
+  for (const t of texts) for (const raw of String(t || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    const key = lineKey(line);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(line);
+  }
+  return out.join('\n');
+}
+
+function getBaseInstructions(row) {
   const cargo = row['Cargo'] || row['cargo'];
   if (!cargo) throw new Error('Field "Cargo" not found in row');
   console.log('Cargo from orders:', cargo);
@@ -254,6 +316,8 @@ async function searchLots(page, keyword) {
 }
 
 async function navigateToCargo(page, data = {}) {
+  const t0 = data.t0 || Date.now();
+  const lap = what => console.log(`  [timing] ${what}: ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   await page.waitForLoadState('networkidle');
 
   console.log('Clicking Sekimas...');
@@ -265,6 +329,8 @@ async function navigateToCargo(page, data = {}) {
   console.log('Clicking Kroviniai...');
   await page.locator('text="Kroviniai"').click();
   await page.waitForLoadState('networkidle');
+
+  lap('Kroviniai open');
 
   // Manual/dev mode (no plate): just land on Kroviniai and pause for inspection.
   if (!data.plate) {
@@ -287,13 +353,15 @@ async function navigateToCargo(page, data = {}) {
     const cargoName   = row['Cargo'] || row['cargo'] || '';
     const weight     = getWeight(row);
     const bagKg      = getBagKg(cargoName);
-    const bags       = Math.round(weight / bagKg);
+    const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
+    // BULK has no bags: Vietų skaičius stays empty and nothing is added to the gross (owner,
+    // 2026-11-12 — a bulk PRK came out with Vietų skaičius 45).
+    const bags       = packaging === 'bulk' ? 0 : Math.round(weight / bagKg);
     // Gross weight: what the operator entered on the dashboard goes into the PRK as written
     // (operator, 2026-11-10 — it was recomputed and the entered figure ignored); only when the
     // field is empty is it weight + 1 kg per bag.
     const enteredGross = Number(String(row['Gross Weight'] ?? '').replace(/[\s,]/g, '')) || 0;
     const total      = enteredGross || weight + bags;
-    const packaging  = isBulkRow(row) ? 'bulk' : 'bagged';
     console.log(`Weight: ${weight}, bag size: ${bagKg} kg, Bags: ${bags}, Total bruto: ${total}${enteredGross ? ' (entered on the dashboard)' : ''}, packaging: ${packaging}`);
 
     // ── Whose cargo, on which vessel (owners.js) ─────────────────────────────────
@@ -340,6 +408,7 @@ async function navigateToCargo(page, data = {}) {
       console.log(`  ${found.lotCount} lot(s), ${found.rows.length} row(s); ${rows.length} for ${vesselList} / this cargo`);
       if (rows.length) { tableRows = found.tableRows; break; }
     }
+    lap('lots searched');
     // ── RULES.md Rule 6: is this truck already filed? ───────────────────────────
     // A sub-row loading to "Autotransportas <plate>" (KIPIS writes "MLL371/RZ817") whose last
     // document is recent — of ANY type: once the PRK is submitted and loaded it becomes a VZT or
@@ -410,6 +479,7 @@ async function navigateToCargo(page, data = {}) {
     console.log('Waiting for Prašymas krovai form...');
     await page.waitForLoadState('networkidle');
 
+    lap('PRK form open');
     const plates = getPlates(row);
 
     // Originalaus dokumento numeris is left empty (operator, 2026-11-09 — it used to carry the
@@ -427,8 +497,13 @@ async function navigateToCargo(page, data = {}) {
     await page.locator('[id$=":moketojas:subjf-pav"]').fill(PAYER_NAME);
 
     console.log('Filling Instrukcijos...');
-    const instructions = getInstructions(row);
-    await page.locator('[id$=":prkr_info:instrukcijos"]').fill(instructions);
+    // Merge with whatever the field already holds (KIPIS may carry text from the lot), each line once.
+    const instrField = page.locator('[id$=":prkr_info:instrukcijos"]');
+    const existingInstr = await instrField.inputValue().catch(() => '');
+    const instructions = getInstructions(row, packaging === 'bagged' ? bags : 0, existingInstr);
+    if (existingInstr.trim()) console.log('Instrukcijos already held text — merged:', JSON.stringify(existingInstr));
+    if (packaging === 'bagged' && !(bags > 0)) console.log('WARNING: no bag count (weight missing?) — "v.n.t" left in Instrukcijos');
+    await instrField.fill(instructions);
 
     // Receiver's country (Gavėjas → Valstybė): KIPIS requires it before the Kroviniai tab opens,
     // and some lots leave it empty (Agrokoncernas's own ULSAN lot, 2026-11-10). Filled from the
@@ -495,6 +570,7 @@ async function navigateToCargo(page, data = {}) {
     }
     const mainTabFields = [...transportRows, ...(await captureFormState(page)).fields];
 
+    lap('main tab filled, transport added');
     console.log('Navigating to Kroviniai tab...');
     await page.locator('a[onclick*="prkr_kroviniai"]').click();
     await page.waitForLoadState('networkidle');
@@ -515,14 +591,20 @@ async function navigateToCargo(page, data = {}) {
     console.log('Filling Svoris bruto, kg...');
     await rowInputs.nth(0).fill(String(total));
 
-    console.log('Filling Vietų skaičius...');
-    await rowInputs.nth(2).fill(String(bags));
+    if (packaging === 'bagged') {
+      console.log('Filling Vietų skaičius...');
+      await rowInputs.nth(2).fill(String(bags));
+    } else {
+      console.log('BULK — Vietų skaičius left empty');
+    }
 
     console.log('Form fields filled.');
 
     fieldIssues.push(...await readBackIssues([
       { field: 'Svoris bruto, kg', locator: rowInputs.nth(0), expected: total, kind: 'number' },
-      { field: 'Vietų skaičius',   locator: rowInputs.nth(2), expected: bags,  kind: 'number' },
+      packaging === 'bagged'
+        ? { field: 'Vietų skaičius', locator: rowInputs.nth(2), expected: bags, kind: 'number' }
+        : { field: 'Vietų skaičius (must stay empty for BULK)', locator: rowInputs.nth(2), expected: '' },
     ]));
     fieldCheck = { ok: fieldIssues.length === 0, issues: fieldIssues };
     if (fieldCheck.ok) console.log('Field read-back PASSED: every filled value is on the form.');
@@ -531,7 +613,15 @@ async function navigateToCargo(page, data = {}) {
       for (const i of fieldIssues) console.warn(`  ${i.field}: expected "${i.expected}", found "${i.found}"`);
     }
 
+    lap('cargo line filled, read-back done');
     // AI check of the completed form, before Saugoti. Never proceeds past Saugoti — see RULES.md.
+    // Not for BULK (owner, 2026-11-12, S52): it was 8.3 s of an 18.7 s filing while the operator
+    // waits, and a bulk form has no bag count or loading text — the field read-back above already
+    // checks every value this run types in (Rule 3).
+    if (packaging === 'bulk') {
+      check = { ok: true, skipped: true, issues: [], summary: 'skipped for BULK — the field read-back verifies every value filled' };
+      console.log('AI check skipped (BULK) — saving on the field read-back.');
+    } else {
     console.log('Running AI completion check...');
     check = await checkPrkCompletion(page, {
       plate:        plates.join(', '),
@@ -548,8 +638,11 @@ async function navigateToCargo(page, data = {}) {
       ...(countryFilled ? { receiverCountry: countryFilled } : {}),
       ...(senderCountryFilled ? { senderCountry: senderCountryFilled } : {}),
     }, mainTabFields);
+    }
 
-    if (check.ok === null)      console.warn(`AI check could not run: ${check.summary}`);
+    lap('AI check done');
+    if (check.skipped)          { /* logged above */ }
+    else if (check.ok === null) console.warn(`AI check could not run: ${check.summary}`);
     else if (check.ok)          console.log(`AI check PASSED — no problem with any value this run filled. (Model's note: ${check.summary})`);
     else {
       console.warn(`AI check FAILED: ${check.summary}`);
@@ -581,6 +674,7 @@ async function navigateToCargo(page, data = {}) {
       saved = await confirmSaved(page);
       submitted = true;
       console.log(`PRK draft saved: ${saved.number} (${saved.status}). Pateikti is HUMAN-ONLY — not pressed (see RULES.md).`);
+      lap('saved (Saugoti confirmed)');
       // BB only: the cargo line's packaging. A failure here leaves the saved draft as it is and
       // tells the operator to set it by hand — it does not undo the filing.
       if (packaging === 'bagged') {
@@ -701,4 +795,66 @@ async function confirmSaved(page, timeout = 20000) {
   return { number: m[1], status };
 }
 
-module.exports = { navigateToCargo, getInstructions, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved, setBagPackaging, amendDraft };
+// S59 (owner, 2026-11-13): "when corrections happen and a PRK needs to be amended — just amend it.
+// Open the PRK and correct the plates." The page must already show OUR Ruošiamas draft (opened
+// from the Ruošiamas list). The transport section ("Į autotransportą") holds one row per truck with
+// the plates in Numeris ("MML745", or "ABC123/DEF456"). The old row is removed with the SECTION's
+// own Šalinti (its confirm button lives in #transportas_jspf_remove — never the document's
+// Šalinti, which deletes the whole PRK), the new one added the way filing adds it (Pridėti →
+// Markė " " → Numeris → Saugoti), the table read back, then the document saved and checked to be
+// still our Ruošiamas draft. Returns { number, before, after }. Throws on any doubt — the draft is
+// then left as KIPIS shows it (nothing is saved after a failed step).
+async function setTransportPlates(page, number, newPlate) {
+  const want = kipisPlate(newPlate);
+  const section = page.locator('tbody[id$=":prkr_info:transportas:_id896:tbody_element"], tbody[id*=":prkr_info:transportas:"][id$=":tbody_element"]').first();
+  const readRows = async () => (await section.locator('tr').evaluateAll(trs => trs.map(tr =>
+    [...tr.children].map(td => td.textContent.replace(/ /g, ' ').replace(/\s+/g, ' ').trim()))))
+    .filter(cells => cells.length >= 5).map(cells => cells[4]);
+  if (!await section.count()) throw new Error('the transport table ("Į autotransportą") is not on the page');
+  const before = await readRows();
+  console.log(`Plates on ${number} before: ${before.join(', ') || '(none)'} → ${want}`);
+  if (before.length === 1 && plateKey(before[0]) === plateKey(want)) return { number, before, after: before, unchanged: true };
+  if (before.length > 1) throw new Error(`${number} has ${before.length} transport rows (${before.join(', ')}) — not changed automatically`);
+
+  if (before.length === 1) {
+    await section.locator('input[type="checkbox"]').first().check();
+    await page.locator('input[type="button"][value="Šalinti"][onclick*="transportas_jspf_remove"]').click();
+    const confirm = page.locator('#transportas_jspf_remove input[type="submit"][value="Šalinti"]');
+    await confirm.waitFor({ state: 'visible', timeout: 5000 });
+    // steps.md "Three different Šalinti buttons": only the transport section's confirm may be
+    // pressed — its name is …:prkr_info:transportas:… (the document's is not). Anything else: stop.
+    const confirmName = await confirm.getAttribute('name');
+    if (!/:prkr_info:transportas:/.test(confirmName || '')) throw new Error(`the Šalinti confirm button is "${confirmName}", not the transport section's — stopped`);
+    console.log(`Removing transport row ${before[0]}...`);
+    await confirm.click();
+    await page.waitForLoadState('networkidle');
+    const left = await readRows().catch(() => []);
+    if (left.length) throw new Error(`the old transport row is still there after Šalinti (${left.join(', ')})`);
+  }
+
+  console.log(`Adding transport ${want}...`);
+  await page.locator('input[type="submit"][value="Pridėti"][name*=":prkr_info:transportas:"]').first().click();
+  await page.waitForLoadState('networkidle');
+  await page.getByRole('textbox', { name: /markė/i }).fill(' ');
+  await page.getByRole('textbox', { name: /numeris/i }).fill(want);
+  await page.getByRole('button', { name: /saugoti/i }).click();
+  await page.waitForLoadState('networkidle');
+
+  const after = await readRows();
+  if (after.length !== 1 || plateKey(after[0]) !== plateKey(want)) {
+    throw new Error(`after adding, the transport table shows ${after.join(', ') || '(none)'} — expected only ${want}; the draft is not saved`);
+  }
+  console.log(`Saving ${number} (document Saugoti)...`);
+  const docSave = page.locator('input[type="submit"][value="Saugoti"]:visible').last();
+  await docSave.scrollIntoViewIfNeeded();
+  await docSave.click();
+  await page.waitForLoadState('networkidle');
+  const saved = await confirmSaved(page);
+  if (saved.number !== number) throw new Error(`after saving KIPIS shows ${saved.number}, not ${number}`);
+  const final = await readRows();
+  if (final.length !== 1 || plateKey(final[0]) !== plateKey(want)) throw new Error(`after saving, ${number} shows ${final.join(', ') || '(no transport)'} — expected ${want}`);
+  console.log(`Plates on ${number} are now ${final[0]} (saved, ${saved.status})`);
+  return { number, before, after: final };
+}
+
+module.exports = { navigateToCargo, getInstructions, findRowByPlate, searchLots, isOurStorage, isRecentDoc, getBagKg, confirmSaved, setBagPackaging, amendDraft, setTransportPlates, kipisPlate };

@@ -3,7 +3,11 @@ const { todayString } = require('./dateManager');
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions';
 const MODEL      = process.env.OPENAI_MODEL || 'gpt-4o-mini';
-const BATCH_SIZE = 10;   // emails per AI call
+// One email per AI call (owner, 2026-11-13, S56b — was 10 per call). In a batch the model mixed
+// emails up: cargo left blank on UHB's DAP trucks, a truck filed under the next email, a bulk flag
+// bled over from a neighbour. Read alone each came out right, and the calls run side by side, so a
+// check is no slower (4 emails: one batch 9.6 s, 4 calls at once 5.8 s).
+const PARALLEL   = 5;    // AI calls at a time (a morning check can bring many overnight emails)
 const MAX_BODY   = 4000; // chars of body text per email sent to the model
 
 // Reply threads (Transwina etc.) re-quote every prior message below the new one, each time
@@ -37,10 +41,11 @@ For a relevant email, extract each truck as one order:
 - driver: the driver's name, or "" if absent.
 - cargo: the goods this truck is loading, exactly as written; null if not stated.
 - weight: total gross weight in kilograms as an integer (tonnes ×1000); null if not stated. A "600 kg" or "500 kg" bag size is a packaging size, NOT the total weight. When the attachment text holds SEVERAL waybills (važtaraščiai, separated by "---") for the SAME truck, each is a separate consignment loaded onto that one truck: the weight is the SUM of their quantities (two waybills of 12,000 t each → 24000), never just one of them.
+- unloading: where this truck unloads — the unloading / delivery place and address ("Iškrovimo vieta", "Išsikrovimo vieta", "Pristatymo vieta", "Krovinio iškrovimo vietos adresas", or an unlabelled consignee farm/company name and address given for the truck), as written, lines joined with ", ", without phone numbers; null if not stated. The loading place ("Pakrovimo vieta", the port terminal in Klaipėda) is NOT the unloading place.
 - bulk: true ONLY if the email explicitly calls the cargo BULK. Bags, big bags (BB), and pallets are NOT bulk. Exception: MOP potash cargo (MOP, gMOP, sMOP, "Kalio chloridas") always ships bulk at this terminal — set bulk=true for it even without the word BULK appearing.
 
 Return exactly this JSON shape:
-{ "emails": [ { "index": <int 0-based>, "relevant": <bool>, "orders": [ { "plates": ["AAA111","BBB222"], "driver": "", "cargo": "", "weight": null, "bulk": false } ] } ] }`;
+{ "emails": [ { "index": <int 0-based>, "relevant": <bool>, "orders": [ { "plates": ["AAA111","BBB222"], "driver": "", "cargo": "", "weight": null, "unloading": null, "bulk": false } ] } ] }`;
 }
 
 // The model is told never to include a vehicle make as a plate (see systemPrompt) but
@@ -85,6 +90,7 @@ function normalizeOrders(orders) {
     driver: o.driver ? String(o.driver).trim() : '',
     cargo:  o.cargo  ? String(o.cargo).trim()  : '',
     weight: Number.isFinite(o.weight) ? Math.round(o.weight) : (parseInt(o.weight, 10) || ''),
+    unloading: o.unloading ? String(o.unloading).replace(/\s+/g, ' ').trim() : '',
     bulk:   !!o.bulk,
   })).filter(o => o.plates.length > 0);
 }
@@ -139,35 +145,28 @@ function slotBatchResults(parsed, batchLength) {
 }
 
 // Returns an array aligned to `emails`: [{ relevant, orders: [{plates,driver,cargo,weight,bulk}] }]
+// One email, one call. A reply without a result for it is retried once — a silent drop would make
+// a real truck order look "not relevant" with no trace.
+async function extractOne(email) {
+  let [it] = slotBatchResults(await callOpenAI([email]), 1);
+  if (!it) {
+    console.error(`AI extraction: no result for ${JSON.stringify(email.subject)} — retrying once.`);
+    [it] = slotBatchResults(await callOpenAI([email]), 1);
+    if (!it) console.error(`AI extraction: still no result for ${JSON.stringify(email.subject)} — treating as not relevant.`);
+  }
+  return it ? { relevant: !!it.relevant, orders: normalizeOrders(it.orders) } : { relevant: false, orders: [] };
+}
+
 async function extractOrders(emails) {
   const result = new Array(emails.length);
-
-  for (let start = 0; start < emails.length; start += BATCH_SIZE) {
-    const batch = emails.slice(start, start + BATCH_SIZE);
-    let slots   = slotBatchResults(await callOpenAI(batch), batch.length);
-
-    // The model returned fewer results than emails sent — a silent drop otherwise (the missing
-    // email would default to relevant:false with no trace). One retry before accepting the loss;
-    // real truck orders going missing without a log line is the actual bug this guards against.
-    if (slots.some(s => s === null)) {
-      const missing = slots.map((s, i) => s === null ? i : -1).filter(i => i >= 0);
-      console.error(`AI extraction: batch returned ${slots.filter(Boolean).length}/${batch.length} results, missing index(es) ${missing.join(',')} — subjects: ${missing.map(i => JSON.stringify(batch[i].subject)).join(', ')}. Retrying batch once.`);
-      const retrySlots = slotBatchResults(await callOpenAI(batch), batch.length);
-      slots = slots.map((s, i) => s || retrySlots[i]);
-      const stillMissing = slots.map((s, i) => s === null ? i : -1).filter(i => i >= 0);
-      if (stillMissing.length) {
-        console.error(`AI extraction: still missing after retry — index(es) ${stillMissing.join(',')}, subjects: ${stillMissing.map(i => JSON.stringify(batch[i].subject)).join(', ')}. Treating as not relevant.`);
-      }
+  let next = 0;
+  const worker = async () => {
+    while (next < emails.length) {
+      const i = next++;
+      result[i] = await extractOne(emails[i]);
     }
-
-    for (let i = 0; i < batch.length; i++) {
-      const it = slots[i];
-      result[start + i] = it
-        ? { relevant: !!it.relevant, orders: normalizeOrders(it.orders) }
-        : { relevant: false, orders: [] };
-    }
-  }
-
+  };
+  await Promise.all(Array.from({ length: Math.min(PARALLEL, emails.length) }, worker));
   return result;
 }
 

@@ -88,6 +88,15 @@ function findCargoInText(text) {
     }
   }
 
+  // Pass 4: a short product word on its own ("DAP", "MAP", "TSP") — too short for pass 3 — names
+  // the list entry it starts, when exactly one entry starts with it ("DAP" → "DAP 18-46"; owner,
+  // 2026-11-12: DAP was almost never recognised). A whole word only, 3+ letters.
+  const words = new Set(String(text || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => /^[a-z]{3}$/.test(w)));
+  for (const w of words) {
+    const hits = sorted.filter(([, item]) => item.cargo.toLowerCase().split(/[^a-z0-9]+/)[0] === w);
+    if (hits.length === 1) return { cargo: hits[0][1].cargo, vessel: hits[0][1].vessels.join(' / ') };
+  }
+
   return null;
 }
 

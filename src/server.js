@@ -84,7 +84,7 @@ function auditFiling({ order, plate, actor, outcome, result = {}, error = null, 
     existingPrk: result.existingPrk || null,
     lot: result.loadsFrom?.lot || result.lot || null, owner: result.loadsFrom?.owner || null,
     fieldCheck: result.fieldCheck ? (result.fieldCheck.ok ? 'passed' : `failed: ${result.fieldCheck.issues.map(i => i.field).join(', ')}`) : null,
-    aiCheck: result.check ? (result.check.ok === null ? `unavailable: ${result.check.summary}` : result.check.ok ? 'passed' : `failed: ${result.check.summary}`) : null,
+    aiCheck: result.check ? (result.check.skipped ? 'skipped (bulk)' : result.check.ok === null ? `unavailable: ${result.check.summary}` : result.check.ok ? 'passed' : `failed: ${result.check.summary}`) : null,
     blocked: result.blocked || null, packagingWarning: result.packagingWarning || null,
     error: error ? String(error.message || error).split('\n')[0] : null, retried,
   };
@@ -98,7 +98,7 @@ app.use(express.static(path.join(__dirname, '../public')));
 
 // A12: once a RECHECK (GET /gmail/emails) has finished, file whatever it made ready.
 app.use('/gmail/emails', (req, res, next) => {
-  res.on('finish', () => { setTimeout(() => autoRound('after RECHECK').catch(err => console.error('Auto round:', err.message)), 1000); });
+  res.on('finish', () => { setTimeout(() => autoRound('after RECHECK', OPERATOR_ACTION_QUIET_MS).catch(err => console.error('Auto round:', err.message)), 1000); });
   next();
 });
 app.use('/gmail', gmailRoute);
@@ -251,6 +251,7 @@ app.get('/pipeline', (req, res) => {
       fromKipis: o.email?.from === 'KIPIS',
       createdAt: o.createdAt || '',
       lastFailure: o.lastFailure || null,
+      plateAmend: o.plateAmend || null,   // S59: a PRK draft waiting for / failing its plate correction
       carried: orderStore.dateOf(o.id) === yesterday,
       vessel: o.loadsFrom?.vessel || '',
       // The last thing that happened to the order — the dashboard shows it as the reason a truck
@@ -407,7 +408,13 @@ async function fileOrderOnce(order, actor, run) {
 // Oldest first, non-bulk (bulk needs a weight first). Continues past an order that fails or is
 // blocked; stops the whole batch only when KIPIS itself is gone (logged out / closed), so one
 // expired session never fails a row of good orders. Each order is tried once per batch.
-async function fileAllReady(actor) {
+// urgent (S50, owner 2026-11-12: "when a user is waiting for a result it needs to be QUICK"): a
+// round the operator started from the dashboard does not read KIPIS's PRK list first (two list
+// searches, ~15 s before the form even opened). It uses a list read in the last 5 minutes if there
+// is one; otherwise the filing's own lot check (Rule 6: a recent document for this plate on any lot
+// of the cargo) is the guard against a second PRK.
+const URGENT_LIST_MS = 5 * 60 * 1000;
+async function fileAllReady(actor, { urgent = false } = {}) {
   const summary = { saved: [], existing: [], blocked: [], failed: [], dry: [], stoppedBecause: null };
   orderStore.syncFromExcel();
   const tried = new Set();
@@ -420,10 +427,14 @@ async function fileAllReady(actor) {
     const notReady = await kipisNotReady();
     if (notReady) { summary.stoppedBecause = notReady; break; }
     tried.add(next.id);
+    if (!listed && urgent) {
+      const fresh = lastListed.listed && Date.now() - lastListed.at < URGENT_LIST_MS;
+      listed = fresh ? lastListed.listed : [];
+      console.log(`Batch: ${fresh ? `PRK list from ${Math.round((Date.now() - lastListed.at) / 1000)} s ago` : 'PRK list not read (operator waiting)'} — the lot check guards against a second PRK`);
+    }
     if (!listed) {
       try {
-        const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
-        listed = await withAutomation(getPage(), () => recentPrks(2));
+        listed = await readPrkList(getPage());
       } catch (err) {
         // Without the list, the lot check (Rule 6) still runs on every order; say so and go on.
         console.warn(`Batch: could not read the KIPIS PRK list (${err.message}) — relying on the lot check`);
@@ -471,7 +482,12 @@ function listedPrkFor(order, listed) {
 // (e.g. a sender the operator confirmed). Skips quietly when there is nothing ready, when another
 // KIPIS job is running (the next tick catches up) or when KIPIS is not logged in.
 const AUTO_FILE_HOURS = [8, 18];
-const OPERATOR_QUIET_MS = 3 * 60 * 1000;   // automatic jobs wait while the operator works in KIPIS
+// Automatic jobs wait while the operator works in KIPIS. Was 3 min; NUF146//MI890 waited that long
+// after its weight was entered, again after every click (owner, 2026-11-12: "far too long").
+const OPERATOR_QUIET_MS = 60 * 1000;
+// A round the operator started from the dashboard (weight entered, order fixed, Check mail) is
+// asked for: it waits only as long as after a Pateikti.
+const OPERATOR_ACTION_QUIET_MS = 30 * 1000;
 let lastAutoFile = null;
 
 // An automatic job may drive the KIPIS window only when nothing else does, KIPIS is logged in,
@@ -485,19 +501,20 @@ async function autoBlocked(quietMs = OPERATOR_QUIET_MS) {
   return null;
 }
 
-async function autoFile(reason) {
+async function autoFile(reason, quietMs) {
   if (isRunning) return;
   orderStore.syncFromExcel();   // RECHECK writes new orders to today's Excel first
   const ready = orderStore.listOrders().some(orderStore.isFileable);
   if (!ready) return;
-  const blocked = await autoBlocked();
+  const blocked = await autoBlocked(quietMs);
   if (blocked) {
     lastAutoFile = { at: new Date().toISOString(), reason, skipped: blocked };
     return;
   }
   isRunning = true;
   try {
-    const s = await fileAllReady(`auto-filing (${reason})`);
+    // A round the operator started (OPERATOR_ACTION_QUIET_MS) is someone waiting: urgent (S50).
+    const s = await fileAllReady(`auto-filing (${reason})`, { urgent: quietMs === OPERATOR_ACTION_QUIET_MS });
     lastAutoFile = { at: new Date().toISOString(), reason, ...s };
   } catch (err) {
     lastAutoFile = { at: new Date().toISOString(), reason, error: err.message };
@@ -512,8 +529,8 @@ async function autoFile(reason) {
 
 // ── The desk matches KIPIS (owner, 2026-11-11) ───────────────────────────────
 // "If KIPIS has more PRKs, the dashboard should have the same number of trucks." Every 5 minutes
-// in the shift, and a minute after the operator presses Pateikti (S43 — it took over the Pateikti watch) (and on the dashboard's button) KIPIS's PRK list of the last 2 days is read
-// (read-only) and the desk follows it:
+// in the shift, and a minute after the operator presses Pateikti (S43 — it took over the Pateikti watch) (and on the dashboard's button) the top 50 of KIPIS's PRK list are read
+// (read-only; the 2-day read is the daily cleanup's — see readPrkList) and the desk follows it:
 //   - a PRK on one of our trucks: its status is kept current; loaded (Atliktas/Užbaigtas) → done;
 //   - an open truck loaded on a PRK a person made (MTE728 on 261111-000640, 2026-11-11) → done;
 //     a person's open PRK for an open truck of ours without one → recorded on it;
@@ -523,16 +540,38 @@ async function autoFile(reason) {
 const KIPIS_SYNC_EVERY_MS = 5 * 60 * 1000;   // S43: every 5 min (was 10), as the Pateikti watch it replaces
 let lastKipisSync = null;
 let lastKipisSyncRun = 0;   // the first shift tick after a start syncs, so stale PRK statuses never linger
-const { applyKipisList } = require('./core/kipisSync');
+const kipisSync = require('./core/kipisSync');
+const { applyKipisList } = kipisSync;
+
+// One read of KIPIS's PRK list serves for
+// LIST_FRESH_MS (owner, 2026-11-12: "what is he checking a million times before a bulk PRK?").
+// An automatic round re-read it seconds after the filing check had read it; now the filing check
+// and the automatic sync share it. Not after your Pateikti, not on the dashboard's button —
+// those always read fresh. Must be called with isRunning held.
+// What is read (owner, 2026-11-13): the list as KIPIS opens it, top 50 rows, no filters — a PRK
+// whose status changes jumps to the top, and the 5-minute sync has seen everything further down.
+// The 2-day read (two filtered searches) is for the daily cleanup (full: true) — and for the
+// first read after a server start or a gap of FULL_READ_AFTER_MS (KIPIS logged out, the night),
+// when changes may have slid past the top 50 unseen.
+const LIST_FRESH_MS = 60 * 1000;
+const FULL_READ_AFTER_MS = 2 * 60 * 60 * 1000;
+let lastListed = { at: 0, listed: null };
+async function readPrkList(page, { fresh = false, full = false } = {}) {
+  if (!fresh && !full && lastListed.listed && Date.now() - lastListed.at < LIST_FRESH_MS) return lastListed.listed;
+  const { recentPrks, topPrks } = require('../KIPIS_skills/PRK/exportPrkList');
+  const twoDays = full || Date.now() - lastListed.at > FULL_READ_AFTER_MS;
+  const listed = await withAutomation(page, () => twoDays ? recentPrks(2) : topPrks());
+  lastListed = { at: Date.now(), listed, full: twoDays };
+  return listed;
+}
 
 async function syncWithKipis(reason, automatic, quietMs) {
   const blocked = automatic ? await autoBlocked(quietMs) : (isRunning ? 'another KIPIS job is running' : await kipisNotReady());
   if (blocked) return (lastKipisSync = { at: new Date().toISOString(), reason, skipped: blocked });
   isRunning = true;
   try {
-    const { recentPrks } = require('../KIPIS_skills/PRK/exportPrkList');
     const page = getPage();
-    const listed = await withAutomation(page, () => recentPrks(2));
+    const listed = await readPrkList(page, { fresh: !automatic || quietMs !== undefined });
     const changed = applyKipisList(listed, { recordExistingPrk });
     if (changed.length) console.log(`KIPIS sync (${reason}): ${changed.join('; ')}`);
     // S41 (owner, 2026-11-12): our drafts a colleague's PRK made unnecessary are deleted here, by
@@ -540,10 +579,10 @@ async function syncWithKipis(reason, automatic, quietMs) {
     // former "Delete these" button's case). Rule 7; each draft re-checked as Ruošiamas before Šalinti.
     let cleanup = null;
     if ([...prkDelete.finishedDrafts().values()].some(o => o.kipisStatus === prkDelete.DRAFT_STATUS)) {
-      cleanup = await withAutomation(page, () => prkDelete.sweepFinished(page, `KIPIS sync (${reason})`));
+      cleanup = await withAutomation(page, () => prkDelete.sweepFinished(page, `KIPIS sync (${reason})`, { listed }));
       if (cleanup.deleted.length || cleanup.failed.length) console.log(`KIPIS sync: drafts deleted ${cleanup.deleted.map(d => `${d.plate} ${d.number}`).join(', ') || 'none'}${cleanup.failed.length ? `; FAILED ${cleanup.failed.map(f => `${f.number}: ${f.error}`).join('; ')}` : ''}`);
     }
-    lastKipisSync = { at: new Date().toISOString(), reason, read: listed.length, changed, ...(cleanup ? { deleted: cleanup.deleted, deleteFailed: cleanup.failed } : {}) };
+    lastKipisSync = { at: new Date().toISOString(), reason, read: listed.length, full: !!lastListed.full, changed, ...(cleanup ? { deleted: cleanup.deleted, deleteFailed: cleanup.failed } : {}) };
   } catch (err) {
     lastKipisSync = { at: new Date().toISOString(), reason, error: err.message };
     console.error('KIPIS sync failed:', err.message);
@@ -562,7 +601,7 @@ app.post('/kipis/sync', async (req, res) => res.json(await syncWithKipis('dashbo
 // opens the preview (recipients from the routing table, subject, text, the PRK PDF); the operator
 // may edit the subject/text and switch RoRo/KKT, then presses Send — the only way the code sends
 // mail (SECURITY.md §5). The Cc copy to terminal@bpa.lt closes the order on the next RECHECK.
-// The PDF is fetched from KIPIS into memory for the preview and dropped once sent (D10).
+// The PDF is fetched from KIPIS into memory (D10) and kept for printing until the PRK is printed (S46).
 const dispatchPdfs = new Map();   // order id → { number, filename, buffer }
 const DISPATCH_LOG = path.join(__dirname, '../data/dispatch_sent.jsonl');
 
@@ -625,7 +664,7 @@ async function transportDocsFor(order, cmrPdf) {
   return { buffers, label: `važtaraštis${buffers.length > 1 ? ` (${buffers.length})` : ''}${unstamped ? ' — release not added, pick it in the truck window' : ''}` };
 }
 
-// CMR or važtaraštis × (Ro-Ro 5 / KKT 1), then PRK × (1, bulk 2), as one PDF. X-Pack-Note says
+// CMR or važtaraštis × (Ro-Ro 5 / KKT 1), then PRK × 1, as one PDF. X-Pack-Note says
 // what is in it.
 // part (S42): 'transport' — only the CMR / važtaraščiai; 'prk' — only the PRK; none — both.
 async function sendPack(res, order, cmrPdf, terminal, part = null) {
@@ -748,7 +787,7 @@ app.post('/dispatch/send', async (req, res) => {
       orderStore.setState(order.id, 'gate_pass_ordered', { actor: 'operator', detail: 'loading ordered by email from the dashboard — PRK after the weight', date: date || undefined });
     }
     require('fs').appendFileSync(DISPATCH_LOG, JSON.stringify({ ...record, plate: order.plate, orderId: order.id, server: reply }) + '\n');
-    dispatchPdfs.delete(order.id);
+    // The PDF stays for printing (S46); prepareDispatches drops it once the PRK is printed.
     console.log(`Dispatch email sent: ${order.plate} ${pdf ? pdf.number : '(bulk loading order)'} → ${to.join(', ')} (${reply})`);
     res.json({ status: 'ok', sentTo: to });
   } catch (err) {
@@ -772,9 +811,13 @@ function retryStopped() {
 }
 
 // One automatic round: file what is ready, then see what the operator has submitted.
-async function autoRound(reason) {
+async function autoRound(reason, quietMs) {
   retryStopped();
-  await autoFile(reason);
+  await autoFile(reason, quietMs);
+  // S51 (owner, 2026-11-12): after a filing the operator asked for, the KIPIS window is theirs —
+  // they go straight to Pateikti. The list check that followed pulled the page away to the PRK
+  // list for ~10 s. It runs on the shift tick instead (every 5 min, and a minute after Pateikti).
+  if (quietMs === OPERATOR_ACTION_QUIET_MS) return;
   await syncWithKipis(reason, true);
 }
 
@@ -784,11 +827,33 @@ const inShift = () => { const h = new Date().getHours(); return h >= AUTO_FILE_H
 // into memory (never to disk, D10), so the operator's Send email opens at once and does not wait
 // for the KIPIS window. Sending stays the operator's click (D11). A few per tick; a PDF that
 // could not be fetched is tried again next tick, and the preview still fetches on demand.
+// S46 (owner, 2026-11-12): the same fetch keeps the PDF for printing too — bagged: kept after
+// Send until the PRK is printed; bulk (no PRK in its email): fetched once the check sees the PRK
+// Pateiktas or any later status. Still memory only (D10); after a restart Print fetches it again.
+const prkPrinted = o => !!o.printedAt || (o.printedParts || []).includes('prk');
+function needsPrkPdf(o) {
+  const number = o.docs?.PRK?.number;
+  if (!number || dispatchPdfs.get(o.id)?.number === number) return false;
+  if (o.bulk) {
+    const status = String(o.docs.PRK.status || '');
+    return !prkPrinted(o) && o.state !== 'cancelled'
+      && (kipisSync.PRK_SUBMITTED.test(status) || kipisSync.PRK_LOADED.test(status));
+  }
+  return o.state === 'submitted' && !o.dispatchSent;
+}
+// A kept PDF goes once its PRK is printed, the truck is cancelled, or the order is no longer listed.
+function dropPrintedPdfs(orders) {
+  const byId = new Map(orders.map(o => [o.id, o]));
+  for (const id of dispatchPdfs.keys()) {
+    const o = byId.get(id);
+    if (!o || o.state === 'cancelled' || (prkPrinted(o) && (o.bulk || o.dispatchSent))) dispatchPdfs.delete(id);
+  }
+}
+
 async function prepareDispatches() {
-  const waiting = [...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))]
-    .filter(o => o.state === 'submitted' && !o.bulk && !o.dispatchSent && o.docs?.PRK?.number
-      && dispatchPdfs.get(o.id)?.number !== o.docs.PRK.number)
-    .slice(0, 3);
+  const recent = [...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))];
+  dropPrintedPdfs(recent);
+  const waiting = recent.filter(needsPrkPdf).slice(0, 3);
   if (!waiting.length || await autoBlocked(AFTER_PATEIKTI_QUIET_MS)) return;   // the operator has just pressed Pateikti: a short wait is enough
   isRunning = true;
   try {
@@ -797,7 +862,9 @@ async function prepareDispatches() {
       const number = o.docs.PRK.number;
       const pdf = await withAutomation(page, () => prkPdf.fetchPrkPdf(page, number));
       dispatchPdfs.set(o.id, { number, filename: pdf.filename, buffer: pdf.buffer });
-      console.log(`Dispatch email ready: ${o.plate} ${number} (PDF in memory, waiting for Send)`);
+      console.log(o.bulk
+        ? `PRK ready to print: ${o.plate} ${number} (${o.docs.PRK.status}; PDF in memory)`
+        : `Dispatch email ready: ${o.plate} ${number} (PDF in memory, for Send and for printing)`);
     }
   } catch (err) {
     console.error('Preparing a dispatch email failed:', err.message);
@@ -838,6 +905,7 @@ async function shiftTick() {
       if (w && !w.skipped) pateiktiSeen = pateiktiAt;
     }
     await prepareDispatches();
+    await processPlateAmends();   // S59: a draft whose plates changed while KIPIS was busy
   } catch (err) {
     console.error('Shift tick:', err.message);
   } finally {
@@ -860,6 +928,7 @@ async function mailTick() {
     const s = r.summary;
     if (s.total) console.log(`Mail timer: ${s.total} new email(s), ${s.saved} truck(s) saved`);
     if (inShift() && (s.saved || s.prkMarked)) await autoRound('mail timer');
+    if (inShift() && s.plateChanges) await processPlateAmends();   // S59: a reply corrected plates
   } catch (err) {
     console.error('Mail timer:', err.message);
   }
@@ -966,6 +1035,18 @@ async function runCleanup(by, opts = {}) {
   const state = { at: new Date().toISOString(), by };
   try {
     const page = getPage();
+    // The 2-day read belongs here (owner, 2026-11-13): the 5-minute sync reads only the top 50,
+    // so the cleanup brings the desk fully in line with KIPIS's last 2 days first. A failed read
+    // does not stop the sweep — it has its own Ruošiamas read.
+    try {
+      const listed = await readPrkList(page, { full: true });
+      const changed = applyKipisList(listed, { recordExistingPrk });
+      if (changed.length) console.log(`KIPIS sync (${by}, 2 days): ${changed.join('; ')}`);
+      lastKipisSync = { at: new Date().toISOString(), reason: `${by} (2 days)`, read: listed.length, full: true, changed };
+      lastKipisSyncRun = Date.now();
+    } catch (err) {
+      console.warn(`PRK cleanup: the 2-day KIPIS read failed (${err.message}) — sweeping anyway`);
+    }
     Object.assign(state, { status: 'ok' }, await withAutomation(page, () => prkDelete.sweepDrafts(page, by, opts)));
     if (state.failed.length) state.status = 'stopped';
   } catch (err) {
@@ -1017,7 +1098,8 @@ app.post('/prk/cleanup-finished', async (req, res) => {
   isRunning = true;
   try {
     const page = getPage();
-    const r = await withAutomation(page, () => prkDelete.sweepFinished(page, 'dashboard: delete finished'));
+    const recent = lastListed.listed && Date.now() - lastListed.at < FULL_READ_AFTER_MS ? lastListed.listed : [];
+    const r = await withAutomation(page, () => prkDelete.sweepFinished(page, 'dashboard: delete finished', { listed: recent }));
     res.json({ status: r.failed.length ? 'stopped' : 'ok', ...r });
   } catch (err) {
     console.error('PRK cleanup (finished trucks) failed:', err.message);
@@ -1474,11 +1556,11 @@ app.get('/cmr/draft', async (req, res) => {
   const order = req.query.id && orderStore.getOrder(String(req.query.id));
   if (!order) return res.status(404).json({ error: 'Order not found' });
   try {
-    // Own cargo (Agrokoncernas' farmers): the place of delivery is in the email or on the
-    // važtaraštis attached to it.
-    const email = (await orderEmail(order)) || {};
+    // The place of delivery is in the email or on the važtaraštis attached to it — for every
+    // truck (S55; it was own cargo only). Read here when intake did not store one on the order.
+    const email = order.unloading ? {} : (await orderEmail(order)) || {};
     let extraText = email.body || '';
-    if (order.loadsFrom?.source === 'own' && !cmr.deliveryFromText(extraText)) {
+    if (!order.unloading && !cmr.deliveryFromText(extraText)) {
       const { PDFParse } = require('pdf-parse');
       for (const a of (email.attachments || []).filter(x => /\.pdf$/i.test(x.filename || x.attachmentId || ''))) {
         try { extraText += '\n' + (await new PDFParse({ data: await fetchAttachmentBytes(email.messageId, a.attachmentId) }).getText()).text; } catch { /* the operator types it */ }
@@ -1608,6 +1690,65 @@ app.get('/download-attachment', async (req, res) => {
   }
 });
 
+// S57: new plates from the truck's window. The order, its row in the orders Excel (the PRK filler
+// reads the plates from it) and the email stored under the plate all move to the new plates.
+app.post('/order/plate', async (req, res) => {
+  const { id, plate } = req.body || {};
+  if (!id) return res.status(400).json({ error: 'Missing order id' });
+  const r = require('./core/plateChange').applyPlateChange(String(id), plate, { actor: 'operator' });
+  if (r.error) return res.json({ status: 'error', message: r.error });
+  if (r.unchanged) return res.json({ status: 'ok', plate: r.order.plate, unchanged: true });
+  const requeued = !!orderStore.requeue(r.order.id, { actor: 'operator', detail: 'plates corrected — filing again' });
+  if (requeued) setTimeout(() => autoRound('order fixed', OPERATOR_ACTION_QUIET_MS).catch(err => console.error('Auto round:', err.message)), 1000);
+  // S59: our draft carries the old plates — correct it in KIPIS now (the operator waits for it).
+  const amend = r.needsAmend ? await processPlateAmends({ only: r.order.id, quietMs: OPERATOR_ACTION_QUIET_MS }) : null;
+  res.json({ status: 'ok', plate: r.order.plate, old: r.old, inExcel: r.inExcel, requeued, amend: amend && amend[0] || null });
+});
+
+// S59: PRK drafts whose truck got new plates (order.plateAmend without an error) are corrected in
+// KIPIS — our own Ruošiamas drafts only, opened from the Ruošiamas list. Called right after a
+// change and on every shift tick, so one that met a busy KIPIS is done on the next free minute.
+// Returns [{ id, plate, prk, ok, detail }] for the ones tried; a busy / blocked KIPIS → [].
+async function processPlateAmends({ only = null, quietMs = OPERATOR_QUIET_MS } = {}) {
+  const todo = [...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))]
+    .filter(o => o.plateAmend && !o.plateAmend.error && (!only || o.id === only));
+  if (!todo.length) return [];
+  const blocked = await autoBlocked(quietMs);
+  if (blocked) {
+    console.log(`PRK plate correction waits: ${todo.map(o => `${o.plate} ${o.plateAmend.prk}`).join(', ')} — ${blocked}`);
+    return [{ id: todo[0].id, waiting: blocked }];
+  }
+  isRunning = true;
+  const out = [];
+  try {
+    const page = getPage();
+    const { setTransportPlates } = require('../KIPIS_skills/PRK/navigateToCargo');
+    for (const o of todo) {
+      const n = o.plateAmend.prk;
+      try {
+        if (o.docs?.PRK?.number !== n || !/^ruošiamas/i.test(o.docs.PRK.status || '')) throw new Error(`the truck's PRK is now ${o.docs?.PRK?.number || 'none'} (${o.docs?.PRK?.status || '-'}) — not ${n} Ruošiamas`);
+        const r = await withAutomation(page, async () => {
+          const header = await prkDelete.openFromDraftList(page, n);
+          if (!header || header.number !== n || !/^ruošiamas/i.test(header.status || '')) throw new Error(`${n} did not open as a Ruošiamas draft from the list`);
+          return setTransportPlates(page, n, o.plate);
+        });
+        const detail = r.unchanged ? `PRK ${n} already carries ${r.after[0]}` : `PRK ${n} plates corrected in KIPIS: ${r.before.join(', ') || '(none)'} → ${r.after[0]} (saved, Ruošiamas)`;
+        orderStore.plateAmendResult(o.id, { ok: true, detail });
+        console.log(detail);
+        out.push({ id: o.id, plate: o.plate, prk: n, ok: true, detail });
+      } catch (err) {
+        const detail = `PRK ${n} plates NOT corrected in KIPIS (${o.plate}): ${err.message}`;
+        orderStore.plateAmendResult(o.id, { ok: false, detail });
+        console.error(detail);
+        out.push({ id: o.id, plate: o.plate, prk: n, ok: false, detail });
+      }
+    }
+  } finally {
+    isRunning = false;
+  }
+  return out;
+}
+
 app.post('/set-cargo', (req, res) => {
   const { plate, id, cargo, weight, bulk, grossWeight } = req.body;
   if (!plate) return res.status(400).json({ error: 'Missing plate' });
@@ -1640,7 +1781,7 @@ app.post('/set-cargo', (req, res) => {
     // A15: a truck that stopped for something in the order goes back in line once it is fixed —
     // no second click. Never one that failed after Saugoti or already has a PRK.
     const requeued = !!(updated && id && orderStore.requeue(id, { actor: 'operator', detail: 'order fixed — filing again' }));
-    if (requeued) setTimeout(() => autoRound('order fixed').catch(err => console.error('Auto round:', err.message)), 1000);
+    if (requeued) setTimeout(() => autoRound('order fixed', OPERATOR_ACTION_QUIET_MS).catch(err => console.error('Auto round:', err.message)), 1000);
     res.json({ status: updated ? 'ok' : 'not_found', cargo: resolvedCargo, vessel: resolvedVessel, requeued });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1661,7 +1802,7 @@ app.post('/order/loaded-weight', (req, res) => {
   if (!inExcel) return res.json({ status: 'error', message: `The weight was not saved: ${order.plate} is not in today's orders file, so its PRK cannot be filed automatically — file it by hand in KIPIS.` });
   orderStore.setLoadedWeight(order.id, kg);
   console.log(`Loaded weight: ${order.plate} ${kg} kg — PRK next`);
-  setTimeout(() => autoRound('loaded weight entered').catch(err => console.error('Auto round:', err.message)), 500);
+  setTimeout(() => autoRound('loaded weight entered', OPERATOR_ACTION_QUIET_MS).catch(err => console.error('Auto round:', err.message)), 500);
   res.json({ status: 'ok', kg });
 });
 

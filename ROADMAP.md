@@ -958,6 +958,211 @@ Send and the KIPIS MFA code.
   in red. Its list is a superset of the watch's: every Ruošiamas draft plus all PRKs submitted
   in the last 2 days. Dry run: 7 checks (and S41's 14) passed. Live: one run, 110 PRKs read, no
   change needed.
+- [x] **S44. Bag count in the loading line, and Instrukcijos merged — 2026-11-12 (owner).** Owner:
+  "v.n.t" is the number of BigBags; check whether the line is already written, combine it with what
+  is there, remove doubles. S39 sent "v.n.t" literally and `.fill()` overwrote the field. Now
+  (bagged only) the three owner lines come first with the PRK's own bag count (`bags` = net ÷ bag
+  size, as on the Kroviniai tab), then every other line of the Instructions.xlsx text and of what
+  KIPIS already showed in the field, each once (compared without case, diacritics or spacing; an
+  old owner line with "v.n.t" or another count is replaced, wherever it sits in a line). BULK:
+  no bag line, xlsx text and existing text merged the same way. No count (weight missing) →
+  "v.n.t" stays, with a warning in the log. Checked offline (5 cases). Live: 261112-005875-PRK (MOO261//FD415,
+  NPK, 40 bags) — field was empty in KIPIS; read-back and AI check passed on the full text.
+- [x] **S45. BULK PRK: no Vietų skaičius; PRK printed once — 2026-11-12 (owner).** Owner: a bulk
+  filing filled Vietų skaičius, "can't happen". The filler counted bags (weight ÷ 600) for every
+  truck and typed them in. Now BULK has 0 bags: Vietų skaičius is not filled, and the read-back
+  fails the draft if it is not empty; no bags are added to a computed gross; the AI check is told
+  so. Two drafts were filed with it before the fix: 261112-005622-PRK (NCP833//UR866, 44) and
+  261112-005712-PRK (MNY337//TT337, 45); they are cleared by hand before Pateikti. Live after the fix: NND844//ID598's 261112-007466-PRK
+  (26 600 kg) — Vietų skaičius empty, gross as entered, read-back and AI check passed. Also: the PRK
+  prints 1 copy for bulk too (was 2, one for the driver); a second is printed by hand when needed.
+  `cmr.copiesOf`, the dashboard texts and their LT translations changed with it.
+- [x] **S46. The PRK PDF is fetched once, for the email and the print — 2026-11-12 (owner).**
+  Owner: pull the PRK for printing at the same time as for the email (bagged); bulk on the check
+  that finds it Pateiktas or later. Before: bagged fetched it for the email and dropped it on Send,
+  so Print fetched it again from KIPIS; bulk only on Print. Now `prepareDispatches` (shift tick,
+  after the KIPIS check) also takes bulk trucks whose PRK is Pateiktas / Patvirtintas / Atliktas /
+  Užbaigtas and not printed, and the PDF stays in memory until the PRK is printed (bagged: and
+  the email sent), the truck is cancelled, or the order is older than yesterday. Kept in memory,
+  not on disk (D10 stands); after a server restart Print fetches it from KIPIS as before.
+  Live: MLL364//RZ814's PRK (a colleague's 261112-006321-PRK) was fetched the minute it was seen;
+  bulk: NCS165//UY124's 261112-007076-PRK (made by a person, Patvirtintas) fetched in the same tick.
+- [x] **S47. One truck on two važtaraščiai is one order — 2026-11-12 (owner).** MOB272//PS118's
+  email had Važtaraštis-46 (8 t) and -47 (16 t), both TRGAMSU600. The model returned one order per
+  waybill, and the waybill-sum check (MLL371, 2026-11-10) only ran for exactly one order, so the
+  order got 8 t and the draft 261112-006413-PRK was filed at 8 t / 13 bags. Now, in `checkMail`,
+  bagged orders of one email with the same plates and cargo are merged first (weights added; the
+  bag count follows from the weight), then the waybill-sum check confirms the total. Different
+  cargo on one truck stays separate. MOB272's weight was set to 24 000 in the Excel and order; its
+  8 t draft was deleted (owner's go-ahead) and refiled as 261112-006513-PRK: 24 000 kg net,
+  24 040 gross, 40 bags; read-back and AI check passed.
+- [x] **S49. The truck desk splits bagged and bulk — 2026-11-12 (owner).** Owner: the list is hard
+  to read past 7–10 trucks; split bulk / non-bulk, keep an option to show all. A switch above the
+  tabs: **Bagged · Bulk · All**, each with its truck count and a yellow badge with how many of that
+  kind need you. The status tabs (Needs you, Done, …) count only the chosen kind; new-sender
+  confirmations follow their `bulk` flag. The choice is remembered in the browser (`localStorage`
+  `kind`, default All). A search always looks through both kinds. Front-end only (`index.html`,
+  `ui.css`, `i18n.js` LT: Maišuose / Birūs). Checked on the live desk: Needs you 10 bagged + 6
+  bulk = 16, All 41 + 8 = 49; no page errors.
+- [x] **S49. Fewer KIPIS checks, shorter wait for a bulk PRK — 2026-11-12 (owner).** Owner:
+  "what is he checking a million times before a bulk PRK?" and NUF146//MI890 waited "far too
+  long" after its weight was entered. Three causes:
+  1. *Flip-flop.* The terminal's copy of a bulk loading order is read again on every mail check,
+     and `markConfirmedPlatesDone` set the truck back to gate_pass_ordered from any open state.
+     NCS165//UY124 went to_print ↔ gate_pass_ordered six times in 8 min (the KIPIS check moved it
+     on each time), and every flip started another full round. It could also have pulled a bulk
+     truck whose weight was just entered out of the filing line. Now it only moves a truck forward
+     from received / ready, with no loaded weight and no PRK.
+  2. *Double reads.* Each round read KIPIS's PRK list (two searches) for the filing check and again
+     seconds later for the sync. `readPrkList` now shares one read for 60 s; after Pateikti and
+     on the dashboard's button it always reads fresh.
+  3. *Operator wait.* Automatic jobs waited 3 min after any click in the KIPIS window, restarting
+     on each click (NUF146 waited from 17:14). Now 60 s, and 30 s for a round the operator started
+     from the dashboard (weight entered, order fixed, Check mail). NUF146 was filed right after the
+     restart: 261112-007532-PRK, 26 000 kg, Vietų skaičius empty. Its Siuntėjas valstybė is
+     "Marokas" — taken from the DAP lot, not filled by us (we fill Lietuva only when empty).
+- [ ] **S50. Quick filing while someone waits — 2026-11-12 (owner: "minimize the actions taken
+  when a user is waiting for a result… it needs to be QUICK").** Measured: NND844//ID598 took 30 s
+  from weight entry to saved draft — 17 s before the form opened (the PRK-list read: two KIPIS
+  list searches, plus the KIPIS home reload), 13 s for the form, AI check and Saugoti.
+  Done: a round the operator started (weight entered, order fixed, Check mail) is `urgent` — it
+  skips the PRK-list read, using one from the last 5 min if there is one; the filing's own lot
+  check (Rule 6) still stops a second PRK. Every filing now logs `[timing]` per step (home,
+  Kroviniai, lots searched, form open, main tab, cargo line, AI check, saved). **Next:** read the
+  timings of the first filing on 2026-11-13 and cut what costs most — candidates: the KIPIS home
+  reload before Sekimas, `networkidle` waits (~15 per filing), the AI check (an OpenAI call before
+  Saugoti; for bulk the read-back already covers every field filled).
+  First live timing (NCP997//TI227, bulk DAP, 2026-11-12): weight → saved 18.7 s (was ~30): home
+  0.8, Kroviniai 3.1, lots 4.9, form 6.3, main tab 8.5, cargo line 9.3, **AI check 17.6 (8.3 s —
+  the biggest step)**, saved 18.7.
+- [x] **S51. Bulk prints the CMR too; the KIPIS window stays yours after filing — 2026-11-12
+  (owner).** (1) NCP997//TI227 went to done on its PRK print with the CMR not printed: S42 made a
+  bulk truck's CMR optional. `PRINT_PARTS` is now CMR/važtaraštis + PRK for every truck; NCP997
+  was put back to to_print (PRK print kept). (2) "What is it doing after submitting NCP997?" — the
+  KIPIS check (the dashboard's Check, reading the PRK list: 16 drafts, then 127 PRKs) saw the
+  Pateikti, then S46 fetched the PRK PDF for printing. (3) "Why is it checking 500 lots before the
+  PRK?" — 500 is the list's row limit, not lots; those were the two PRK-list searches. Before the
+  PRK they are gone for rounds you start (S50); after it, the check that followed each such filing
+  took the KIPIS window to the PRK list just as the operator went to press Pateikti — now skipped
+  for those rounds (the shift tick runs it: every 5 min, and a minute after Pateikti).
+- [x] **S52. No AI check on bulk PRKs — 2026-11-12 (owner's decision).** The AI check (an OpenAI
+  call before Saugoti) took 8.3 s of NCP997's 18.7 s filing. Bulk forms carry no bag count and no
+  loading text; the deterministic field read-back already checks every value the run types in
+  (payer, Instrukcijos blank, countries filled, plate, gross, Vietų skaičius empty), so RULES.md
+  Rule 3 still holds. Bagged PRKs keep the AI check. Logged as "AI check skipped (BULK)";
+  `prk_filings.jsonl` records `aiCheck: "skipped (bulk)"`. Also means no bulk PRK form goes to
+  OpenAI any more. Expected bulk filing: ~10 s. Not yet seen live.
+- [x] **S53. A truck read without its cargo gets one — 2026-11-12 (owner).** Owner: UHB Agro's
+  "Release 291568 DAP" trucks came in with the cargo blank, "not identified" (NUF146//MI890 from
+  126468; NCP997//TI227 and LHI945//MM146 from 126477), and were set to DAP by hand. Re-run, the
+  model reads DAP + BULK every time — an occasional miss. Now, after extraction, a truck with no
+  cargo gets: the cargo of the other trucks in the same email when they all agree; else the email
+  re-read on its own; else the one known cargo its subject / text names (`findCargoInText`, which
+  since S48 knows a bare "DAP" → "DAP 18-46"). Each fill is logged ("Cargo: … was read without
+  cargo"); none found → a warning to fix it in the truck window. Not yet seen live.
+- [x] **S54. The release number names the cargo — 2026-11-12 (owner: "a release is always given
+  to a specific cargo from a specific vessel").** Step 2 of S53, before the AI re-read: a 6–10
+  digit number in the email (subject, text, attachments) that is a release's number in
+  `owners.fetchReleases()` (the stock server's lists — Helm's Release, Yara's Invoice / Delivery /
+  Contract — plus our release book) gives the release's product; a bulk release also sets bulk
+  (kept by the bulk-evidence check). Two different products for the numbers found → skipped.
+  Checked on today's emails: 126468 and 126477 ("Release 291568 DAP") → DAP 18-46 / ADAROSE /
+  bulk; MOB272's 126482 names no release → nothing.
+- [x] **S55. The unloading place is read and stored for the CMR — 2026-11-12 (owner).** Owner:
+  the unloading place is in the email (UHB Agro: "Išsikrovimo vieta:" with the address on the next
+  line; Baltic Agro: the farm's name and address under the cargo, no label; Linas Agro: a table
+  column) or in the važtaraštis (Agrokoncernas: "Iškrovimo vieta: …", over two lines). It is needed
+  to pre-fill the CMR. CMR roles (owner): sender = the seller (Helm / Yara), consignee = the buyer
+  in the release / instructions, the farmer goes in the place of delivery only — `draftFor`
+  already did sender and consignee that way. Now: the AI extraction returns `unloading` per truck
+  (same emails, one more field — no new data sent out); `deliveryFromText` also reads
+  "Išsikrovimo", a value on the next line and a second address line; intake stores it on the
+  order (`orderStore.setUnloading`, only when empty); the CMR's place of delivery takes the
+  order's place first, for every truck (was own cargo only), then the email / važtaraštis text,
+  then what was saved for the release. Checked on 126477 (UHB), 126482 (Agrokoncernas), 126409
+  (Linas Agro), 126434 (Baltic Agro): all four places read. Helm's sender is not saved yet —
+  the first Helm CMR saved sets it.
+- [x] **S56. A truck must be in its own email — 2026-11-12.** Found while testing S55: in a batch
+  of 4, run twice, the model once marked Linas Agro's 126409 "not an order" and put its truck
+  JCV034/OG708 (with Linas Agro's unloading place) under Baltic Agro's 126434, losing NHS949. Read
+  alone, both were right. Now a truck whose plate is not in its email's subject / text /
+  attachments is dropped from that email (logged), and an email left without trucks is read alone
+  by the existing second look. Same test also showed the UHB "Release 291568 DAP" email coming
+  back with the cargo blank in a batch, twice — S54's release lookup fills it.
+- [x] **S56b. Each email is read on its own, not 10 per AI call — 2026-11-13 (owner's go-ahead).**
+  Measured on 4 of 2026-11-12's emails: one batch 9.6 s, with the mix-ups above; 4 separate calls
+  at once 5.8 s, all correct. Of 439 mail checks, 335 had no new email, 69 one, 21 two, 14 three to
+  five — so per-email calls are not slower. `aiExtract.extractOrders` now makes one call per email,
+  at most 5 at a time (`PARALLEL`), each retried once if the reply has no result. Checked twice
+  through the new code on 126477 / 126482 / 126409 / 126434: 6.9–7.8 s; DAP + bulk on all four UHB
+  trucks, every truck in its own email, all unloading places read. Still seen: MOB272 marked bulk
+  (the bulk-evidence check sets it back — "(600)" is a bag size) and once NHS949 without its
+  trailer (fix in the window, S57). S53/S54/S56 safety nets stay.
+- [x] **S57. Plates can be corrected in the truck's window — 2026-11-13 (owner).** Owner: the email
+  sometimes gives only the tractor, or the truck changes when we talk to the driver; "the plates we
+  put in should also be the plates it uses to fill in KIPIS". The window has a Plates field
+  (tractor / trailer). On Save, `POST /order/plate` → `orderStore.changePlate`: the order's plate
+  (stored "ABC123//DEF456"; a letters-only part joins the digits after it, "DEF 456" → DEF456;
+  Cyrillic allowed), its row in today's orders Excel (`ordersExcel.renamePlate` — the PRK filler
+  reads the plates from it, KIPIS gets "ABC123/DEF456") and the email stored under the plate move
+  to the new plates; a stopped truck goes back in line. The old plates are kept
+  (`previousPlates`), so a re-sent order table with them is the same truck, not a new one.
+  Refused once the truck has a PRK (KIPIS holds the old plates — change them there, or delete the
+  draft and file again) and when another open truck already has the new plates. Checked offline
+  (scratch store and Excel): rename, filler finds the new plates, old plate no longer matches.
+  Not yet used live.
+- [x] **S58. Following KIPIS reads the top 50, not 2 days — 2026-11-13 (owner).** Owner: no need to
+  open a PRK to read its status, it is in the list; no need for so much filtering — the list as it
+  opens shows the latest changes first (a PRK whose status changes jumps to the top), and a check
+  every 5 minutes already knows the older ones; the 2-day filtering only for the cleanup. Was: every
+  sync (and the filing check before it) did two filtered searches (Ruošiamas, then 2 days of
+  submissions) and cleared the filters again, ~16 s; the finished-draft sweep opened each of our
+  drafts that had left the Ruošiamas list to read its header. Now `exportPrkList.topPrks`: open
+  Prašymai krovai and read its first 50 rows as shown — no filter, no Filtruoti, unless a filter was
+  left set or the row limit is under 50. The sweep takes those drafts' status from that read (not in
+  it: recorded "no longer Ruošiamas"); deletion itself still opens the draft from the Ruošiamas list
+  and checks its header (Rule 7). The 2-day read now runs in the daily cleanup (`runCleanup`, before
+  the sweep) and, as a safeguard, on the first read after a server start or a gap over 2 h (nothing
+  seen for that long — changes may have slid past row 50). Live: first Check now after the restart
+  2-day (77 read, 16 s); the next top 50 (50 read, 2 s), no change needed. Not verified by us: that
+  the list is ordered by last change (owner's observation). The daily cleanup (with its 2-day
+  read) stays in the morning, first chance after 06:00 (owner, 2026-11-13: "Keep morning").
+- [ ] **S59. Plate corrections from email chains, and the PRK draft amended in KIPIS — 2026-11-13
+  (owner).** Owner: "we asked for the trailer plates and they gave it to us — the system needs to
+  recognise email chains and apply corrections; when a PRK needs to be amended, just amend it.
+  Open the PRK and correct the plates." Found first: NHS949 (2026-11-12) had no reply — Baltic
+  Agro's own email wrote "NHS949 PO559 Oleksandr …" and the model read only NHS949 (a space between
+  the plates). Built:
+  1. *Trailer in the same email:* a truck read with one plate gets the next word after it in its
+     email when that has a plate's shape (letters + digits, ≤5 digits; not a name, an ID like
+     "LP-154744", a phone, or a word on the next line).
+  2. *Email chain:* a later email from the same company (sender's domain) naming an open truck of
+     today / yesterday with more plates or another trailer (`plateCorrectionFor`) gives that truck
+     the new plates (`plateChange.applyPlateChange`: order, Excel row, email link) — no second
+     truck. Fewer plates change nothing; done / cancelled trucks are left alone; more than one
+     candidate → none. Not applicable (e.g. PRK already submitted) → the reason goes on the truck.
+  3. *PRK amend in KIPIS:* when the truck has PortSystem's own Ruošiamas draft (window or email
+     change), the order is marked `plateAmend` and `processPlateAmends` (right away, else on every
+     shift tick) opens the draft from the Ruošiamas list, ticks the old transport row, removes it
+     with the transport section's own Šalinti (confirm in `#transportas_jspf_remove`, its name
+     asserted to be `…:prkr_info:transportas:…` — never the document's Šalinti), adds the new
+     plates (Pridėti → Markė " " → Numeris → Saugoti), reads the table back (exactly the new
+     plates), presses the document's Saugoti, and checks it is still the same Ruošiamas draft with
+     the new plates. Any doubt → stops before the document Saugoti; the error shows on the truck.
+     A submitted PRK, or one a person made, is never touched — the change is refused with "change
+     the plates in KIPIS by hand" (Pateikti is human-only).
+  The truck card shows "correcting PRK … in KIPIS…" while it waits and the error if it failed; the
+  window's Save shows the result. Checked offline (scratch store / Excel): trailer rule on 6 texts;
+  a reply adds a trailer; a window change on our draft marks it; a submitted PRK is refused.
+  **The KIPIS steps have not run yet — the first live correction is being watched (owner: "track
+  how it does and check it works properly").**
+- [x] **S48. "DAP is almost never caught as cargo" — 2026-11-12 (owner).** Checked: the UHB
+  "Release 291568 DAP" email (126477) extracts DAP + BULK for all 4 trucks, alone and in its real
+  batch (126466–126470, twice); every DAP order's Excel row says DAP/BULK (the 2026-11-12 ones
+  were also saved from the truck window). Found and fixed: the cargo list (`config/cargo.xlsx`)
+  did not know a bare "DAP" — "DAP 18-46"'s short words were skipped — so no vessel hint.
+  `findCargoInText` pass 4: a 3-letter product word that starts exactly one entry (DAP, MAP,
+  TSP) names it. Answered by the owner: the cargo came in blank — fixed in S53.
 - [ ] **S17. A hand-filed PRK that is submitted but not loaded closes the order.**
   `recordExistingPrk` sets `done` for every status except Ruošiamas, so a Pateiktas /
   Patvirtintas PRK made by a person never shows "Send the dispatch email" (LNV103//OO974,

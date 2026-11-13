@@ -25,6 +25,7 @@
 
   <div class="frame">
     <main>
+      <div class="kinds" role="group" aria-label="Bagged or bulk" id="kinds"></div>
       <div class="tabs" role="tablist" id="tabs"></div>
       <div id="confirmations"></div>
       <div class="trucks" id="trucks"><div class="empty">Loading trucks…</div></div>
@@ -84,6 +85,8 @@
       <div id="modalRelease" class="release-box" style="display:none"></div>
       <div id="modalCmrs" class="release-box"></div>
       <div class="grid2">
+        <div><label for="modalPlateInput">Plates — tractor / trailer, as filed into KIPIS</label><input id="modalPlateInput" class="mono" autocomplete="off" /></div>
+        <div></div>
         <div><label for="modalCargoInput">Cargo</label><input id="modalCargoInput" /></div>
         <div><label for="modalWeightInput">Weight, kg</label><input id="modalWeightInput" inputmode="numeric" /></div>
         <div><label for="modalGrossWeightInput">Gross weight, kg — goes into the PRK as written</label><input id="modalGrossWeightInput" inputmode="numeric" /></div>
@@ -186,14 +189,14 @@
       }
       // Bulk: ordered by email first; the PRK follows once the terminal reports the loaded weight.
       // Bulk (S9): loading ordered by email → the operator enters the loaded weight → the PRK draft
-      // files by itself → Pateikti (human) → print (PRK × 2) → done.
+      // files by itself → Pateikti (human) → print (PRK × 1) → done.
       if (o.bulk) {
         const ordered = o.state === 'gate_pass_ordered' || !!o.dispatchSent;
         if (o.state === 'done') return { group: 'done', route: BULK, stop: 5, label: t('Done') };
         if (o.state === 'filing') return { group: 'system', route: BULK, stop: 3, label: t('Filing in KIPIS now…') };
         if (o.state === 'failed') return { group: 'failed', route: BULK, stop: 3, label: t('Not filed'), reason: t(o.note || ''), actions: ['retry'] };
         if (prk && o.state === 'drafted') return { group: 'needs', route: BULK, stop: 3, label: t('Check the draft in KIPIS and press Pateikti') };
-        if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 4, label: t('Print the documents'), reason: t('PRK × 2 — one for the driver'), actions: ['print'] };
+        if (o.state === 'to_print' || (prk && printStep(o))) return { group: 'needs', route: BULK, stop: 4, label: t('Print the documents'), reason: t('PRK × 1, for our archive'), actions: ['print'] };
         if (o.state === 'ready' && o.loadedKg) return { group: 'system', route: BULK, stop: 3, label: t('Gets its PRK draft automatically'), reason: t('Loaded {kg} kg', { kg: Number(o.loadedKg).toLocaleString('lt-LT') }), actions: ['file'] };
         if (ordered && !prk) return { group: 'needs', route: BULK, stop: 2, label: t('Enter the loaded weight'), reason: t('Loading ordered{time} — the terminal reports the weight after loading', { time: o.dispatchSent ? ' ' + hhmm(o.dispatchSent.at) : '' }), actions: ['weight'] };
         return { group: 'needs', route: BULK, stop: 0, label: t('Order the loading by email'), actions: ['email'] };
@@ -224,6 +227,15 @@
       { key: 'done',    label: t('Done'),           groups: ['done'] },
       { key: 'all',     label: t('All'),            groups: ['needs', 'failed', 'system', 'waiting', 'done', 'cancelled'] },
     ];
+    // Bagged / bulk split (owner, 2026-11-12): the list gets hard to read past 7–10 trucks, so the
+    // desk shows one kind at a time; All keeps the old mixed view. The choice is remembered.
+    const KINDS = [
+      { key: 'bagged', label: t('Bagged'), test: o => !o.bulk },
+      { key: 'bulk',   label: t('Bulk'),   test: o => !!o.bulk },
+      { key: 'all',    label: t('All'),    test: () => true },
+    ];
+    let activeKind = 'all';
+    try { if (KINDS.some(k => k.key === localStorage.getItem('kind'))) activeKind = localStorage.getItem('kind'); } catch { /* all */ }
     let activeTab = null;        // chosen on first load: Needs you when anything is there
     let orders = [];             // every order today (open + closed), with its stage
     let pending = [];            // emails waiting for the sender's confirmation
@@ -239,12 +251,12 @@
         if (a === 'email') b.push(`<button class="btn go small" data-act="email" data-id="${esc(o.id)}">${o.bulk ? t('Order loading') : t('Send email')}</button>`);
         if (a === 'weight') b.push(`<span class="weight-entry"><input class="weight-in" data-id="${esc(o.id)}" inputmode="numeric" placeholder="${esc(t('kg loaded'))}" aria-label="${esc(t('Loaded weight, kg'))}" /><button class="btn primary small" data-act="weight" data-id="${esc(o.id)}">${t('File PRK')}</button></span>`);
         // S42 (owner, 2026-11-12): the transport document and the PRK print as separate PDFs. A
-        // bagged truck is done once both are opened; bulk once its PRK is (its CMR is optional).
+        // truck is done once both are opened — bulk too (S51: its CMR is not optional).
         if (a === 'print') {
           const done = o.printedParts || [];
           const pb = (part, label, title) => `<button class="btn ${done.includes(part) ? '' : 'go'} small" data-act="print" data-part="${part}" data-id="${esc(o.id)}" title="${esc(title)}">${done.includes(part) ? '✓ ' : ''}${label}</button>`;
           b.push(pb('transport', t('Važtaraštis / CMR'), t('Ro-Ro 5 copies, KKT 1.')));
-          b.push(pb('prk', 'PRK', o.bulk ? t('2 copies — one for the driver.') : t('1 copy, for our archive.')));
+          b.push(pb('prk', 'PRK', t('1 copy, for our archive.')));
         }
         if (a === 'file')  b.push(`<button class="btn small" data-act="file" data-plate="${esc(o.plate)}">${t('File now')}</button>`);
         if (a === 'retry') b.push(`<button class="btn primary small" data-act="retry" data-id="${esc(o.id)}" data-plate="${esc(o.plate)}">${t('Try again')}</button>`);
@@ -280,6 +292,7 @@
         <div class="next">
           <div class="label">${esc(st.label)}</div>
           ${st.reason ? `<div class="reason">${esc(st.reason)}</div>` : ''}
+          ${o.plateAmend ? `<div class="reason" style="color:var(--${o.plateAmend.error ? 'red' : 'warn-ink'})">${esc(o.plateAmend.error ? o.plateAmend.error : t('Plates changed to {plate} — correcting PRK {prk} in KIPIS…', { plate: o.plateAmend.plate, prk: o.plateAmend.prk }))}</div>` : ''}
           <div class="actions">${actionsHtml(o, st)}</div>
         </div>
       </article>`;
@@ -293,14 +306,25 @@
 
     function render() {
       const q = $('search').value.trim();
-      const shown = orders.filter(o => matches(o, q));
-      const count = t => shown.filter(o => t.groups.includes(o.stage.group)).length + (t.key === 'needs' || t.key === 'all' ? pending.length : 0);
+      const found = orders.filter(o => matches(o, q));
+      // A search looks through both kinds, whatever is chosen.
+      const kind = KINDS.find(k => k.key === (q ? 'all' : activeKind));
+      const isNeeds = o => ['needs', 'failed'].includes(o.stage.group);
+      $('kinds').innerHTML = KINDS.map(k => {
+        const of = found.filter(k.test), kp = pending.filter(k.test);
+        const needs = of.filter(isNeeds).length + kp.length;
+        return `<button class="kind" aria-pressed="${k.key === kind.key}" data-kind="${k.key}">${esc(k.label)} <b>${of.length + kp.length}</b>${
+          needs && k.key !== 'all' ? `<span class="kind-needs" title="${esc(t('{n} need you', { n: needs }))}">${needs}</span>` : ''}</button>`;
+      }).join('');
+      const shown = found.filter(kind.test);
+      const pendingShown = pending.filter(kind.test);
+      const count = t => shown.filter(o => t.groups.includes(o.stage.group)).length + (t.key === 'needs' || t.key === 'all' ? pendingShown.length : 0);
       if (!activeTab) activeTab = count(TABS[0]) ? 'needs' : 'all';
       $('tabs').innerHTML = TABS.map(t => `<button class="tab ${t.cls || ''}" role="tab" aria-selected="${t.key === activeTab}" data-tab="${t.key}"><b>${count(t)}</b>${t.label}</button>`).join('');
 
       const tab = TABS.find(t => t.key === activeTab);
       const showConfirm = (activeTab === 'needs' || activeTab === 'all') && !q;
-      $('confirmations').innerHTML = showConfirm ? pending.map(p => `
+      $('confirmations').innerHTML = showConfirm ? pendingShown.map(p => `
         <div class="card confirm">
           <div class="subject">${esc(p.subject || t('(no subject)'))}</div>
           <div class="meta">${esc(t('New sender: {sender}', { sender: p.sender }))} · ${esc(p.received || '')}</div>
@@ -317,12 +341,20 @@
       const list = shown.filter(o => tab.groups.includes(o.stage.group))
         .sort((a, b) => order[a.stage.group] - order[b.stage.group] || (a.id < b.id ? -1 : 1));
       $('trucks').innerHTML = list.length ? list.map(truckHtml).join('')
-        : (showConfirm && pending.length) ? ''
+        : (showConfirm && pendingShown.length) ? ''
         : `<div class="card empty">${q ? `<strong>${esc(t('No truck matches “{q}”.', { q }))}</strong>${t('Try the plate without slashes, or the company name.')}`
             : activeTab === 'needs' ? `<strong>${t('Nothing needs you right now.')}</strong>${t('New orders come in with Check mail and are filed automatically.')}`
             : `<strong>${t('No trucks here.')}</strong>`}</div>`;
     }
 
+    $('kinds').addEventListener('click', e => {
+      const k = e.target.closest('[data-kind]');
+      if (!k) return;
+      activeKind = k.getAttribute('data-kind');
+      try { localStorage.setItem('kind', activeKind); } catch { /* not remembered */ }
+      if ($('search').value.trim()) $('search').value = '';
+      render();
+    });
     $('tabs').addEventListener('click', e => {
       const t = e.target.closest('[data-tab]');
       if (t) { activeTab = t.getAttribute('data-tab'); render(); }
@@ -712,6 +744,7 @@
       $('modalAttachments').innerHTML = '';
       $('modalRelease').style.display = 'none'; $('modalRelease').innerHTML = '';
       loadOrderCmrs(o);
+      $('modalPlateInput').value = String(o.plate || '').replace(/\/+/g, '/');
       $('modalCargoInput').value = o.cargo || '';
       $('modalWeightInput').value = o.weight || '';
       $('modalGrossWeightInput').value = o.grossWeight || '';
@@ -770,6 +803,20 @@
       $('modalSaveBtn').disabled = true;
       $('modalStatus').textContent = t('Saving…');
       try {
+        // S57: changed plates first — the cargo/weight below are matched to the Excel row by plate.
+        const typed = $('modalPlateInput').value.trim();
+        const norm = s => String(s || '').toUpperCase().replace(/[^\p{L}\d]/gu, '');
+        if (typed && norm(typed) !== norm(currentOrder.plate)) {
+          const p = await postJson('/order/plate', { id: currentOrder.id, plate: typed });
+          if (p.status !== 'ok') { $('modalStatus').innerHTML = `<span class="err">${esc(t(p.message || p.error || 'Plates not changed.'))}</span>`; return; }
+          currentOrder.plate = p.plate;
+          $('modalPlate').textContent = p.plate;
+          // S59: the PRK draft corrected in KIPIS — say how it went before closing.
+          if (p.amend) {
+            const a = p.amend;
+            toast(a.ok ? 'ok' : a.waiting ? 'warn' : 'err', a.ok ? a.detail : a.waiting ? t('Plates saved; the PRK is corrected in KIPIS when it is free ({why}).', { why: t(a.waiting) }) : a.detail, !a.ok);
+          }
+        }
         const d = await postJson('/set-cargo', {
           id: currentOrder.id, plate: currentOrder.plate,
           cargo: $('modalCargoInput').value.trim() || undefined,
@@ -856,7 +903,7 @@
       try {
         const { cmrs } = await getJson('/order/cmrs?id=' + encodeURIComponent(o.id));
         if (currentOrder !== o) return;
-        const pack = `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}" title="${esc(t('CMR: Ro-Ro 5 copies, KKT 1. PRK: 1 copy, bulk 2.'))}">${t('Print pack')}</a>`
+        const pack = `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}" title="${esc(t('CMR: Ro-Ro 5 copies, KKT 1. PRK: 1 copy.'))}">${t('Print pack')}</a>`
           + `<a class="btn small" target="_blank" rel="noopener" href="/order/print-pack?id=${encodeURIComponent(o.id)}&part=prk" title="${esc(t('The PRK alone.'))}">PRK</a>`;
         box.innerHTML = `<label>CMR</label><div class="release-row">`
           + (cmrs.length ? cmrs.map(c => `<a class="btn small" target="_blank" rel="noopener" href="/cmr/pdf?number=${encodeURIComponent(c.number)}">${esc(c.number)}</a><span class="muted">${esc(new Date(c.at).toLocaleString('lt-LT', { dateStyle: 'short', timeStyle: 'short' }))}</span>`).join('')

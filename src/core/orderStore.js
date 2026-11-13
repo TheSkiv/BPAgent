@@ -55,6 +55,10 @@ function logHistory(order, actor, action, detail) {
 // Identity is (plate + source email), NOT plate alone — the same truck can legitimately be
 // ordered twice in one day. Reprocessing the same email stays idempotent; a second order from
 // a different email creates a second record.
+// A truck's plates now, or plates it had before the operator corrected them (S57) — a re-sent
+// order table with the old plates is the same truck, not a new one.
+const isPlateOf = (o, norm) => o.plateNorm === norm || (o.previousPlates || []).includes(norm);
+
 function identityKey(plate, messageId, cargo) {
   return `${normalizePlate(plate)}|${messageId || 'nomsg'}|${messageId ? '' : String(cargo || '').toLowerCase()}`;
 }
@@ -72,13 +76,13 @@ function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received
   // booking, which re-triggers extraction of the same plate pair from a new message. Only once
   // the earlier booking is closed (done/cancelled) does a repeat count as a legitimate second
   // trip and get its own record.
-  const activeExisting = db.orders.find(o => o.plateNorm === normalizePlate(plate) && !CLOSED_STATES.includes(o.state));
+  const activeExisting = db.orders.find(o => isPlateOf(o, normalizePlate(plate)) && !CLOSED_STATES.includes(o.state));
   if (activeExisting) return activeExisting;
 
   // A closed truck named again by the same sender under the same subject is an updated order
   // table, not a second trip (owner's rule, 2026-11-11: UHB re-sends "Release 291568 DAP …" with
   // the trucks already ordered still in it). A different subject still counts as a new trip.
-  const sameThread = subject && db.orders.find(o => o.plateNorm === normalizePlate(plate)
+  const sameThread = subject && db.orders.find(o => isPlateOf(o, normalizePlate(plate))
     && senderAddress(o.email?.from) === senderAddress(sender)
     && threadSubject(o.email?.subject) === threadSubject(subject));
   if (sameThread) return sameThread;
@@ -110,6 +114,80 @@ function ensureOrder({ plate, cargo, weight, bulk, grossWeight, sender, received
   return order;
 }
 
+// S57 (owner, 2026-11-13): the operator corrects the plates in the truck's window — the email gave
+// only the tractor, or the truck changed on the phone. The plates entered are the ones filed into
+// KIPIS. Written "ABC123//DEF456" like every order (KIPIS gets one slash). Returns
+// { order } or { error }. Not once a PRK exists: KIPIS holds the old plates on it.
+function changePlate(id, input, { actor = 'operator' } = {}) {
+  const tokens = String(input || '').toUpperCase().split(/[\s/\\,]+/).map(s => s.trim()).filter(Boolean);
+  // "DEF 456" typed with a space is one plate: a letters-only token joins the digits after it.
+  const parts = [];
+  for (let i = 0; i < tokens.length; i++) {
+    if (/^\p{L}{1,4}$/u.test(tokens[i]) && /^\d{1,5}$/.test(tokens[i + 1] || '')) { parts.push(tokens[i] + tokens[i + 1]); i++; }
+    else parts.push(tokens[i]);
+  }
+  if (!parts.length || parts.length > 3) return { error: 'Enter the tractor plate, then the trailer plate, e.g. ABC123/DEF456' };
+  const bad = parts.find(p => !/^(?=.*\p{L})(?=.*\d)[\p{L}\d-]{3,10}$/u.test(p));
+  if (bad) return { error: `"${bad}" does not look like a licence plate (letters and digits)` };
+  const plate = parts.join('//');
+  const norm  = normalizePlate(plate);
+  const date  = dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return { error: 'Order not found' };
+  if (order.plateNorm === norm) return { order, unchanged: true };
+  // S59: a PRK that is PortSystem's own Ruošiamas draft is corrected in KIPIS (the caller does it:
+  // needsAmend). A submitted PRK, or one a person made, cannot be — Pateikti is human-only.
+  const prk = order.docs?.PRK;
+  let needsAmend = false;
+  if (prk?.number && !/ištrintas|anuliuotas/i.test(prk.status || '')) {
+    const ours = (order.history || []).some(h => /PRK draft saved/.test(h.detail || '') && (h.detail || '').includes(prk.number));
+    if (!ours || !/^ruošiamas/i.test(prk.status || '')) {
+      return { error: `PRK ${prk.number} (${prk.status || '?'}${ours ? '' : ', made by a person'}) already carries ${order.plate} — only PortSystem's own Ruošiamas draft can be corrected automatically; change the plates on it in KIPIS by hand` };
+    }
+    needsAmend = true;
+  }
+  const clash = db.orders.find(o => o.id !== id && o.plateNorm === norm && !CLOSED_STATES.includes(o.state));
+  if (clash) return { error: `${plate} is already an open truck on the desk (${clash.id})` };
+  const old = order.plate;
+  order.previousPlates = [...new Set([...(order.previousPlates || []), order.plateNorm])];
+  order.plate = plate;
+  order.plateNorm = norm;
+  logHistory(order, actor, 'fields', `plates ${old} → ${plate}${needsAmend ? ` — PRK ${prk.number} to be corrected in KIPIS` : ''}`);
+  if (needsAmend) order.plateAmend = { prk: prk.number, plate, since: new Date().toISOString() };
+  save(db, date);
+  return { order, old, needsAmend };
+}
+
+// S59: the outcome of correcting a PRK draft's plates in KIPIS. ok → the pending mark goes;
+// error → kept on the order (shown on the dashboard) and the attempt is not repeated by itself.
+function plateAmendResult(id, { ok, detail }) {
+  const date  = dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order) return null;
+  if (ok) delete order.plateAmend;
+  else order.plateAmend = { ...(order.plateAmend || {}), error: detail, at: new Date().toISOString() };
+  logHistory(order, 'kipis', 'document', detail);
+  save(db, date);
+  return order;
+}
+
+// Where the truck unloads (S55, owner 2026-11-12), read from its email or važtaraštis — for the
+// CMR's place of delivery. Only filled when empty: a later email does not overwrite it.
+function setUnloading(id, text) {
+  text = String(text || '').trim();
+  if (!text) return null;
+  const date  = dateOf(id);
+  const db    = load(date);
+  const order = db.orders.find(o => o.id === id);
+  if (!order || order.unloading) return order || null;
+  order.unloading = text;
+  logHistory(order, 'intake', 'fields', `unloading place → ${text}`);
+  save(db, date);
+  return order;
+}
+
 // Manual operator edit (cargo/weight/BULK) — always overwrites, unlike the AI back-fill path.
 function updateOrderFields(id, { cargo, weight, bulk, grossWeight } = {}) {
   const date  = dateOf(id);
@@ -138,7 +216,7 @@ function getOrder(id, date) {
 // All orders for a plate — may be more than one on the same day.
 function findByPlate(plate, date) {
   const n = normalizePlate(plate);
-  return load(date).orders.filter(o => o.plateNorm === n);
+  return load(date).orders.filter(o => isPlateOf(o, n));
 }
 
 // The order a plate-keyed action should act on: the newest one still open.
@@ -160,7 +238,9 @@ function needsPrinting(o) {
 // part (S42, owner 2026-11-12: the PRK as its own PDF): 'transport' (CMR / važtaraštis) or 'prk'.
 // The truck counts as printed once every part it needs is opened — bagged: both; bulk: the PRK.
 // No part: the whole pack (the truck window's "Print pack").
-const PRINT_PARTS = o => (o.bulk ? ['prk'] : ['transport', 'prk']);
+// Both documents for every truck (owner, 2026-11-12: NCP997//TI227 went to done on its PRK print
+// while its CMR was not printed yet — S42 had made a bulk truck's CMR optional).
+const PRINT_PARTS = () => ['transport', 'prk'];
 function setPrinted(id, { date, what = '', part = null } = {}) {
   date = date || dateOf(id);
   const db    = load(date);
@@ -372,7 +452,7 @@ function syncFromExcel() {
   for (const r of rows) {
     const plate = r['Plate'];
     if (!plate) continue;
-    if (load().orders.some(o => o.plateNorm === normalizePlate(plate))) continue;
+    if (load().orders.some(o => isPlateOf(o, normalizePlate(plate)))) continue;
     const before = load().orders.length;
     const email  = getEmailData(plate) || {};
     ensureOrder({
@@ -489,6 +569,6 @@ module.exports = {
   ensureOrder, listOrders, getOrder, findByPlate, activeOrderForPlate,
   setState, attachDocument, syncFromExcel, queueAndDone, normalizePlate,
   pendingConfirmations, approveOrder, rejectOrder, applyToMessage, applyToSender,
-  nextReadyNonBulk, updateOrderFields, prkNumbersFiled, supersedeDraft, setOurDraftStatus, setLoadsFrom, pendingReleaseKg, setDispatchSent,
+  nextReadyNonBulk, updateOrderFields, setUnloading, changePlate, plateAmendResult, prkNumbersFiled, supersedeDraft, setOurDraftStatus, setLoadsFrom, pendingReleaseKg, setDispatchSent,
   markFailure, requeue, AUTO_RETRY_LIMIT, dateOf, daysAgo, setPrinted, isFileable, setLoadedWeight,
 };

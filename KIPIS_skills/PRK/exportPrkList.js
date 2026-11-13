@@ -215,4 +215,42 @@ async function recentPrks(days = 2) {
   return [...seen.values()].map(d => ({ number: d.number, status: d.status, transport: d.transport, plate: d.plate, plateNorm: d.plateNorm, created: d.created }));
 }
 
-module.exports = { readPrkListFromDom, navigateToPrkList, openPrkList, readFullPrkList, clearListFilters, recentPrks };
+// The 5-minute KIPIS sync (owner, 2026-11-13): the PRK list as KIPIS opens it already shows the
+// most recently changed documents first — a PRK whose status changes jumps to the top — so its
+// first TOP_ROWS rows are all the sync needs. A PRK further down has not changed since an earlier
+// read saw it. No status or date filter and no Filtruoti, unless a filter was left set (by a
+// person, or a job that stopped half-way) or the row limit is below TOP_ROWS: then the plain
+// list is asked for again. The 2-day read (recentPrks) is for the daily cleanup.
+const TOP_ROWS = 50;
+async function topPrks(n = TOP_ROWS) {
+  const page = getPage();
+  const how = await navigateToPrkList(page);
+  const title = await page.title();
+  if (!/pra[sš]ymai\s+krovai/i.test(title)) throw new Error(`Unexpected page after navigation via ${how}: "${title}"`);
+
+  const set = await page.evaluate(() => ({
+    dates: [...document.querySelectorAll('[id$=":fNuo"], [id$=":fIki"]')].some(i => (i.value || '').trim()),
+    statuses: [...document.querySelectorAll('#busenu_tipai_filter input[type="checkbox"][name$=":busenuTipai"]')].some(b => b.checked),
+    limit: Number((document.querySelector('[id$=":limit"]') || {}).value) || 0,
+  }));
+  let result = null;
+  if (!set.dates && !set.statuses && set.limit >= n) {
+    result = await readPrkListFromDom(page).catch(err => {
+      if (/table not found/i.test(err.message)) return null;   // the list waits for Filtruoti
+      throw err;
+    });
+  }
+  if (!result) {
+    console.log(`PRK list: asking for the plain list (${[set.dates && 'date filter set', set.statuses && 'status filter set', set.limit < n && `limit ${set.limit}`].filter(Boolean).join(', ') || 'no table shown'})`);
+    if (set.statuses) await setStatusFilter(page, []);
+    await setDateFilter(page, '', '');
+    await setLimitAndFilter(page, Math.max(set.limit, n));
+    result = await readPrkListFromDom(page);
+  }
+  const top = result.docs.slice(0, n);
+  console.log(`PRK list: top ${top.length} read (via ${how})`);
+  return top.filter(d => d.plateNorm)
+    .map(d => ({ number: d.number, status: d.status, transport: d.transport, plate: d.plate, plateNorm: d.plateNorm, created: d.created }));
+}
+
+module.exports = { readPrkListFromDom, navigateToPrkList, openPrkList, readFullPrkList, clearListFilters, recentPrks, topPrks, TOP_ROWS };

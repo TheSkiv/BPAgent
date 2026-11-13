@@ -208,6 +208,28 @@ function updateOrderFields(plate, { cargo, weight, bulk, grossWeight } = {}) {
   return updated;
 }
 
+// S57 (owner, 2026-11-13): the operator corrects a truck's plates in its window (only the tractor
+// was read, or the truck changed on the phone). The row whose Plate is the old one gets the new
+// one — the PRK filler reads the plates from this row. Exact match first, else any shared plate.
+function renamePlate(oldPlate, newPlate) {
+  const fp = todayFilePath();
+  if (!fs.existsSync(fp)) return false;
+  const wb  = XLSX.readFile(fp);
+  const ws  = wb.Sheets[wb.SheetNames[0]];
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1 });
+  const plateIdx = (aoa[0] || []).indexOf('Plate');
+  if (plateIdx === -1) return false;
+  const full  = normalizePlate(oldPlate);
+  const parts = oldPlate.split(/\/+/).map(normalizePlate).filter(Boolean);
+  let row = aoa.findIndex((r, i) => i > 0 && normalizePlate(String(r[plateIdx] || '')) === full);
+  if (row === -1) row = aoa.findIndex((r, i) => i > 0 && String(r[plateIdx] || '').split(/\/+/).map(normalizePlate).some(p => parts.includes(p)));
+  if (row === -1) return false;
+  aoa[row][plateIdx] = newPlate;
+  wb.Sheets[wb.SheetNames[0]] = XLSX.utils.aoa_to_sheet(aoa);
+  XLSX.writeFile(wb, fp);
+  return true;
+}
+
 // Re-runs cargo matching on every row that has an empty Cargo field,
 // using the rich text stored in the Driver column.
 // Returns the number of rows updated.
@@ -245,4 +267,4 @@ function refreshCargo() {
   return updated;
 }
 
-module.exports = { appendOrderRow, removeNotCheckRows, refreshCargo, updateOrderCargo, updateOrderFields, todayOrderPlates, getDriverForPlate };
+module.exports = { appendOrderRow, removeNotCheckRows, refreshCargo, updateOrderCargo, updateOrderFields, todayOrderPlates, getDriverForPlate, renamePlate };

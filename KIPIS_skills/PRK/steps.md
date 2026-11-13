@@ -46,8 +46,8 @@ stops and is set on the **Lots & owners** page (`/lots.html`). Lot owners: `conf
 | 23 | Transport | click | role button `saugoti` | — | saves the transport row |
 | 24 | PRK form | click | `a[onclick*="prkr_kroviniai"]` | — | Kroviniai tab |
 | 25 | Kroviniai tab | fill | row input 0 (`name*="prkr_kroviniai"`, `:0:`) | weight + bags | Svoris bruto |
-| 26 | Kroviniai tab | fill | row input 2 | bags | Vietų skaičius |
-| 27 | — | **AI check** | `checkPrk.js` | — | verify against source data |
+| 26 | Kroviniai tab | fill | row input 2 | bags | Vietų skaičius — bagged only; BULK leaves it empty (owner, 2026-11-12) |
+| 27 | — | **AI check** | `checkPrk.js` | — | verify against source data — bagged only; BULK saves on the field read-back (owner, 2026-11-12, S52) |
 | 28 | PRK form | click | `input[type=submit][value="Saugoti"]:visible` (last) | — | **STOP HERE** |
 | 29 | PRK form | wait/read | text `Prašymas krovai: <nnnnnn-nnnnnn-PRK>, Ruošiamas, …` | — | proof of save + PRK number (`confirmSaved`); missing or not Ruošiamas → order failed |
 | 30 | PRK draft | click | the lot link (*Siuntos numeris*, `a` with text e.g. `260924-001330-L`) | — | **bagged only** — opens the cargo line, "KIPIS - Krovinys", same window |
@@ -97,6 +97,27 @@ bagKg       = bag size from the order's cargo text — "(500)", "(600)", "po 600
 bags        = round(orderWeight / bagKg)
 grossWeight = orderWeight + bags
 ```
+
+## Correcting the plates on a saved draft (`setTransportPlates`) — S59, 2026-11-13
+
+Our own `Ruošiamas` draft only, opened with `openFromDraftList` (KIPIS confirms the status). The
+transport table is `tbody[id*=":prkr_info:transportas:"][id$=":tbody_element"]`: one row per truck,
+columns ☐ · Registruota įmonėje · Tipas · Markė · **Numeris** (a link) · Valstybė · Vairuotojai ·
+Pagrindinis transportas. Seen live on `261113-001050-PRK`: one row, Numeris `MML745`, Tipas Vilkikas.
+
+| # | Action | Target | Check |
+|---|---|---|---|
+| 1 | read | transport rows' Numeris | exactly one row (more → stop); already the new plates → nothing to do |
+| 2 | check | that row's checkbox (tbody, not the select-all in thead) | — |
+| 3 | click | `input[type=button][value="Šalinti"][onclick*="transportas_jspf_remove"]` | the transport section's button, not the document's |
+| 4 | click | `#transportas_jspf_remove input[type=submit][value="Šalinti"]` | its `name` must contain `:prkr_info:transportas:` — else stop |
+| 5 | read | transport rows | none left |
+| 6 | click | `input[type=submit][value="Pridėti"][name*=":prkr_info:transportas:"]` | — |
+| 7 | fill | Markė `" "`, Numeris `ABC123/DEF456` (one slash) → Saugoti | as in filing (steps 18–21) |
+| 8 | read | transport rows | exactly one, the new plates — else stop, nothing saved |
+| 9 | click | document `Saugoti` (last visible) → `confirmSaved` | same number, still Ruošiamas, new plates shown |
+
+Never on a `Pateiktas` / later PRK or one a person made (refused before KIPIS is opened).
 
 ## Deleting a saved draft (`Šalinti`) — end-of-day sweep
 

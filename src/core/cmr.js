@@ -48,9 +48,24 @@ function hsCodeFor(cargo, codes) {
 
 // "Iškrovimo vieta: Mauručiai, Šilėnų g.4, …" — the delivery place as Agrokoncernas writes it
 // (in the email for new farmers, on their važtaraštis otherwise). Returns '' when none.
+// S55 (owner, 2026-11-12): "Išsikrovimo vieta:" with the address on the NEXT line (UHB Agro's
+// email), and an address that runs onto a second line (Agrokoncernas' važtaraštis: "…,Marijampolės"
+// / "sav.,Marijampolės apskr.,Lietuva") — a following line is joined when it starts in lower case or
+// the line before ends with a comma, and holds no "Label:" of its own.
 function deliveryFromText(text) {
-  const m = String(text || '').match(/(?:I[sš]krovimo vieta|Pristatymo (?:vieta|adresas)|Iškrovimo adresas|Pristatyti)\s*[:\-]\s*([^\n]+)/i);
-  return m ? m[1].replace(/[,\s]+$/, '').trim() : '';
+  const lines = String(text || '').split(/\r?\n/).map(s => s.replace(/\s+/g, ' ').trim());
+  const LABEL = /^(?:I[sš](?:si)?krovimo (?:vieta|adresas)|Pristatymo (?:vieta|adresas)|Pristatyti)\s*[:\-]\s*(.*)$/i;
+  const isLabel = l => /^[\p{L} .]{3,40}:/u.test(l);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(LABEL);
+    if (!m) continue;
+    let j = i, value = m[1];
+    if (!value) { while (++j < lines.length && !lines[j]); value = j < lines.length && !isLabel(lines[j]) ? lines[j] : ''; }
+    if (!value) continue;
+    while (j + 1 < lines.length && lines[j + 1] && !isLabel(lines[j + 1]) && (/^\p{Ll}/u.test(lines[j + 1]) || /,$/.test(value))) value += (/,$/.test(value) ? ' ' : ' ') + lines[++j];
+    return value.replace(/[,\s]+$/, '').replace(/,(?=\S)/g, ', ').trim();
+  }
+  return '';
 }
 
 // Everything a CMR for this order needs, pre-filled. releaseId picks one release when the order
@@ -70,9 +85,12 @@ async function draftFor(order, { releaseId, date, extraText = '' } = {}) {
   const seller = release ? release.seller : '';
   const sender = saved.sender || (seller && c.sellers[seller]?.sender) || (own ? c.companies[company]?.sender : null) || [];
   const consignee = saved.consignee || sameBuyer?.[1].consignee || [release ? releaseBuyer(release) : company, '', '', 'Lietuva'];
-  const textDelivery = deliveryFromText(`${order.email?.subject || ''}\n${extraText}`);
-  const delivery = (own && textDelivery) ? { place: textDelivery, address: '', extra: '' }
-    : saved.delivery || sameBuyer?.[1].delivery || { place: textDelivery, address: '', extra: '' };
+  // S55 (owner, 2026-11-12): where THIS truck unloads, read from its email or važtaraštis, comes
+  // first — for every truck, not only own cargo; what was saved for the release / company is the
+  // fallback when the documents name no place.
+  const textDelivery = order.unloading || deliveryFromText(`${order.email?.subject || ''}\n${extraText}`);
+  const delivery = textDelivery ? { place: textDelivery, address: '', extra: '' }
+    : saved.delivery || sameBuyer?.[1].delivery || { place: '', address: '', extra: '' };
 
   const bagKg = require('../../KIPIS_skills/PRK/navigateToCargo').getBagKg(order.cargo);
   const net = Number(order.weight) || 0;
@@ -140,8 +158,9 @@ async function reprint(number) {
 const forOrder = orderId => register().filter(r => r.orderId === orderId).reverse();
 
 // How many paper copies (owner, 2026-11-11): CMR — Ro-Ro 5, KKT 1 (our archive; KKT gets it by
-// email); PRK — 1 for our archive, 2 for bulk (one goes to the driver).
-const copiesOf = ({ terminal, bulk }) => ({ cmr: terminal === 'kkt' ? 1 : 5, prk: bulk ? 2 : 1 });
+// email); PRK — 1 for our archive, bulk too (owner, 2026-11-12: was 2; a second one is printed by
+// hand when needed).
+const copiesOf = ({ terminal }) => ({ cmr: terminal === 'kkt' ? 1 : 5, prk: 1 });
 
 // One PDF to print in one go: the CMR × its copies, then the PRK × its copies.
 async function printPack(parts) {

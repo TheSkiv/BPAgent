@@ -16,6 +16,27 @@ function formatReceived(dateStr) {
 const { isAuthorized, checkConnection, fetchRecentEmails, unmarkSeen, fetchEmailsMatching, fetchAttachmentText } = require('../core/imapMail');
 const { extractAll, extractPlatePairs, extractPlates, stripHtml, waybillWeightKg } = require('../core/emailExtract');
 const { extractOrders } = require('../core/aiExtract');
+const { deliveryFromText } = require('../core/cmr');
+const { applyPlateChange } = require('../core/plateChange');
+
+// S59: the open truck (today / yesterday) a later email corrects: same company (sender's domain),
+// shares a plate with it, names more plates or a different trailer — never fewer (a reply that
+// only mentions the tractor changes nothing). More than one candidate → not sure, none.
+function plateCorrectionFor(plates, from) {
+  const dom = s => ((String(s || '').match(/<([^>]+)>/) || [, s || ''])[1].split('@')[1] || '').trim().toLowerCase();
+  const norm = p => String(p).replace(/[^\p{L}\d]/gu, '').toLowerCase();
+  const mine = plates.map(norm).filter(Boolean);
+  const d = dom(from);
+  if (!d || !mine.length) return null;
+  const hits = [...orderStore.listOrders(), ...orderStore.listOrders(orderStore.daysAgo(1))].filter(o => {
+    if (orderStore.CLOSED_STATES.includes(o.state) || dom(o.email?.from) !== d) return false;
+    const theirs = String(o.plate || '').split(/\/+/).map(norm).filter(Boolean);
+    if (!theirs.some(p => mine.includes(p))) return false;
+    if (mine.join('') === theirs.join('') || mine.length < theirs.length) return false;
+    return !mine.every(p => theirs.includes(p));
+  });
+  return hits.length === 1 ? hits[0] : null;
+}
 
 // AI email extraction is the active path; set AI_EXTRACT=false to fall back to the (paused)
 // deterministic regex algorithm.
@@ -243,7 +264,11 @@ async function markConfirmedPlatesDone() {
       if (tracked) tracked = orderStore.getOrder(tracked.id); // re-fetch after correction above
 
       if (tracked && tracked.bulk) {
-        if (tracked.state === 'gate_pass_ordered' || orderStore.CLOSED_STATES.includes(tracked.state)) continue;
+        // Forward only (owner, 2026-11-12): the terminal's copy of the loading order is read again
+        // on every check, and it pulled NCS165//UY124 back from to_print six times in 8 minutes
+        // (the KIPIS check moved it on again each time, each flip starting another KIPIS round). A
+        // truck past the loading order — weight entered, PRK made, printing — is left alone.
+        if (!['received', 'ready'].includes(tracked.state) || tracked.loadedKg || tracked.docs?.PRK?.number) continue;
         orderStore.setState(tracked.id, 'gate_pass_ordered', { actor: 'terminal', detail: 'PRK request sent to KKT dispatch (bulk — gate pass, not final)' });
         marked.add(full);
         console.log(`PRK confirmed by ${PRK_TERMINAL_SENDER}: ${full} gate pass ordered (bulk)`);
@@ -355,6 +380,7 @@ async function pollAndProcessEmails({ max, query }) {
 
     // 3) Extract orders — AI batches (default) or the paused deterministic algorithm.
     const keptEmails  = kept.map(k => k.email);
+    let plateChanges  = 0;   // S59: trucks whose plates a reply corrected
     // The emails were marked as seen when fetched. If the extraction cannot run at all (OpenAI
     // unreachable), hand them back — otherwise an unattended check would lose them for good.
     let extractions;
@@ -367,6 +393,42 @@ async function pollAndProcessEmails({ max, query }) {
       console.error(`Mail check: extraction failed, ${emails.length} email(s) left for the next check — ${err.message}`);
       throw err;
     }
+
+    // S59: a truck read with only its tractor, while its own email writes the trailer right after
+    // it — Baltic Agro's "NHS949 PO559 Oleksandr Salan …" (2026-11-12) became "NHS949". The word
+    // after the plate is added when it has the shape of a plate (letters and digits, at most 5
+    // digits — not a name, an ID or a phone number).
+    const PLATE_WORD = /^(?=.*\p{L})(?=.*\d)[\p{L}\d-]{4,10}$/u;
+    keptEmails.forEach((email, k) => {
+      const ext = extractions[k];
+      if (!ext?.relevant) return;
+      const text = `${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`;
+      for (const o of ext.orders) {
+        if (o.plates.length !== 1) continue;
+        const p = o.plates[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const m = text.match(new RegExp(`(?<![\\p{L}\\d])${p}[ \\t]*[/\\\\]{0,2}[ \\t]*([\\p{L}\\d-]{4,10})(?![\\p{L}\\d])`, 'iu'));
+        const next = m && m[1].toUpperCase();
+        if (!next || !PLATE_WORD.test(next) || (next.match(/\d/g) || []).length > 5 || next === o.plates[0]) continue;
+        console.log(`Plates: ${o.plates[0]} in "${email.subject}" is followed by ${next} — trailer added`);
+        o.plates.push(next);
+      }
+    });
+
+    // S56: a truck must be in its own email. In a batch the model sometimes files a truck under
+    // the next email (2026-11-12, checked: Linas Agro's JCV034/OG708 came back under Baltic Agro's
+    // email, with Linas Agro's unloading place, and Baltic Agro's NHS949 was lost; each read alone
+    // was right). A plate not found in the email's subject / text / attachments is dropped there;
+    // the email left without trucks is then read alone by the second look below.
+    const squashPlate = s => String(s || '').replace(/[^\p{L}\d]/gu, '').toUpperCase();
+    keptEmails.forEach((email, k) => {
+      const ext = extractions[k];
+      if (!ext?.relevant || !ext.orders.length) return;
+      const hay = squashPlate(`${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`);
+      const kept = ext.orders.filter(o => o.plates.some(p => hay.includes(squashPlate(p))));
+      if (kept.length === ext.orders.length) return;
+      for (const o of ext.orders.filter(x => !kept.includes(x))) console.warn(`Extraction: ${o.plates.join('/')} is not in "${email.subject}" — dropped there (read into the wrong email)`);
+      ext.orders = kept;
+    });
 
     // A second look, one email at a time. In a batch of 10 the model judged UHB's "Release 291568
     // DAP" emails "not a truck order" three times (2026-11-10) — their loading table listed
@@ -397,6 +459,66 @@ async function pollAndProcessEmails({ max, query }) {
       }
     }
 
+    // A truck read without its cargo (owner, 2026-11-12: UHB Agro's "Release 291568 DAP" tables —
+    // NUF146, NCP997, LHI945 came in blank, "cargo not identified", although the subject and every
+    // row say DAP; run again the model finds it, so it is an occasional miss). In order:
+    //   1. the cargo the other trucks of the same email have, when they all agree;
+    //   2. the release number the email names (owner, 2026-11-12: "a release is always given to a
+    //      specific cargo from a specific vessel") — its product, and bulk when the release is bulk;
+    //   3. the email read again on its own;
+    //   4. the one known cargo the email's subject / text names (config/cargo.xlsx).
+    let releaseRows = null;   // fetched once, only when a truck still has no cargo
+    const releaseFor = async email => {
+      if (!releaseRows) {
+        try { releaseRows = await require('../core/owners').fetchReleases(); }
+        catch (err) { console.warn(`Cargo: release list unavailable — ${err.message}`); releaseRows = []; }
+      }
+      const text = `${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`;
+      const numbers = new Set(text.match(/\b\d{6,10}\b/g) || []);
+      const hits = releaseRows.filter(r => (r.numbers || []).some(n => numbers.has(String(n.value))));
+      const products = [...new Set(hits.map(r => r.product))];
+      return products.length === 1 ? hits[0] : null;   // two different products → not sure, skip
+    };
+    for (let k = 0; k < keptEmails.length; k++) {
+      const ext = extractions[k];
+      const blank = ext?.relevant ? ext.orders.filter(o => !String(o.cargo || '').trim()) : [];
+      if (!blank.length) continue;
+      const email = keptEmails[k];
+      const fill = (o, cargo, how) => {
+        o.cargo = cargo;
+        console.log(`Cargo: ${o.plates.join('/')} in "${email.subject}" was read without cargo — "${cargo}" (${how})`);
+      };
+      const known = [...new Set(ext.orders.map(o => String(o.cargo || '').trim()).filter(Boolean))];
+      if (known.length === 1) { for (const o of blank) fill(o, known[0], 'the other trucks of this email'); continue; }
+      const rel = await releaseFor(email);
+      if (rel) {
+        const no = (rel.numbers || [])[0];
+        for (const o of blank) {
+          fill(o, rel.product, `release ${no ? no.value : ''}: ${rel.buyer}, ${rel.vessel || 'vessel not set'}${rel.bulk ? ', bulk' : ''}`);
+          if (rel.bulk) { o.bulk = true; o.bulkFromRelease = true; }
+        }
+        continue;
+      }
+      if (AI_EXTRACT) {
+        try {
+          const [alone] = await extractOrders([email]);
+          const pk = o => (o.plates || []).map(p => normalizePlate(p)).sort().join('|');
+          for (const o of blank) {
+            const same = (alone?.orders || []).find(a => pk(a) === pk(o) && String(a.cargo || '').trim());
+            if (same) { fill(o, String(same.cargo).trim(), 'the email read again alone'); if (same.bulk && !o.bulk) o.bulk = true; }
+          }
+        } catch (err) {
+          console.warn(`Cargo: re-reading "${email.subject}" failed — ${err.message}`);
+        }
+      }
+      const still = blank.filter(o => !String(o.cargo || '').trim());
+      if (!still.length) continue;
+      const { findCargoInText } = require('../core/cargoList');
+      const hit = findCargoInText(email.subject || '') || findCargoInText(`${stripHtml(email.body || '')}\n${email.attachmentText || ''}`);
+      if (hit) for (const o of still) fill(o, hit.cargo, 'named in the email');
+      else for (const o of still) console.warn(`Cargo: ${o.plates.join('/')} in "${email.subject}" — no cargo found; fix it in the truck window`);
+    }
+
     // Bulk only on evidence in this truck's own email. The model works on 10 emails per call and
     // marked MML743//SN216 bulk (2026-11-10) although its email and waybill say "Amonio sulfatas
     // (600) gran." — bagged; run alone it said bagged every time, so the flag bled over from a
@@ -411,12 +533,34 @@ async function pollAndProcessEmails({ max, query }) {
       const text = `${email.subject || ''}\n${stripHtml(email.body || '')}\n${email.attachmentText || ''}`;
       for (const o of ext.orders) {
         if (!o.bulk) continue;
-        const keep = !BAG_SIZE.test(o.cargo || '') && (MOP_CARGO.test(o.cargo || '') || BULK_WORDS.test(text));
+        // A bulk release named in the email is evidence too (S54).
+        const keep = !BAG_SIZE.test(o.cargo || '') && (MOP_CARGO.test(o.cargo || '') || BULK_WORDS.test(text) || o.bulkFromRelease);
         if (!keep) {
           console.log(`Bulk: ${o.plates.join('/')} "${o.cargo}" — the model said bulk, but its email does not (no BULK/palaidas/MOP${BAG_SIZE.test(o.cargo || '') ? ', and the cargo names a bag size' : ''}) → bagged`);
           o.bulk = false;
         }
       }
+    });
+
+    // One truck listed twice in one email is one load (owner, 2026-11-12): MOB272//PS118 came with
+    // Važtaraštis-46 (8 t) and -47 (16 t); the model gave one order per waybill and only the first
+    // (8 t) was kept. Bagged orders of the same email with the same plates and cargo become one,
+    // their weights added (the bag count follows from the weight). Different cargo stays apart.
+    const plateKey = o => (o.plates || []).map(p => String(p).replace(/[^a-z0-9]/gi, '').toLowerCase()).sort().join('|');
+    const cargoKey = o => String(o.cargo || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+    keptEmails.forEach((email, k) => {
+      const ext = extractions[k];
+      if (!ext?.relevant || (ext.orders || []).length < 2) return;
+      const merged = [];
+      for (const o of ext.orders) {
+        const same = !o.bulk && merged.find(m => !m.bulk && plateKey(m) === plateKey(o) && cargoKey(m) === cargoKey(o));
+        if (!same) { merged.push(o); continue; }
+        const before = Number(same.weight) || 0;
+        same.weight = before + (Number(o.weight) || 0);
+        if (!same.driver && o.driver) same.driver = o.driver;
+        console.log(`Merge: ${o.plates.join('/')} is in "${email.subject}" twice — one load, weight ${before} + ${Number(o.weight) || 0} = ${same.weight}`);
+      }
+      ext.orders = merged;
     });
 
     // Several waybills for one truck are one load: the truck's weight is their sum. The model
@@ -457,6 +601,23 @@ async function pollAndProcessEmails({ max, query }) {
         result.plates.push(...order.plates);
         if (order.driver) drivers.push(order.driver);
         if (order.cargo && !result.cargo) result.cargo = order.cargo;
+
+        // S59 (owner, 2026-11-13): "recognise email chains and apply corrections" — a later email
+        // from the same company names a truck we already have, with more plates or another
+        // trailer (we asked for the trailer, they sent it). That truck takes the new plates; its
+        // PRK draft is corrected in KIPIS by the server. Never a truck already done / cancelled.
+        const fix = plateCorrectionFor(order.plates, email.from);
+        if (fix) {
+          const r = applyPlateChange(fix.id, plate, { actor: 'email', why: `"${email.subject}"` });
+          if (r.error) {
+            // Not a new truck either: the reply is about this one. Say why on it and move on.
+            console.warn(`Plates: ${plate} in "${email.subject}" corrects ${fix.plate}, but — ${r.error}`);
+            orderStore.plateAmendResult(fix.id, { ok: false, detail: `"${email.subject}" gives the plates ${plate} — not applied: ${r.error}` });
+            skippedPlates.push(plate);
+            continue;
+          }
+          if (!r.unchanged) { plateChanges++; savedPlates.push(plate); continue; }
+        }
 
         saveEmailData(plate, {
           from:        email.from,
@@ -503,6 +664,9 @@ async function pollAndProcessEmails({ max, query }) {
               weight: !tracked.weight && !order.bulk && order.weight ? order.weight : undefined,
             });
           }
+          // S55: where it unloads — from the model, else a labelled place in the email / attachments.
+          const unloading = order.unloading || deliveryFromText(`${stripHtml(email.body || '')}\n${email.attachmentText || ''}`);
+          if (tracked && unloading) orderStore.setUnloading(tracked.id, unloading);
           // Only a confirmed sender's email may replace another truck (senders are spoofable).
           if (tracked && isConfirmed(email.from)) replaceSwappedTrucks(tracked, email);
         } catch (err) {
@@ -538,7 +702,7 @@ async function pollAndProcessEmails({ max, query }) {
 
     console.log(`Gmail processed: ${results.length} new emails — ${saved} saved, ${skipped} duplicate, ${noplates} no plates, ${notOrder} not truck orders${missed ? ` (${missed} with plate-like numbers — check)` : ''}, ${ignored} from Not-Check senders; ${cargoFilled} cargo row(s) back-filled; ${prkMarked} plate(s) marked done from PRK confirmations`);
 
-    return { emails: results, summary: { total: results.length, saved, skipped, noplates, notOrder, missed, cargoFilled, prkMarked } };
+    return { emails: results, summary: { total: results.length, saved, skipped, noplates, notOrder, missed, cargoFilled, prkMarked, plateChanges } };
 }
 
 // A poll (manual click or auto-timer) already in flight — the other must wait rather than

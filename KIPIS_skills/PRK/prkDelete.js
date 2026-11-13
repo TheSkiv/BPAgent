@@ -195,7 +195,9 @@ function finishedDrafts() {
 // The operator's "Delete finished" button. Same safety as the sweep: KIPIS's Ruošiamas list is
 // the authority for what is still a draft, each document's header is checked again right before
 // Šalinti, every deletion is logged, and the first failure stops the run.
-async function sweepFinished(page, by = 'dashboard: delete finished') {
+// listed: the PRK list the caller has just read (the sync's top 50) — the status of a draft that
+// left the Ruošiamas list is taken from there, never by opening the document (owner, 2026-11-13).
+async function sweepFinished(page, by = 'dashboard: delete finished', { listed: known = [] } = {}) {
   const { readFullPrkList, clearListFilters } = require('./exportPrkList');
   const orderStore = require('../../src/core/orderStore');
   const ours = finishedDrafts();
@@ -206,23 +208,19 @@ async function sweepFinished(page, by = 'dashboard: delete finished') {
   // A draft our records still call Ruošiamas but KIPIS no longer lists as one was used: a
   // colleague submitted our draft itself (JJJ792, NHA730 on 2026-11-11: Atliktas, Užbaigtas).
   // The order had closed before the Pateikti watch saw it, so the recorded status went stale and
-  // the dashboard kept offering it. Read its real status (read-only) and record it.
+  // the dashboard kept offering it. Its real status is in the PRK list just read (a changed PRK
+  // jumps to the top); not there either, a person deleted it (KTU519, MML745, EZV710, MOB412 on
+  // 2026-11-12). Recorded either way, so the sync stops looking — the full Ruošiamas list is the
+  // authority for what is a draft, so this can only ever skip a document that is not one.
   const listed = new Set(drafts.map(d => d.number));
+  const statusOf = new Map(known.map(d => [d.number, String(d.status || '').split('\n')[0].trim()]));
   const used = [];
   for (const [n, o] of ours) {
     if (listed.has(n) || o.kipisStatus !== DRAFT_STATUS) continue;
-    const header = await openDocument(page, n).catch(() => null);
-    // Not in KIPIS's full Ruošiamas list, and its page does not open: a person deleted it
-    // (KTU519, MML745, EZV710, MOB412 on 2026-11-12). Recorded, so the sync stops looking — the list
-    // is the authority for what is a draft, so this can only ever skip a document that is not one.
-    if (!header || header.number !== n) {
-      recordStatus(o, n, 'not in KIPIS (deleted by a person?)');
-      used.push({ number: n, plate: o.plate, status: 'not in KIPIS' });
-      continue;
-    }
-    if (header.status === DRAFT_STATUS) continue;
-    recordStatus(o, n, header.status);
-    used.push({ number: n, plate: o.plate, status: header.status });
+    const status = statusOf.get(n);
+    if (status === DRAFT_STATUS) continue;   // the two reads disagree: leave it for the next round
+    recordStatus(o, n, status || 'no longer Ruošiamas in KIPIS (deleted by a person?)');
+    used.push({ number: n, plate: o.plate, status: status || 'no longer Ruošiamas' });
   }
 
   const deleted = [], failed = [];

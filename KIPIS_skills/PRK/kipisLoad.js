@@ -7,6 +7,7 @@ const KIPIS_URL = 'https://kipis.lt';
 async function run(data) {
   const plate = data.plate || data.value;
   const order = data.order || null;   // the order-store record being filed (A6: picks its own Excel row)
+  const t0 = Date.now();   // S50: step timings in the log, from here
 
   // Validate plate exists in Excel before doing anything
   console.log(`kipisLoad: looking up plate "${plate}" in orders Excel...`);
@@ -23,11 +24,12 @@ async function run(data) {
   // Validate session is still active
   const hasSekimas = await page.getByText('Sekimas', { exact: true }).first().isVisible().catch(() => false);
   if (!hasSekimas) throw new Error('Session expired. Please reopen KIPIS.');
+  console.log(`  [timing] KIPIS home loaded: ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 
   // Pateikti guard armed for the whole run (armed after the home page loads: the flag is per origin).
-  const result = await withAutomation(page, () => navigateToCargo(page, { plate, order }));
+  const result = await withAutomation(page, () => navigateToCargo(page, { plate, order, t0 }));
 
-  console.log('kipisLoad: workflow complete.');
+  console.log(`kipisLoad: workflow complete. [timing] total ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   return result || { submitted: false };
 }
 
