@@ -89,17 +89,22 @@ async function draftFor(order, { releaseId, date, extraText = '' } = {}) {
   // first — for every truck, not only own cargo; what was saved for the release / company is the
   // fallback when the documents name no place.
   const textDelivery = order.unloading || deliveryFromText(`${order.email?.subject || ''}\n${extraText}`);
-  const delivery = textDelivery ? { place: textDelivery, address: '', extra: '' }
-    : saved.delivery || sameBuyer?.[1].delivery || { place: '', address: '', extra: '' };
+  const delivery = splitDelivery(textDelivery ? { place: textDelivery, address: '', extra: '' }
+    : saved.delivery || sameBuyer?.[1].delivery || { place: '', address: '', extra: '' });
 
   const bagKg = require('../../KIPIS_skills/PRK/navigateToCargo').getBagKg(order.cargo);
   const net = Number(order.weight) || 0;
   const bags = !order.bulk && net ? Math.round(net / bagKg) : 0;
   const gross = Number(order.grossWeight) || (net ? net + bags : 0);
   const name = dispatchEmail.cargoName(order.cargo);
+  // Box 6–9 as Avilda writes it (owner, 2026-11-13, HBU731): "26 big bags   NPK TRĄŠOS" /
+  // "YaraMila NPK 18-11-13(7), 600 kg BB (UKI)" / "Netto 15600 kg". The full product line the
+  // operator last printed for this cargo is reused (goodsNames), else it is built from the name.
+  const product = (c.goodsNames || {})[name] || goodsName(name, order.bulk ? 0 : bagKg);
+  const kind = /\bNPK\b/i.test(product) ? 'NPK TRĄŠOS' : 'TRĄŠOS';
   const goods = order.bulk
-    ? [`Birios trąšos ${name} (palaidas)`, net ? `Netto ${net} kg` : '']
-    : [`${bags ? `${bags} big bags - ` : ''}trąšos ${name}`, net ? `Netto ${net} kg` : ''];
+    ? [`Birios ${kind.toLowerCase()} (palaidas)`, product, net ? `Netto ${net} kg` : '']
+    : [`${bags ? `${bags} big bags ` : ''}${kind}`, product, net ? `Netto ${net} kg` : ''];
 
   const terminal = terminalFor({ vessel: order.loadsFrom?.vessel || release?.vessel || '', cargo: order.cargo });
   const loading = c.settings.loading[terminal] || { place: '', address: '' };
@@ -123,6 +128,27 @@ async function draftFor(order, { releaseId, date, extraText = '' } = {}) {
   };
 }
 
+// Box 3 over its three rows, as Avilda prints it (owner, 2026-11-13, HBU731): a one-line
+// "UAB Baltic Agro, Pramonės 11, Pakruojis" → place "UAB Baltic Agro", address "Pramonės 11",
+// extra "Pakruojis" (anything after the third part stays on the last row). Only a delivery with
+// the address and extra rows both empty is split; one the operator already laid out is kept.
+function splitDelivery(d) {
+  const place = String(d.place || '').trim();
+  if (d.address || d.extra || !place.includes(',')) return d;
+  const parts = place.split(/\s*,\s*/).filter(Boolean);
+  if (parts.length < 2) return d;
+  return { place: parts[0], address: parts[1], extra: parts.slice(2).join(', ') };
+}
+
+// "YaraMila 18-11-13", 600 → "YaraMila NPK 18-11-13, 600 kg BB". "NPK" is added only to a
+// three-nutrient formula with no NPK already in the name (0-20-20 is a PK fertiliser).
+function goodsName(name, bagKg) {
+  let s = String(name || '').trim();
+  const f = s.match(/\b(\d{1,2})-(\d{1,2})-(\d{1,2})\b/);
+  if (f && !/\bNPK/i.test(s) && f.slice(1).every(n => Number(n) > 0)) s = s.replace(f[0], `NPK ${f[0]}`);
+  return s && bagKg ? `${s}, ${bagKg} kg BB` : s;
+}
+
 function releaseBuyer(release) {
   return (release && release.buyer) || '';
 }
@@ -143,6 +169,9 @@ async function issue({ order, key, releaseId, terminal, cmr, remember = true }) 
     if (terminal && cmr.loading.place) c.settings.loading[terminal] = { place: cmr.loading.place, address: cmr.loading.address };
     const name = dispatchEmail.cargoName(order.cargo);
     if (name && cmr.statNo) c.hsCodes = { ...(c.hsCodes || {}), [name]: cmr.statNo };
+    // The product line (2nd goods line) as the operator printed it, for this cargo's next CMR.
+    const productLine = (cmr.goods[1] && cmr.goods[1].text || '').trim();
+    if (name && productLine && !/^netto\b/i.test(productLine)) c.goodsNames = { ...(c.goodsNames || {}), [name]: productLine };
     saveConfig(c);
   }
   return { pdf, entry };
@@ -174,4 +203,4 @@ async function printPack(parts) {
   return Buffer.from(await out.save());
 }
 
-module.exports = { draftFor, issue, reprint, register, forOrder, copiesOf, printPack, deliveryFromText, hsCodeFor };
+module.exports = { draftFor, issue, reprint, register, forOrder, copiesOf, printPack, deliveryFromText, hsCodeFor, goodsName, splitDelivery };

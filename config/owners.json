@@ -19,9 +19,34 @@
    "receiverCountry": "Lietuva"
   },
   "Transwina": {
-   "buyer": "",
+   "buyer": "Rotogran UAB",
    "seller": "Helm",
-   "selfLoader": false
+   "selfLoader": false,
+   "receiverCountry": "Lietuva"
+  },
+  "Uhb": {
+   "buyer": "UHB Agro, UAB",
+   "seller": "Helm",
+   "selfLoader": false,
+   "receiverCountry": "Lietuva"
+  },
+  "Balticfert": {
+   "buyer": "Baltic Fert, UAB",
+   "seller": "Helm",
+   "selfLoader": false,
+   "receiverCountry": "Lietuva"
+  },
+  "Balticagrolt": {
+   "buyer": "UAB Baltic Agro",
+   "seller": "Helm",
+   "selfLoader": false,
+   "receiverCountry": "Lietuva"
+  },
+  "Scandagra": {
+   "buyer": "UAB Scandagra",
+   "seller": "Helm",
+   "selfLoader": false,
+   "receiverCountry": "Lietuva"
   }
  }
 }

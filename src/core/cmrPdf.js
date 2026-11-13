@@ -46,6 +46,14 @@ function painter(page, f) {
   return { line, hair, text, label };
 }
 
+// Gross weight as Avilda prints it: two decimals, decimal comma — "15626" → "15626,00".
+// Anything that is not a plain number is printed as typed.
+function kgText(v) {
+  const s = String(v ?? '').trim().replace(/\s+/g, '');
+  if (!/^\d+(?:[.,]\d+)?$/.test(s)) return String(v ?? '').trim();
+  return Number(s.replace(',', '.')).toFixed(2).replace('.', ',');
+}
+
 // data: see sampleData() for the shape. Returns the PDF bytes.
 async function buildCmr(data) {
   const pdf = await PDFDocument.create();
@@ -91,7 +99,7 @@ async function buildCmr(data) {
   label('3', 'Krovinio iškrovimo vieta', 'Place of delivery of the goods', L + 6, 255);
   text('Vieta/Place', L + 4, 292, { size: 6.2 }); text(data.delivery?.place, L + 74, 292, { maxPx: MID - L - 80 });
   text('Šalis/Country', L + 4, 311, { size: 6.2 }); text(data.delivery?.address, L + 74, 311, { maxPx: MID - L - 80 });
-  text(data.delivery?.extra, L + 4, 330, { maxPx: MID - L - 10 });
+  text(data.delivery?.extra, L + 18, 330, { maxPx: MID - L - 24 });
   for (const y of [297, 316, 336]) hair(L + 4, MID - 4, y);
   label('17', 'Sekantis vežėjas (pavadinimas, adresas, šalis)', 'Successive carriers (name, address, country)', MID + 10, 255);
   for (const y of [297, 316, 336]) hair(MID + 4, R - 4, y);
@@ -129,14 +137,24 @@ async function buildCmr(data) {
   label('11', 'Svoris bruto, kg', 'Gross weight in kg', 682, 470);
   label('12', 'Tūris, m³', 'Volume in m³', 782, 470);
   for (const x of cols.slice(4, 7)) line(x, 470, x, 765, 0.6);
-  for (let y = 542; y < 760; y += 18) hair(L + 4, R - 4, y);
+  // Ruled lines start below the goods text, as on Avilda's form (the first rows are left clear).
+  for (let y = 578; y < 760; y += 18) hair(L + 4, R - 4, y);
   // The big grey CMR mark, as on the printed form
   page.drawEllipse({ x: X(468), y: Y(634), xScale: X(132), yScale: X(52), borderColor: MARK, borderWidth: 9 });
   text('CMR', 468, 664, { size: 64, bold: true, color: MARK, align: 'center' });
-  (data.goods || []).forEach((g, i) => text(g.text, g.indent ? 190 : L + 18, 537 + i * 18, { maxPx: 578 - L - 24 }));
-  text(data.statNo, 628, 537, { align: 'center' });
-  text(data.grossKg, 728, 539, { align: 'center' });
-  text(data.volume, 823, 539, { align: 'center' });
+  // Goods lines placed like Avilda's (owner, 2026-11-13, HBU731): the first line's package count
+  // under box 6/7 and the kind of goods ("NPK TRĄŠOS") under box 8/9; the product line indented;
+  // "Netto …" further in. Other lines go where the product line goes.
+  (data.goods || []).forEach((g, i) => {
+    const y = 527 + i * 18, s = String(g.text || '');
+    const pk = i === 0 && s.match(/^(\d+\s+big\s+bags?)\s*[-–]?\s*(.*)$/i);
+    if (pk) { text(pk[1], L + 18, y, { maxPx: 265 - L - 26 }); text(pk[2], 265, y, { maxPx: 578 - 265 - 6 }); return; }
+    const x = i === 0 ? L + 18 : /^netto\b/i.test(s) ? 275 : 175;
+    text(s, x, y, { maxPx: 578 - x - 6 });
+  });
+  text(data.statNo, 616, 527, { align: 'center' });
+  text(kgText(data.grossKg), 733, 532, { align: 'center' });
+  text(data.volume, 823, 532, { align: 'center' });
   line(L, 765, R, 765, 0.9);
 
   // ── ADR line and box 13: sender's instructions ──────────────────────────
@@ -214,4 +232,4 @@ async function buildCmr(data) {
   return Buffer.from(await pdf.save());
 }
 
-module.exports = { buildCmr };
+module.exports = { buildCmr, kgText };

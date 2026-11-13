@@ -2,31 +2,80 @@
   "settings": {
     "prefix": "B",
     "establishedIn": "KLAIPĖDA",
-    "instructions": ["Packing not damaged/Visos pakuotės sveikos"],
-    "reservations": ["FORWARDER UAB \"BPA\"", "KLAIPEDA, LITHUANIA"],
+    "instructions": [
+      "Packing not damaged/Visos pakuotės sveikos"
+    ],
+    "reservations": [
+      "FORWARDER UAB \"BPA\"",
+      "KLAIPEDA, LITHUANIA"
+    ],
     "loading": {
-      "kkt":  { "place": "Klaipėdos konteinerių terminalas", "address": "Minijos 180, Klaipėda, Lietuva" },
-      "roro": { "place": "Klaipėdos konteinerių terminalas", "address": "Minijos 180, Klaipėda, Lietuva" }
+      "kkt": {
+        "place": "Klaipėdos konteinerių terminalas",
+        "address": "Minijos 180, Klaipėda, Lietuva"
+      },
+      "roro": {
+        "place": "Klaipėdos konteinerių terminalas",
+        "address": "Minijos 180, Klaipėda, Lietuva"
+      }
     }
   },
   "sellers": {
-    "Yara": { "sender": ["UAB Yara Lietuva", "Įmonės kodas 304444094", "Lvivo g. 101, Vilnius", "Lietuva"] }
+    "Yara": {
+      "sender": [
+        "UAB Yara Lietuva",
+        "Įmonės kodas 304444094",
+        "Lvivo g. 101, Vilnius",
+        "Lietuva"
+      ]
+    }
   },
   "releases": {
     "620860510|697302240|30289178": {
       "buyer": "UAB Scandagra",
-      "consignee": ["UAB SCANDAGRA", "", "", "Lietuva"],
-      "delivery": { "place": "Šilutės sandėlis", "address": "Ramučių g.4, Šilutė, LT-99149", "extra": "Tel.: +37 069 811 754" }
+      "consignee": [
+        "UAB SCANDAGRA",
+        "",
+        "",
+        "Lietuva"
+      ],
+      "delivery": {
+        "place": "Šilutės sandėlis",
+        "address": "Ramučių g.4, Šilutė, LT-99149",
+        "extra": "Tel.: +37 069 811 754"
+      }
     },
     "620860208|697212772|30289935": {
       "buyer": "UAB Baltic Agro",
-      "consignee": ["UAB Baltic Agro", "", "", "Lietuva"],
-      "delivery": { "place": "UAB Baltic Agro", "address": "Pramonės 11", "extra": "Pakruojis" }
+      "consignee": [
+        "UAB Baltic Agro",
+        "",
+        "",
+        "Lietuva"
+      ],
+      "delivery": {
+        "place": "UAB Baltic Agro, Pramonės 11, Pakruojis",
+        "address": "",
+        "extra": ""
+      },
+      "sender": [
+        "UAB Yara Lietuva",
+        "Įmonės kodas 304444094",
+        "Lvivo g. 101, Vilnius",
+        "Lietuva"
+      ],
+      "carrier": [
+        "",
+        "",
+        "",
+        ""
+      ]
     }
   },
   "companies": {},
   "hsCodes": {
     "YaraMila NPK 10-13-25": "31052090",
-    "YaraMila NPK 18-11-13": "31052010"
+    "YaraMila NPK 18-11-13": "31052010",
+    "YaraMila 18-11-13": "31052010"
   }
 }
