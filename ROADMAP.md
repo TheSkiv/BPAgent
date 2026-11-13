@@ -704,6 +704,16 @@ Send and the KIPIS MFA code.
   MOB272 (own cargo) picks its delivery place from the važtaraštis; MML743 (Helm) opens with
   sender / place of delivery / customs code flagged empty — Helm's sender has to be typed once.
   A truck with two releases (KPG386) needs one CMR per release: pick the release, edit the goods.
+  **2026-11-13 — goods and weight brought to Avilda's style** (owner, comparing Avilda's CMR for
+  HBU731 with ours B111301): goods are three lines — "26 big bags NPK TRĄŠOS" (count under box 6/7,
+  kind under 8/9), the product line "YaraMila NPK 18-11-13, 600 kg BB" (indented), "Netto 15600 kg"
+  (further in); the ruled lines start below them. Gross weight prints "15626,00". The product line
+  the operator prints is remembered per cargo (`config/cmr.json` → `goodsNames`), so Avilda's
+  extras like "(7)" / "(UKI)" are typed once. Reprints of older CMRs also get the new weight style.
+  Box 3 is split over its three rows the same day (owner's go-ahead): a one-line
+  "UAB Baltic Agro, Pramonės 11, Pakruojis" opens as place / address / extra in the CMR window
+  (only when the address and extra fields are empty, so a layout the operator saved is kept).
+  Still different from Avilda: box 21 prints "KLAIPĖDA" (Avilda "KLAIPEDA").
 - [x] **S29. Print pack, CMR to KKT by email, truck log — built 2026-11-11 (owner's request).**
   Owner's rules: CMR — Ro-Ro **5 paper copies**, KKT **1** (our archive) and KKT also gets it **by
   email**; PRK — **1** copy for our archive, **2** for bulk (one goes to the driver); print the CMR
@@ -1127,7 +1137,7 @@ Send and the KIPIS MFA code.
   2-day (77 read, 16 s); the next top 50 (50 read, 2 s), no change needed. Not verified by us: that
   the list is ordered by last change (owner's observation). The daily cleanup (with its 2-day
   read) stays in the morning, first chance after 06:00 (owner, 2026-11-13: "Keep morning").
-- [ ] **S59. Plate corrections from email chains, and the PRK draft amended in KIPIS — 2026-11-13
+- [x] **S59. Plate corrections from email chains, and the PRK draft amended in KIPIS — 2026-11-13
   (owner).** Owner: "we asked for the trailer plates and they gave it to us — the system needs to
   recognise email chains and apply corrections; when a PRK needs to be amended, just amend it.
   Open the PRK and correct the plates." Found first: NHS949 (2026-11-12) had no reply — Baltic
@@ -1154,8 +1164,12 @@ Send and the KIPIS MFA code.
   The truck card shows "correcting PRK … in KIPIS…" while it waits and the error if it failed; the
   window's Save shows the result. Checked offline (scratch store / Excel): trailer rule on 6 texts;
   a reply adds a trailer; a window change on our draft marks it; a submitted PRK is refused.
-  **The KIPIS steps have not run yet — the first live correction is being watched (owner: "track
-  how it does and check it works properly").**
+  **First live correction, 2026-11-13 10:44 (owner, truck window):** MML745 → MML745//SN217 on
+  draft 261113-001050-PRK — 11 s from Save to "plates corrected" (old row removed, MML745/SN217
+  added, document saved, Ruošiamas). Checked afterwards by opening the draft read-only: one
+  transport row MML745/SN217, Ruošiamas; Instrukcijos ("KRAUNASI 40 …"), payer, both countries
+  and both "automatiškai" ticks unchanged. Order, Excel row and history agree; `plateAmend`
+  cleared. Not yet seen live: a correction from an email reply.
 - [x] **S48. "DAP is almost never caught as cargo" — 2026-11-12 (owner).** Checked: the UHB
   "Release 291568 DAP" email (126477) extracts DAP + BULK for all 4 trucks, alone and in its real
   batch (126466–126470, twice); every DAP order's Excel row says DAP/BULK (the 2026-11-12 ones
